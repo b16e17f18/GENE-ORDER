@@ -2,19 +2,12 @@ const DATA_PATHS = {
   characters: "./data/character.csv",
   passives: "./data/passive.csv",
   skills: "./data/skill.csv",
-  powerRules: "./data/power_rule.csv",
-  battleEffects: "./data/battle_effect.csv",
   effects: "./data/effect.csv",
-  hitTypes: "./data/hit_type.csv",
-  animations: "./data/animation.csv",
-  bgm: "./data/bgm.csv",
-  rankBattles: "./data/rank_battle.csv",
-  enemyParties: "./data/enemy_party.csv",
-  shopItems: "./data/shop_item.csv",
-  encyclopediaBooks: "./data/encyclopedia_book.csv",
-  equipment: "./data/equipment.csv",
+  battleEffects: "./data/battle_effect.csv",
+  powerRules: "./data/power_rule.csv",
+  elements: "./data/element.csv",
+  effectiveness: "./data/element_effectiveness.csv",
   species: "./data/species.csv",
-  npcs: "./data/dialogue/npc.csv",
 };
 
 const STORY_MAP_PATHS = [
@@ -120,7 +113,7 @@ const STORY_ISLAND_BGM_IDS = {
   night: "island_night",
 };
 
-const MANUAL_SAVE_STORAGE_KEYS = ["mhb_save_1", "mhb_save_2", "mhb_save_3"];
+const MANUAL_SAVE_STORAGE_KEYS = ["gene_order:save:1", "gene_order:save:2", "gene_order:save:3"];
 const BATTLE_BGM_AUDIBLE_DELAY_MS = 2000;
 const INITIAL_MONEY = 1500;
 const BUSINESS_SHOP_ID = "business";
@@ -277,59 +270,14 @@ const STAT_STAGE_MOD_KEY_SET = new Set(STAT_STAGE_MOD_KEYS);
 const TURN_END_STAT_UP_MAX = 40;
 const TURN_END_STAT_DOWN_MIN = -40;
 
-const GENERATED_SKILLS = {
-  basic_strike: {
-    skill_id: "basic_strike",
-    name: "体当たり",
-    category: "attack",
-    power: 60,
-    element: "none",
-    element2: "none",
-    attack_type: "physical",
-    hit_type: "normal",
-    effect1: "none",
-    effect_target1: "enemy",
-    effect_chance1: 0,
-    effect2: "none",
-    effect_target2: "enemy",
-    effect_chance2: 0,
-    effect3: "none",
-    effect_target3: "enemy",
-    effect_chance3: 0,
-    battle_effect1: "none",
-    battle_effect_chance1: 0,
-    battle_effect2: "none",
-    battle_effect_chance2: 0,
-    target: "enemy",
-    priority: 0,
-    cost: 0,
-    text: "",
-    generated: true,
-  },
-  fire_strike: null,
-  water_strike: null,
-  thunder_strike: null,
-  ice_strike: null,
-  dragon_strike: null,
-};
-
-for (const element of ELEMENT_TYPES) {
-  GENERATED_SKILLS[`${element}_strike`] = {
-    ...GENERATED_SKILLS.basic_strike,
-    skill_id: `${element}_strike`,
-    name: `${ELEMENT_LABELS[element]}の一撃`,
-    power: 78,
-    element,
-    attack_type: "special",
-    cost: 1,
-  };
-}
-
 const dialogueManager = new DialogueManager();
 
 const state = {
   characters: [],
   characterMap: new Map(),
+  elements: new Map(),
+  effectiveness: new Map(),
+  dataDiagnostics: [],
   passives: new Map(),
   skills: new Map(),
   powerRules: new Map(),
@@ -487,7 +435,10 @@ function createShopState() {
   };
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", initializeGeneOrder);
+
+// Kept as the entry point for the inherited screens, pending GO screen design.
+function initializeLegacyScreens() {
   Object.assign(els, {
     titleView: document.querySelector("#titleView"),
     storyView: document.querySelector("#storyView"),
@@ -650,7 +601,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   bindEvents();
   gameDataPromise = loadGameData();
-});
+}
 
 function bindEvents() {
   els.storyModeButton.addEventListener("click", startStoryMode);
@@ -3969,200 +3920,125 @@ function returnToSetup() {
   renderSetup();
 }
 
-async function loadGameData() {
+async function initializeGeneOrder() {
+  const status = document.querySelector("#go-status");
   try {
-    const [
-      characterText,
-      passiveText,
-      skillText,
-      powerRuleText,
-      battleEffectText,
-      effectText,
-      hitTypeText,
-      animationText,
-      bgmText,
-      rankBattleText,
-      enemyPartyText,
-      shopItemText,
-      encyclopediaBookText,
-      equipmentText,
-      speciesText,
-      npcText,
-    ] = await Promise.all([
-      loadCsvText("characters", DATA_PATHS.characters),
-      loadCsvText("passives", DATA_PATHS.passives),
-      loadCsvText("skills", DATA_PATHS.skills),
-      loadOptionalCsvText("powerRules", DATA_PATHS.powerRules),
-      loadCsvText("battleEffects", DATA_PATHS.battleEffects),
-      loadCsvText("effects", DATA_PATHS.effects),
-      loadCsvText("hitTypes", DATA_PATHS.hitTypes),
-      loadCsvText("animations", DATA_PATHS.animations),
-      loadOptionalCsvText("bgm", DATA_PATHS.bgm),
-      loadOptionalCsvText("rankBattles", DATA_PATHS.rankBattles),
-      loadOptionalCsvText("enemyParties", DATA_PATHS.enemyParties),
-      loadOptionalCsvText("shopItems", DATA_PATHS.shopItems),
-      loadOptionalCsvText("encyclopediaBooks", DATA_PATHS.encyclopediaBooks),
-      loadOptionalCsvText("equipment", DATA_PATHS.equipment),
-      loadOptionalCsvText("species", DATA_PATHS.species),
-      loadOptionalCsvText("npcs", DATA_PATHS.npcs),
-    ]);
-
-    const allCharacters = rowsFromCsv(characterText)
-      .map(normalizeCharacter)
-      .filter((character) => character.character_id && character.name);
-    state.characterMap = new Map(
-      allCharacters.map((character) => [character.character_id, character]),
-    );
-    state.characters = allCharacters.filter((character) => character.content_scope !== "tutorial");
-
-    state.passives.clear();
-    for (const passive of rowsFromCsv(passiveText).map(normalizePassive)) {
-      if (passive.passive_id) {
-        state.passives.set(passive.passive_id, passive);
-      }
-    }
-
-    for (const character of allCharacters) {
-      character.passive = passiveForCharacter(character);
-      character.passiveEffects = character.passive?.effects ?? [];
-    }
-
-    state.bgmMap.clear();
-    for (const bgm of rowsFromCsv(bgmText).map(normalizeBgm)) {
-      if (bgm.bgm_id) {
-        state.bgmMap.set(bgm.bgm_id, bgm);
-      }
-    }
-
-    for (const skill of rowsFromCsv(skillText).map(normalizeSkill)) {
-      if (skill.skill_id && skill.name && skill.category) {
-        state.skills.set(skill.skill_id, skill);
-      }
-    }
-
-    for (const skill of Object.values(GENERATED_SKILLS)) {
-      state.skills.set(skill.skill_id, skill);
-    }
-
-    state.powerRules.clear();
-    for (const powerRule of rowsFromCsv(powerRuleText).map(normalizePowerRule)) {
-      if (!powerRule.power_rule_id || !powerRule.power_rule_group) continue;
-      const rules = state.powerRules.get(powerRule.power_rule_group) ?? [];
-      rules.push(powerRule);
-      state.powerRules.set(powerRule.power_rule_group, rules);
-    }
-
-    for (const effect of rowsFromCsv(effectText).map(normalizeEffect)) {
-      if (effect.effect_id && effect.name) {
-        state.effects.set(effect.effect_id, effect);
-      }
-    }
-
-    for (const battleEffect of rowsFromCsv(battleEffectText).map(normalizeBattleEffect)) {
-      if (battleEffect.battle_effect_id && battleEffect.name) {
-        state.battleEffects.set(battleEffect.battle_effect_id, battleEffect);
-      }
-    }
-
-    for (const hitType of rowsFromCsv(hitTypeText).map(normalizeHitType)) {
-      if (hitType.hit_type_id && hitType.name) {
-        state.hitTypes.set(hitType.hit_type_id, hitType);
-      }
-    }
-
-    state.rankBattles.clear();
-    for (const rankBattle of rowsFromCsv(rankBattleText).map(normalizeRankBattle)) {
-      if (rankBattle.rank_battle_id) {
-        state.rankBattles.set(rankBattle.rank_battle_id, rankBattle);
-      }
-    }
-
-    state.enemyParties.clear();
-    for (const enemyParty of rowsFromCsv(enemyPartyText).map(normalizeEnemyParty)) {
-      if (enemyParty.enemy_party_id) {
-        state.enemyParties.set(enemyParty.enemy_party_id, enemyParty);
-      }
-    }
-
-    state.encyclopediaBooks.clear();
-    for (const book of rowsFromCsv(encyclopediaBookText).map(normalizeEncyclopediaBook)) {
-      if (book.book_id) {
-        state.encyclopediaBooks.set(book.book_id, book);
-      }
-    }
-
-    state.shopItems = rowsFromCsv(shopItemText)
-      .map(normalizeShopItem)
-      .filter((item) => item.shop_entry_id);
-
-    state.equipment = rowsFromCsv(equipmentText)
-      .map(normalizeEquipment)
-      .filter((equipment) => equipment.equipment_id);
-    state.equipmentMap = new Map(
-      state.equipment.map((equipment) => [equipment.equipment_id, equipment]),
-    );
-
-    state.speciesMap.clear();
-    for (const species of rowsFromCsv(speciesText).map(normalizeSpecies)) {
-      if (species.species_id) {
-        state.speciesMap.set(species.species_id, species);
-      }
-    }
-
-    await dialogueManager.load(npcText);
-
-    state.animations.clear();
-    state.animationDefinitions.clear();
-    for (const animation of rowsFromCsv(animationText).map(normalizeAnimation)) {
-      if (animation.animation_id) {
-        state.animationDefinitions.set(animation.animation_id, animation);
-      }
-
-      const battleEffect = state.battleEffects.get(animation.battle_effect_id);
-      const isPositionAnimation =
-        battleEffect?.battle_effect_group === "position" ||
-        Boolean(DEFAULT_POSITION_ANIMATIONS[animation.battle_effect_id]);
-      if (
-        isPositionAnimation &&
-        animation.battle_effect_id &&
-        animation.position_class &&
-        animation.animation_name
-      ) {
-        state.animations.set(animation.battle_effect_id, animation);
-      }
-    }
-    applyAnimationConfig();
-
-    loadSaveData();
-    initializeSaveDataParty({ persist: false });
-    renderSetup();
+    await loadGameData();
+    renderGeneOrderData();
+    status.textContent = `キャラクター ${state.characters.length}体 · 技 ${state.skills.size}件 · 属性 ${state.elements.size}種`;
   } catch (error) {
-    els.rosterGrid.innerHTML = `<div class="selected-slot is-filled">CSVを読み込めませんでした。</div>`;
+    status.setAttribute("role", "alert");
+    status.textContent = `GOデータの読み込みに失敗しました。 ${error.message}`;
     console.error(error);
   }
 }
 
+async function loadGameData() {
+  const tables = Object.fromEntries(await Promise.all(
+    Object.entries(DATA_PATHS).map(async ([key, path]) => {
+      const text = await loadCsvText(key, path);
+      const expectedHeader = [GO_DATA_IDS[key], ...GO_REQUIRED_COLUMNS[key]];
+      const header = parseCsv(text.replace(/^\uFEFF/, ""))[0] ?? [];
+      if (expectedHeader.some((column) => !header.includes(column))) {
+        throw new Error(`${path}: 必須のCSV列がありません。`);
+      }
+      return [key, rowsFromCsv(text)];
+    }),
+  ));
+
+  const elementNames = masterIdLookup(tables.elements, "element_id");
+  const speciesNames = masterIdLookup(tables.species, "species_id");
+  const imageAvailability = new Map(await Promise.all(
+    [...new Set(tables.characters.filter((row) => row.name).map((row) => characterImagePath(row.image)).filter(Boolean))]
+      .map(async (path) => [path, await canLoadCharacterImage(path)]),
+  ));
+  const diagnostics = validateGeneOrderData(tables, (path) => imageAvailability.get(path) === true);
+  const characters = tables.characters.filter((row) => row.character_id && row.name).map((row) => (
+    normalizeCharacter(row, elementNames, speciesNames)
+  ));
+  const passives = new Map(tables.passives.filter((row) => row.passive_id && row.name).map((row) => (
+    [row.passive_id, normalizePassive(row)]
+  )));
+  for (const character of characters) {
+    character.passive = passives.get(character.passive_id) ?? null;
+    character.passiveEffects = character.passive?.effects ?? [];
+    if (!imageAvailability.get(character.imageSrc)) character.imageSrc = "";
+  }
+
+  const powerRules = new Map();
+  for (const rule of tables.powerRules.map(normalizePowerRule)) {
+    if (!rule.power_rule_id || !rule.power_rule_group) continue;
+    if (!powerRules.has(rule.power_rule_group)) powerRules.set(rule.power_rule_group, []);
+    powerRules.get(rule.power_rule_group).push(rule);
+  }
+  const effectiveness = new Map();
+  for (const row of tables.effectiveness) {
+    const multiplier = optionalNumber(row.multiplier);
+    if (!elementNames.has(row.attack_element) || !elementNames.has(row.defense_element) || multiplier === null) continue;
+    if (!effectiveness.has(row.attack_element)) effectiveness.set(row.attack_element, new Map());
+    effectiveness.get(row.attack_element).set(row.defense_element, multiplier);
+  }
+
+  Object.assign(state, {
+    characters: characters.filter((character) => character.content_scope !== "tutorial"),
+    characterMap: new Map(characters.map((character) => [character.character_id, character])),
+    passives,
+    skills: new Map(tables.skills.map((row) => normalizeSkill(row, elementNames)).filter((row) => row.skill_id && row.name && row.category)
+      .map((row) => [row.skill_id, row])),
+    effects: new Map(tables.effects.map(normalizeEffect).filter((row) => row.effect_id && row.name)
+      .map((row) => [row.effect_id, row])),
+    battleEffects: new Map(tables.battleEffects.map(normalizeBattleEffect).filter((row) => row.battle_effect_id && row.name)
+      .map((row) => [row.battle_effect_id, row])),
+    powerRules,
+    elements: new Map(tables.elements.map((row) => [row.element_id, row])),
+    effectiveness,
+    speciesMap: new Map(tables.species.map(normalizeSpecies).map((row) => [row.species_id, row])),
+    dataDiagnostics: diagnostics,
+  });
+}
+
+function renderGeneOrderData() {
+  const roster = document.querySelector("#go-roster");
+  const types = (character) => [character.element_1, character.element_2].filter((id) => id !== null)
+    .map((id) => state.elements.get(id)?.name ?? "未定義").join(" / ") || "属性未設定";
+  roster.innerHTML = state.characters.map((character) => `
+    <li class="go-card">
+      ${character.imageSrc
+        ? `<img src="${escapeHtml(character.imageSrc)}" alt="" />`
+        : '<span class="go-placeholder">画像未設定</span>'}
+      <div>
+        <strong>${escapeHtml(character.name)}</strong>
+        <p>${escapeHtml(types(character))} · ${escapeHtml(state.speciesMap.get(character.species_id)?.name ?? "種族未設定")}</p>
+        <p>${escapeHtml(character.passive?.name ?? "パッシブ未設定")}</p>
+      </div>
+    </li>
+  `).join("");
+  document.querySelector("#go-diagnostic-count").textContent = `データ診断 ${state.dataDiagnostics.length}件`;
+  document.querySelector("#go-diagnostics").textContent = state.dataDiagnostics.map(({ level, table, id, field, value }) => (
+    `[${level}] ${table} / ${id} / ${field}${value ? `: ${value}` : ""}`
+  )).join("\n");
+}
+
+function canLoadCharacterImage(path) {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => resolve(true);
+    image.onerror = () => resolve(false);
+    image.src = path;
+  });
+}
+
 async function loadCsvText(key, path) {
-  if (window.location.protocol === "file:" && window.MHB_CSV?.[key]) {
-    return window.MHB_CSV[key];
+  if (window.location.protocol === "file:") {
+    throw new Error("HTTPサーバーから index.html を開いてください。");
   }
-
   try {
-    const url = `${path}${path.includes("?") ? "&" : "?"}v=${Date.now()}`;
-    const response = await fetch(url, { cache: "no-store" });
-    if (response.ok) {
-      const text = await response.text();
-      return text;
-    }
-  } catch {
-    // File URLs and some preview panes block fetch; the inline CSV keeps the app playable.
+    const response = await fetch(path, { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return new TextDecoder("utf-8", { fatal: true }).decode(await response.arrayBuffer());
+  } catch (error) {
+    throw new Error(`${path} (${key}): ${error.message}`, { cause: error });
   }
-
-  if (window.MHB_CSV?.[key]) {
-    return window.MHB_CSV[key];
-  }
-
-  throw new Error(`CSV load failed: ${key}`);
 }
 
 async function loadOptionalCsvText(key, path) {
@@ -4239,14 +4115,17 @@ function parseCsv(text) {
   return rows;
 }
 
-function normalizeCharacter(row) {
+function normalizeCharacter(row, elementNames, speciesNames) {
   const element = safeText(row.element, "none");
   const characterId = safeText(row.character_id);
   return {
     character_id: characterId,
     battleNo: safeText(row.battleno ?? row.battle_no ?? row.battleNo ?? row.no),
     rank: safeText(row.rank ?? row.rank_id ?? row.rankId),
-    species_id: safeText(row.species_id),
+    species_id: speciesNames.get(row.species_id) ?? null,
+    element_1: elementNames.get(row.element_1) ?? null,
+    element_2: elementNames.get(row.element_2) ?? null,
+    evasion_percent: optionalNumber(row.evasion_percent),
     name: row.name,
     hp: number(row.hp, 1),
     phy_atk: number(row.phy_atk),
@@ -4270,7 +4149,7 @@ function normalizeCharacter(row) {
       ice: number(row.weak_ice, 100) / 100,
       dragon: number(row.weak_dragon, 100) / 100,
     },
-    imageSrc: characterImagePath(characterId, row.image),
+    imageSrc: characterImagePath(row.image),
     transparentColor: safeText(row.transparent_color),
     transparencyTolerance: number(row.tolerance),
     renderOffsetX: number(row.render_offset_x),
@@ -4289,14 +4168,14 @@ function normalizeBattleAnchor(value) {
   return text ? clamp(number(text, 50), 0, 100) : 50;
 }
 
-function normalizeSkill(row) {
+function normalizeSkill(row, elementNames) {
   return {
     skill_id: safeText(row.skill_id),
     name: safeText(row.name),
     category: safeText(row.category),
     power: number(row.power),
-    element: safeText(row.element, "none"),
-    element2: safeText(row.element2, "none"),
+    element: elementNames.get(row.element) ?? null,
+    element2: row.element2 === "none" ? null : elementNames.get(row.element2) ?? null,
     attack_type: safeText(row.attack_type, "none"),
     hit_type: safeText(row.hit_type, "normal"),
     effect1: safeText(row.effect1, "none"),
@@ -4532,11 +4411,6 @@ function normalizeEncyclopediaBook(row) {
 function applyAnimationConfig() {
   POSITION_EFFECT_IDS = [...new Set([...Object.keys(DEFAULT_POSITION_ANIMATIONS), ...state.animations.keys()])];
   TWO_TURN_BATTLE_EFFECT_IDS = new Set([...POSITION_EFFECT_IDS, "charge_attack"]);
-}
-
-function characterImagePath(characterId, imageName = "") {
-  const fileName = safeText(imageName, characterId ? `${characterId}.png` : "");
-  return fileName ? `./assets/character_image_transparent/${fileName}` : "";
 }
 
 function npcImagePath(imageName = "") {
@@ -5666,6 +5540,7 @@ function findSaveStorageSource(storageKey) {
 }
 
 function readStorageValue(key) {
+  if (!MANUAL_SAVE_STORAGE_KEYS.includes(key)) return "";
   try {
     return window.localStorage?.getItem(key) || "";
   } catch {
@@ -5674,6 +5549,7 @@ function readStorageValue(key) {
 }
 
 function setStorageValue(key, value) {
+  if (!MANUAL_SAVE_STORAGE_KEYS.includes(key)) throw new Error("Invalid GO save key");
   window.localStorage?.setItem(key, value);
 }
 
@@ -7438,20 +7314,9 @@ function exchangeChoiceButton(side, member, index) {
 }
 
 function movesForCharacter(character) {
-  const csvMoves = character.skillIds
+  return uniqueBy(character.skillIds
     .map((skillId) => state.skills.get(skillId))
-    .filter((skill) => skill && skill.name && skill.category);
-  const hasAttack = csvMoves.some((skill) => skill.category === "attack");
-  const moves = [...csvMoves];
-
-  if (!hasAttack) {
-    moves.push(state.skills.get("basic_strike"));
-    if (character.element !== "none" && state.skills.has(`${character.element}_strike`)) {
-      moves.push(state.skills.get(`${character.element}_strike`));
-    }
-  }
-
-  return uniqueBy(moves, "skill_id");
+    .filter(Boolean), "skill_id");
 }
 
 function skillNamesFor(character) {

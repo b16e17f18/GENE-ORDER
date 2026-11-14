@@ -3,10 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MonsterHunterBreeder</title>
-    <link rel="stylesheet" href="./styles.css?v=20260914-passive-display" />
+    <title>GENE ORDER</title>
+    <link rel="stylesheet" href="./styles.css?v=0.10" />
+    <link rel="stylesheet" href="./go-preview.css?v=0.10" />
   </head>
   <body>
+    <main class="go-preview">
+      <header class="go-header">
+        <h1>GENE ORDER</h1>
+        <span>v0.10</span>
+      </header>
+      <p id="go-status" role="status">データを読み込んでいます…</p>
+      <details class="go-report">
+        <summary id="go-diagnostic-count">データ診断</summary>
+        <pre id="go-diagnostics"></pre>
+      </details>
+      <section aria-labelledby="go-roster-heading">
+        <h2 id="go-roster-heading">キャラクター</h2>
+        <ul class="go-roster" id="go-roster"></ul>
+      </section>
+    </main>
+
+    <template id="legacy-screens">
     <main class="app-shell">
       <section id="titleView" class="view title-view" aria-label="タイトル">
         <div class="title-stage">
@@ -337,12 +355,14 @@
       </section>
     </main>
 
-    <script src="./data-inline.js?v=20261008-arena-quest"></script>
+    </template>
+
+    <script src="./data-validation.js?v=0.10"></script>
     <script src="./passive.js?v=20260912-passive-refactor"></script>
     <script src="./battle-core.js?v=20260825-fieldguard-side"></script>
     <script src="./battle-ai.js?v=20260906-battle-ai"></script>
     <script src="./bgm.js?v=20261004-final-story"></script>
     <script src="./dialogue-manager.js?v=20260906-dialogue-manager"></script>
-    <script src="./app.js?v=20261008-tutorial-start-fix"></script>
+    <script src="./app.js?v=0.10"></script>
   </body>
 </html>

@@ -1,4 +1,4 @@
-﻿effect_id,name,effect_group,damage_type,damage_value,turn,can_move,target_stat,start_text
+effect_id,name,effect_group,damage_type,damage_value,turn,can_move,target_stat,start_text
 bf_pa_down1,物理攻撃-1段階,debuff,stat_stage,-1,99,TRUE,phy_atk,{target}の物理攻撃ランクが変化した！
 bf_pa_up1,物理攻撃+1段階,buff,stat_stage,1,99,TRUE,phy_atk,{target}の物理攻撃ランクが変化した！
 bf_pd_down1,物理防御-1段階,debuff,stat_stage,-1,99,TRUE,phy_def,{target}の物理防御ランクが変化した！
