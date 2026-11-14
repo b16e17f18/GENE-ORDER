@@ -1,0 +1,7 @@
+﻿battle_effect_id,name,battle_effect_group,damage_type,damage_value,turn,can_move,guard_type,weak_hit_type,damage_cut,start_text
+bf_dodge_guard,回避成功状態,bf_dodge_guard,none,0,1,TRUE,none,none,0,
+bf_half_guard,被ダメージ半減,guard,none,0,1,TRUE,none,none,50,
+bf_shed_tail,テールパージ,bf_shed_tail,none,0,1,TRUE,none,none,0,
+bf_water_absorb_guard,貯水,bf_water_absorb_guard,none,0,1,TRUE,none,none,50,
+bf_next_fire_power_150,次の火技威力1.5倍,bf_next_fire_power_150,none,0,1,TRUE,none,none,0,
+bf_water_super_effective,水属性へ特効,bf_water_super_effective,none,0,1,TRUE,none,none,0,

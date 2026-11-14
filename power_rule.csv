@@ -1,0 +1,3 @@
+﻿power_rule_id,power_rule_group,min_ratio,max_ratio,power_multiplier
+bf_hp1_yes,bf_hp_exact_1,1,1,2.2857142857142856
+bf_hp1_other,bf_hp_exact_1,0,0,1

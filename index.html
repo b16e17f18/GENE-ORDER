@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MonsterHunterBreeder</title>
+    <link rel="stylesheet" href="./styles.css?v=20260914-passive-display" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section id="titleView" class="view title-view" aria-label="タイトル">
+        <div class="title-stage">
+          <img class="title-image" src="./assets/タイトル画面.png" alt="MonsterHunterBreeder" />
+          <button id="storyModeButton" class="title-choice title-choice-story" type="button" aria-label="ストーリーモード"></button>
+          <button id="battleModeButton" class="title-choice title-choice-battle" type="button" aria-label="バトルモード"></button>
+          <div id="titleMessage" class="title-message is-hidden" aria-live="polite">準備中</div>
+        </div>
+      </section>
+
+      <section id="storyView" class="view story-view is-hidden" aria-label="ストーリーモード">
+        <div class="story-main-shell">
+          <div id="storyTravelStage" class="story-location-stage">
+            <img class="story-location-image" src="./assets/移動画面.png" alt="移動画面" />
+            <button id="travelMyHouseButton" class="story-location-button travel-my-house-button" type="button" aria-label="My House" data-location-label="MyHouse"></button>
+            <button id="travelBusinessButton" class="story-location-button travel-business-button" type="button" aria-label="モンスター取引所" data-location-label="取引所"></button>
+            <button id="travelBusiness2Button" class="story-location-button travel-business2-button" type="button" aria-label="工房" data-location-label="鍛冶屋"></button>
+            <button id="travelArenaButton" class="story-location-button travel-arena-button" type="button" aria-label="Arena" data-location-label="ARENA"></button>
+            <button id="travelGuideButton" class="story-location-button travel-guide-button" type="button" aria-label="案内人" data-location-label="案内人"></button>
+            <button id="travelSecondMapButton" class="story-location-button travel-second-map-button" type="button" aria-label="移動画面2へ移動" data-location-label="トンネル"></button>
+            <button id="travelMainButton" class="story-location-button travel-main-button" type="button" aria-label="メイン画面" data-location-label="集会場"></button>
+          </div>
+          <button id="travelBackButton" class="small-button story-back-button" type="button">タイトルへ戻る</button>
+
+          <div id="storyTravel2Stage" class="story-location-stage is-hidden">
+            <img class="story-location-image" src="./assets/移動画面2.png" alt="移動画面2" />
+            <button id="travel2ChiefButton" class="story-location-button travel2-chief-button" type="button" aria-label="村長宅へ移動" data-location-label="村長宅"></button>
+            <button id="travel2BackTunnelButton" class="story-location-button travel2-back-tunnel-button" type="button" aria-label="移動画面へ移動" data-location-label="トンネル"></button>
+            <button id="travel2LabButton" class="story-location-button travel2-lab-button" type="button" aria-label="LABへ移動" data-location-label="研究所"></button>
+            <button id="travel2FinalBattleButton" class="story-location-button travel2-final-battle-button is-hidden" type="button" aria-label="向かいの島へ移動" data-location-label="向かいの島へ"></button>
+          </div>
+
+          <div id="storyMainStage" class="story-main-stage">
+            <img class="story-main-image" src="./assets/メイン画面.png" alt="ストーリーモード メイン画面" />
+            <button id="storyMyPartyButton" class="story-rank-button story-my-party-button" type="button" aria-label="My Party"></button>
+            <div id="storyRankBattleButtons" class="story-rank-battle-buttons"></div>
+          </div>
+          <button id="storyBackButton" class="small-button story-back-button" type="button">島に戻る</button>
+
+          <section id="myPartyPanel" class="my-party-panel is-hidden" aria-label="My Party">
+            <div class="my-house-header">
+              <div>
+                <div class="my-house-title">My Party</div>
+                <div class="my-house-subtitle">所持モンスター / 装備品 / 耐性 / 技</div>
+              </div>
+              <button id="myPartyBackButton" class="small-button" type="button">メイン画面へ戻る</button>
+            </div>
+            <div class="my-party-layout">
+              <section class="my-house-section">
+                <div class="my-house-section-title">所持モンスター</div>
+                <div id="myPartyMonsterList" class="my-house-monster-list"></div>
+              </section>
+              <section id="myPartyDetailPanel" class="my-house-detail-panel"></section>
+            </div>
+          </section>
+
+          <div id="businessScreen" class="story-location-stage story-room-stage is-hidden">
+            <img class="story-location-image" src="./assets/business.png" alt="モンスター取引所" />
+            <button id="businessBackButton" class="small-button story-room-back-button" type="button">島に戻る</button>
+            <button id="businessBookButton" class="story-location-button business-hotspot business-book-button" type="button" aria-label="図鑑の購入"></button>
+            <button id="businessMonsterButton" class="story-location-button business-hotspot business-monster-button" type="button" aria-label="モンスターの取引"></button>
+            <section id="businessShopPanel" class="business-shop-panel is-hidden" aria-label="モンスター取引所">
+              <div class="business-shop-header">
+                <div>
+                  <div id="businessShopTitle" class="business-shop-title">モンスター取引所</div>
+                  <div class="business-shop-status">
+                    <span>所持金 <strong id="businessShopMoney">0</strong>z</span>
+                    <span>使用slot <strong id="businessShopSlots">0 / 5</strong></span>
+                  </div>
+                </div>
+                <button id="businessShopBackButton" class="small-button" type="button">戻る</button>
+              </div>
+              <div id="businessShopMessage" class="business-shop-message" aria-live="polite"></div>
+              <div id="businessShopItems" class="business-shop-items"></div>
+              <div id="businessShopExchangePanel" class="shop-exchange-panel is-hidden"></div>
+            </section>
+          </div>
+
+          <div id="business2Screen" class="story-location-stage story-room-stage is-hidden">
+            <img class="story-location-image" src="./assets/business2.png" alt="工房" />
+            <button id="business2BackButton" class="small-button story-room-back-button" type="button">島に戻る</button>
+            <button id="business2ChangeEquipmentButton" class="story-location-button business-hotspot business2-change-equipment-button" type="button" aria-label="装備を変更"></button>
+            <button id="business2EquipmentButton" class="story-location-button business-hotspot business2-equipment-button" type="button" aria-label="装備アイテム購入"></button>
+          </div>
+
+          <div id="arenaScreen" class="story-location-stage story-room-stage arena-screen is-hidden">
+            <img class="story-location-image" src="./assets/arena.png" alt="Arena" />
+            <button id="arenaBackButton" class="small-button story-room-back-button" type="button">&#x623B;&#x308B;</button>
+            <div id="arenaHotspots" class="arena-hotspots"></div>
+            <div id="arenaMessage" class="arena-message" aria-live="polite"></div>
+            <section id="arenaConfirmPanel" class="arena-confirm-panel is-hidden" aria-label="Arena battle confirmation">
+              <div id="arenaConfirmContent" class="arena-confirm-content"></div>
+              <div class="arena-confirm-actions">
+                <button id="arenaChallengeButton" class="primary-button arena-confirm-button" type="button">&#x6311;&#x6226;&#x3059;&#x308B;</button>
+                <button id="arenaConfirmCloseButton" class="small-button arena-confirm-button" type="button">&#x9589;&#x3058;&#x308B;</button>
+              </div>
+            </section>
+          </div>
+
+          <div id="labScreen" class="story-location-stage story-room-stage is-hidden">
+            <img class="story-location-image" src="./assets/LAB.png" alt="LAB" />
+            <button id="labBackButton" class="small-button story-room-back-button" type="button">島に戻る</button>
+            <button id="labEntranceButton" class="story-location-button lab-entrance-button" type="button" aria-label="LAB内へ移動"></button>
+          </div>
+
+          <div id="labInteriorScreen" class="story-location-stage story-room-stage is-hidden">
+            <img class="story-location-image" src="./assets/LAB内.png" alt="LAB内" />
+            <section id="labInteriorPanel" class="lab-interior-panel" aria-label="LAB内">
+              <div id="labMembersList" class="lab-members-list" aria-label="Members"></div>
+              <div id="labStorageList" class="lab-storage-list" aria-label="LAB"></div>
+            </section>
+            <section id="labActionPanel" class="lab-action-panel" aria-label="LAB編成操作">
+              <button id="labSwapButton" class="primary-button lab-swap-button" type="button" disabled>入替</button>
+              <button id="labRemoveButton" class="small-button lab-remove-button" type="button" disabled>外す</button>
+              <button id="labLeadButton" class="small-button lab-lead-button" type="button" disabled>先頭と入替</button>
+              <div id="labEditMessage" class="lab-edit-message" aria-live="polite"></div>
+              <div id="labUnsavedNotice" class="lab-unsaved-notice is-hidden" aria-live="polite">変更はまだ保存されていません。My Houseでセーブしてください。</div>
+            </section>
+            <section id="labDetailOverlay" class="lab-detail-overlay is-hidden" role="dialog" aria-modal="true" aria-labelledby="labDetailTitle">
+              <div id="labDetailPanel" class="lab-detail-panel"></div>
+            </section>
+            <button id="labInteriorBackButton" class="small-button story-room-back-button" type="button">エントランスに戻る</button>
+          </div>
+
+          <div id="guideHouseScreen" class="story-location-stage story-room-stage guide-house-screen is-hidden">
+            <img class="story-location-image" src="./assets/案内人の家.png" alt="案内人の家" />
+            <button id="guideHouseBackButton" class="small-button story-room-back-button" type="button">島に戻る</button>
+            <button id="guideBookButton" class="story-location-button guide-book-button" type="button" aria-label="案内人の本"></button>
+            <section id="guideMenuPanel" class="guide-menu-panel is-hidden" aria-label="案内人メニュー">
+              <button class="guide-menu-option" type="button" data-guide-dialogue-id="guide_welcome1">ヨシモ島について</button>
+              <button class="guide-menu-option" type="button" data-guide-dialogue-id="guide_rank1">集会場について</button>
+              <button class="guide-menu-option" type="button" data-guide-dialogue-id="guide_party1">使役について</button>
+              <button class="guide-menu-option" type="button" data-guide-dialogue-id="guide_arena1">ARENAについて</button>
+            </section>
+          </div>
+
+          <div id="chiefHouseScreen" class="story-location-stage story-room-stage chief-house-screen is-hidden">
+            <img class="story-location-image" src="./assets/村長宅.png" alt="村長宅" />
+            <button id="chiefHouseBackButton" class="small-button story-room-back-button" type="button">島に戻る</button>
+          </div>
+
+          <div id="myHouseScreen" class="story-location-stage story-room-stage is-hidden">
+            <img class="story-location-image" src="./assets/MyHouse.png" alt="My House" />
+            <button id="myHouseScreenBackButton" class="small-button story-room-back-button" type="button">島に戻る</button>
+            <button id="myHouseSaveLoadButton" class="story-location-button my-house-hotspot my-house-save-load-button" type="button" aria-label="セーブとロード"></button>
+            <button id="myHouseBookButton" class="story-location-button my-house-hotspot my-house-books-hotspot-button" type="button" aria-label="図鑑"></button>
+            <button id="myHousePartyButton" class="story-location-button my-house-hotspot my-house-party-button" type="button" aria-label="所持モンスターと装備"></button>
+            <section id="myHousePanel" class="my-house-panel is-hidden" aria-label="My House">
+              <div class="my-house-header">
+                <div>
+                  <div class="my-house-title">My House</div>
+                  <div class="my-house-subtitle">手持ちモンスター / 図鑑</div>
+                </div>
+                <button id="myHouseBackButton" class="small-button" type="button">My Houseへ戻る</button>
+              </div>
+              <section class="my-house-save-panel my-house-save-section" aria-label="セーブとロード">
+                <div class="my-house-save-column">
+                  <div class="my-house-section-title">セーブ</div>
+                  <div id="myHouseSaveSlots" class="my-house-save-slots"></div>
+                </div>
+                <div class="my-house-save-column">
+                  <div class="my-house-section-title">ロード</div>
+                  <div id="myHouseLoadSlots" class="my-house-save-slots"></div>
+                </div>
+                <div id="myHouseSaveStatus" class="my-house-save-status" aria-live="polite"></div>
+              </section>
+              <div class="my-house-layout">
+                <section class="my-house-section my-house-party-section">
+                  <div class="my-house-section-title">手持ちモンスター</div>
+                  <div id="myHouseMonsterList" class="my-house-monster-list"></div>
+                </section>
+                <section class="my-house-section my-house-book-section">
+                  <div class="my-house-section-title">図鑑</div>
+                  <div id="myHouseBookList" class="my-house-book-list"></div>
+                  <div id="myHouseBookContent" class="my-house-book-content"></div>
+                </section>
+                <section id="myHouseDetailPanel" class="my-house-detail-panel"></section>
+              </div>
+            </section>
+          </div>
+
+          <div id="storyBattleConfirmOverlay" class="story-confirm-overlay is-hidden" role="dialog" aria-modal="true" aria-labelledby="storyBattleConfirmText">
+            <div class="story-confirm-layout">
+              <div class="story-confirm-panel">
+                <div id="storyBattleConfirmText" class="story-confirm-text"></div>
+                <div class="story-confirm-actions">
+                  <button id="storyBattleConfirmYesButton" class="primary-button story-confirm-button" type="button">&#x6311;&#x6226;&#x3059;&#x308B;</button>
+                  <button id="storyBattleConfirmNoButton" class="small-button story-confirm-button" type="button">&#x9589;&#x3058;&#x308B;</button>
+                </div>
+              </div>
+              <div class="story-opponent-panel" aria-label="相手の所持キャラクター">
+                <div id="storyBattleOpponentList" class="story-opponent-list"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="setupView" class="view setup-view is-hidden" aria-label="チーム選択">
+        <div class="brand-line">
+          <span class="brand-mark">MHB</span>
+          <span class="brand-sub">MonsterHunterBreeder</span>
+        </div>
+
+        <div class="setup-layout">
+          <aside class="team-panel">
+            <div id="setupPanelTitle" class="panel-title">自分チーム</div>
+            <div class="setup-mode-tabs" role="tablist" aria-label="選択するチーム">
+              <button id="setupPlayerModeButton" class="setup-mode-button is-active" type="button" aria-pressed="true">自分</button>
+              <button id="setupEnemyModeButton" class="setup-mode-button" type="button" aria-pressed="false">相手</button>
+            </div>
+            <div id="selectedSlots" class="selected-slots"></div>
+            <div class="setup-actions">
+              <button id="randomTeamButton" class="small-button" type="button">おまかせ</button>
+              <button id="clearTeamButton" class="small-button" type="button">クリア</button>
+            </div>
+            <button id="startButton" class="primary-button" type="button">戦闘開始</button>
+            <button id="randomBattleButton" class="primary-button random-battle-button" type="button">ランダム開始</button>
+          </aside>
+
+          <section class="roster-panel">
+            <div class="panel-title">Breeder</div>
+            <div id="rosterGrid" class="roster-grid"></div>
+          </section>
+        </div>
+
+        <div id="detailOverlay" class="detail-overlay is-hidden" aria-label="Breeder詳細">
+          <section id="detailPanel" class="detail-panel"></section>
+        </div>
+      </section>
+
+      <section id="battleView" class="view battle-view is-hidden" aria-label="バトル">
+        <div class="battle-card">
+          <div class="battle-field">
+            <div class="sky-band"></div>
+            <div class="ground-band"></div>
+            <div id="battleAnimationLayer" class="battle-animation-layer" aria-hidden="true"></div>
+
+            <div id="enemyHud" class="hud enemy-hud"></div>
+            <div id="enemySprite" class="fighter-sprite enemy-sprite"></div>
+
+            <div id="playerHud" class="hud player-hud"></div>
+            <div id="playerSprite" class="fighter-sprite player-sprite"></div>
+          </div>
+
+          <div class="battle-console">
+            <div class="command-panel">
+              <div class="battle-command-layout">
+                <div class="battle-action-area">
+                  <div id="battleLog" class="battle-log"></div>
+                  <div id="moveGrid" class="move-grid"></div>
+                  <div id="switchGrid" class="switch-grid is-hidden"></div>
+                  <div id="enemyInfoPanel" class="battle-inspect-panel is-hidden"></div>
+                  <div id="exchangePanel" class="exchange-panel is-hidden"></div>
+                </div>
+                <div id="commandLights" class="command-lights"></div>
+                <div class="command-side">
+                  <div id="battleStatusPanel" class="battle-status-panel"></div>
+                  <div class="command-tabs">
+                    <button id="switchTab" class="tab-button" type="button">入替</button>
+                    <button id="dexButton" class="tab-button" type="button">図鑑</button>
+                    <button id="glossaryButton" class="tab-button" type="button">用語</button>
+                    <button id="fightTab" class="tab-button is-hidden" type="button">技</button>
+                    <button id="restartButton" class="tab-button is-hidden" type="button">再選択</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="glossaryPanel" class="glossary-panel is-hidden">
+            <img src="./assets/用語.png" alt="用語" />
+          </div>
+        </div>
+        <div id="battleTutorialOverlay" class="battle-tutorial-overlay is-hidden" aria-live="polite">
+          <div class="battle-tutorial-dimmer battle-tutorial-dimmer-top"></div>
+          <div class="battle-tutorial-dimmer battle-tutorial-dimmer-right"></div>
+          <div class="battle-tutorial-dimmer battle-tutorial-dimmer-bottom"></div>
+          <div class="battle-tutorial-dimmer battle-tutorial-dimmer-left"></div>
+          <div id="battleTutorialFocus" class="battle-tutorial-focus"></div>
+          <div id="battleTutorialPrompt" class="battle-tutorial-prompt">
+            <strong>案内人</strong>
+            <span id="battleTutorialPromptText"></span>
+            <button id="battleTutorialNextButton" class="small-button is-hidden" type="button">次へ</button>
+          </div>
+        </div>
+      </section>
+
+      <div id="dexOverlay" class="detail-overlay is-hidden" aria-label="図鑑">
+        <section id="dexPanel" class="detail-panel dex-panel"></section>
+      </div>
+
+      <dialog id="storyTutorialChoice" class="detail-panel story-tutorial-choice" aria-labelledby="storyTutorialChoiceTitle">
+        <h2 id="storyTutorialChoiceTitle">チュートリアルを始めますか？</h2>
+        <div class="exchange-actions">
+          <button id="storyTutorialStartButton" class="primary-button" type="button">チュートリアルを始める</button>
+          <button id="storyTutorialSkipButton" class="small-button" type="button">スキップして始める</button>
+        </div>
+      </dialog>
+
+      <dialog id="arenaQuestChoice" class="detail-panel arena-quest-choice" aria-labelledby="arenaQuestChoiceTitle">
+        <h2 id="arenaQuestChoiceTitle">ラオシャンロン討伐</h2>
+        <div class="exchange-actions">
+          <button id="arenaQuestYesButton" class="primary-button" type="button">はい</button>
+          <button id="arenaQuestNoButton" class="small-button" type="button">いいえ</button>
+        </div>
+      </dialog>
+
+      <div id="dialogueOverlay" class="dialogue-overlay is-hidden" role="dialog" aria-modal="true" tabindex="-1">
+        <section class="dialogue-window" aria-live="polite">
+          <img id="dialogueWindowFrame" class="dialogue-window-frame" src="./assets/dialogue_window.png" alt="" />
+          <div class="dialogue-portrait-frame">
+            <img id="dialogueNpcImage" class="dialogue-npc-image" alt="" />
+          </div>
+          <div id="dialogueCharacterShowcase" class="dialogue-character-showcase is-hidden" aria-label="ドスランポスとイャンクック">
+            <img src="./assets/character_image_transparent/character_001.png" alt="ドスランポス" />
+            <img src="./assets/character_image_transparent/character_004.png" alt="イャンクック" />
+          </div>
+          <div id="dialogueText" class="dialogue-text"></div>
+        </section>
+      </div>
+
+      <section id="endingView" class="ending-view is-hidden" aria-label="エンドロール">
+        <div class="ending-copy">
+          <h1>MONSTER HUNTER BATTLE</h1>
+          <p>Thank you for playing.</p>
+          <button id="endingReturnButton" class="small-button" type="button">タイトルへ</button>
+        </div>
+      </section>
+    </main>
+
+    <script src="./data-inline.js?v=20261008-arena-quest"></script>
+    <script src="./passive.js?v=20260912-passive-refactor"></script>
+    <script src="./battle-core.js?v=20260825-fieldguard-side"></script>
+    <script src="./battle-ai.js?v=20260906-battle-ai"></script>
+    <script src="./bgm.js?v=20261004-final-story"></script>
+    <script src="./dialogue-manager.js?v=20260906-dialogue-manager"></script>
+    <script src="./app.js?v=20261008-tutorial-start-fix"></script>
+  </body>
+</html>

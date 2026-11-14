@@ -1,0 +1,16 @@
+﻿effect_id,name,effect_group,damage_type,damage_value,turn,can_move,target_stat,start_text
+bf_pa_down1,物理攻撃-1段階,debuff,stat_stage,-1,99,TRUE,phy_atk,{target}の物理攻撃ランクが変化した！
+bf_pa_up1,物理攻撃+1段階,buff,stat_stage,1,99,TRUE,phy_atk,{target}の物理攻撃ランクが変化した！
+bf_pd_down1,物理防御-1段階,debuff,stat_stage,-1,99,TRUE,phy_def,{target}の物理防御ランクが変化した！
+bf_pd_up1,物理防御+1段階,buff,stat_stage,1,99,TRUE,phy_def,{target}の物理防御ランクが変化した！
+bf_sa_down4,特殊攻撃-4段階,debuff,stat_stage,-4,99,TRUE,sp_atk,{target}の特殊攻撃ランクが変化した！
+bf_sa_down1,特殊攻撃-1段階,debuff,stat_stage,-1,99,TRUE,sp_atk,{target}の特殊攻撃ランクが変化した！
+bf_sa_up1,特殊攻撃+1段階,buff,stat_stage,1,99,TRUE,sp_atk,{target}の特殊攻撃ランクが変化した！
+bf_sd_down2,特殊防御-2段階,debuff,stat_stage,-2,99,TRUE,sp_def,{target}の特殊防御ランクが変化した！
+bf_sd_down1,特殊防御-1段階,debuff,stat_stage,-1,99,TRUE,sp_def,{target}の特殊防御ランクが変化した！
+bf_sd_up1,特殊防御+1段階,buff,stat_stage,1,99,TRUE,sp_def,{target}の特殊防御ランクが変化した！
+bf_sd_up2,特殊防御+2段階,buff,stat_stage,2,99,TRUE,sp_def,{target}の特殊防御ランクが変化した！
+bf_sp_up1,素早さ+1段階,buff,stat_stage,1,99,TRUE,speed,{target}の素早さランクが変化した！
+bf_heal_half,最大HPの半分回復,heal,percent_maxhp,50,0,TRUE,hp,{target}のHPが回復した！
+poison,毒,damage,percent_maxhp,10,7,TRUE,none,{target}は{name}状態になった！
+bf_drain_50,与ダメージの50%回復,heal,actual_damage_percent,50,0,TRUE,hp,{actor}は体力を吸収した！

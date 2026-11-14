@@ -1,0 +1,43 @@
+# GENE ORDER: local tools, backups, and reference copies
+/.codex-backup/
+/.agents/
+/.codex/
+/MHB/
+/MBHdata/
+/asset/character保留画像/
+*.bak
+*.orig
+*.swp
+*~
+
+# Logs, generated files, and caches
+*.log
+*.tmp
+*.cache
+.cache/
+__pycache__/
+*.py[cod]
+node_modules/
+dist/
+coverage/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Office lock files and local playtest saves
+~$*
+/test-saves/
+
+# Local credentials and environment files
+.env
+.env.*
+!.env.example
+.npmrc
+.pypirc
+.netrc
+.aws/
+.ssh/
+*.pem
+*.key
+*.pfx
+*.p12
