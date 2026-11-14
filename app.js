@@ -4011,7 +4011,8 @@ function mountGeneOrderBattlePreview() {
   function newBattle() {
     const team = (...ids) => ids.map((id) => state.characterMap.get(id));
     return geneOrderBattle.createBattle({
-      player: team("character_003", "character_020", "character_023"),
+      manualSwitches: true,
+      player: team("character_015", "character_001", "character_016"),
       enemy: team("character_009", "character_021", "character_007"),
       skills: state.skills,
       effectiveness: state.effectiveness,
@@ -4031,6 +4032,12 @@ function mountGeneOrderBattlePreview() {
       const defense = [active.dodgeActive ? "回避成功状態" : "", active.halfGuard ? "半減防御" : ""].filter(Boolean);
       const conditions = active.statuses.map(({ definition, turns }) => `${definition.name} 残り${turns}ターン`);
       if (active.pending) conditions.push(`予約：${state.skills.get(active.pending.moveId).name}（威力${active.pending.power}）`);
+      if (active.decoy) conditions.push(`デコイ HP ${active.decoy.hp}/${active.decoy.maxHp}`);
+      const tailUses = active.moveUses.get("bf_shed_tail") ?? 0;
+      if (tailUses) {
+        const limit = state.battleEffects.get("bf_shed_tail").max_uses;
+        conditions.push(tailUses >= limit ? "テールパージ使用済み" : `テールパージ ${tailUses}/${limit}回使用`);
+      }
       if (active.bind) conditions.push(`締め付け 残り${active.bind.turns}ターン`);
       const timedLabel = ({ definition, starts, expires }) => starts > battle.turn
         ? `${definition.name}（ターン${starts}から${expires - starts}ターン）`
@@ -4038,6 +4045,17 @@ function mountGeneOrderBattlePreview() {
       const timed = [...active.timedEffects.values(), ...battle.fields[side].values()].map(timedLabel);
       status.textContent += ` · ${stages.join(" / ")} · ${[...defense, ...conditions, ...timed].join(" / ") || "状態変化なし"}`;
       select.replaceChildren();
+      if (battle.pendingSwitch) {
+        const choosing = battle.pendingSwitch.side === side;
+        if (choosing) {
+          status.textContent += " · 交代先を選択してください";
+          for (const index of battle.pendingSwitch.candidates) {
+            select.add(new Option(battle.teams[side][index].base.name, String(index)));
+          }
+        }
+        select.disabled = !choosing;
+        continue;
+      }
       const addOption = (label, value, action) => {
         const reason = battle.winner ? "" : geneOrderBattle.checkAction(battle, side, action);
         const option = new Option(reason ? `${label} — ${reason}` : label, value);
@@ -4063,7 +4081,9 @@ function mountGeneOrderBattlePreview() {
       select.selectedIndex = [...select.options].findIndex((option) => !option.disabled);
       select.disabled = Boolean(battle.winner);
     }
-    form.querySelector('[type="submit"]').disabled = Boolean(battle.winner);
+    const submit = form.querySelector('[type="submit"]');
+    submit.disabled = Boolean(battle.winner);
+    submit.textContent = battle.pendingSwitch ? "交代先を確定" : "ターンを実行";
   }
 
   form.addEventListener("submit", (event) => {
@@ -4073,12 +4093,15 @@ function mountGeneOrderBattlePreview() {
       const action = type === "move" ? { type, moveId: value } : type === "switch" ? { type, index: Number(value) } : { type };
       return [side, action];
     }));
+    const pending = battle.pendingSwitch;
     try {
-      const result = geneOrderBattle.resolveTurn(battle, selected);
+      const result = pending
+        ? geneOrderBattle.continueSwitch(battle, pending.side, Number(controls.find((control) => control.side === pending.side).select.value))
+        : geneOrderBattle.resolveTurn(battle, selected);
       const sideName = (side) => side === "player" ? "自分側" : "相手側";
       const describe = {
         move: (e) => `${e.actor}の${e.move}（EN −${e.cost}）` +
-          (e.category === "attack" ? ` → ${e.target}に${e.actualDamage}ダメージ（威力${e.power}）` : ""),
+          (e.category === "attack" && e.reason !== "decoy" ? ` → ${e.target}に${e.actualDamage}ダメージ（威力${e.power}）` : ""),
         charge: (e) => `${e.actor}は${e.move}を予約（威力${e.power}、EN −${e.cost}）`,
         "defense-ready": (e) => `${e.actor}は${e.name}を構えた`,
         absorbed: (e) => `${e.actor}は水技を吸収しHPを${e.recovered}回復`,
@@ -4092,7 +4115,12 @@ function mountGeneOrderBattlePreview() {
         stage: (e) => `${e.actor}の${statLabels[e.stat]} ${e.delta >= 0 ? "+" : ""}${e.delta}（現在 ${e.stage}）`,
         heal: (e) => `${e.actor}のHP +${e.recovered}`,
         "effect-energy": (e) => `${e.actor}のEN +${e.recovered}（技効果）`,
-        switch: (e) => `${e.actor}から${e.target}に交代`,
+        switch: (e) => `${e.actor}から${e.target}に交代` +
+          (e.inheritedStages ? "（能力ランクを引き継いだ）" : "") + (e.decoyHp ? `（デコイHP ${e.decoyHp}を引き継いだ）` : ""),
+        "decoy-created": (e) => `${e.actor}はHPを${e.cost}消費し、HP ${e.maxHp}のデコイを出した`,
+        "decoy-hit": (e) => `${e.actor}のデコイに${e.damage}ダメージ（残りHP ${e.hp}）`,
+        "decoy-broken": (e) => `${e.actor}のデコイが壊れた`,
+        "move-failed": (e) => `${e.actor}の${e.move}は不成立`,
         replacement: (e) => `${sideName(e.side)}に${e.target}が登場`,
         wait: (e) => `${e.actor}は待機`,
         faint: (e) => `${e.actor}は戦闘不能`,
@@ -4110,7 +4138,10 @@ function mountGeneOrderBattlePreview() {
         "field-cleared": (e) => `${sideName(e.side)}のフィールドを解除${e.removed.length ? `（${e.removed.join("、")}）` : ""}`,
         "field-expired": (e) => `${sideName(e.side)}の${e.name}が終了した`,
       };
-      log.textContent = [`ターン ${result.turn}`, ...result.events.map((entry) => describe[entry.type](entry))].join("\n");
+      const lines = pending ? log.textContent.split("\n").slice(0, -1) : [`ターン ${result.turn}`];
+      lines.push(...result.events.map((entry) => describe[entry.type](entry)));
+      if (result.pendingSwitch) lines.push(`${sideName(result.pendingSwitch.side)}の交代先を選択`);
+      log.textContent = lines.join("\n");
       render();
     } catch (error) {
       log.textContent = error.message;
@@ -4381,6 +4412,9 @@ function normalizeBattleEffect(row) {
     start_delay: number(row.start_delay),
     element: safeText(row.element),
     modifier: optionalNumber(row.modifier),
+    hp_cost_ratio: safeText(row.hp_cost_ratio),
+    decoy_hp_ratio: safeText(row.decoy_hp_ratio),
+    max_uses: optionalNumber(row.max_uses),
     start_text: csvText(row.start_text),
     animation: animationAssetName(row.animation),
     animation_duration_ms: Math.max(0, number(row.animation_duration_ms)),

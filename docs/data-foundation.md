@@ -95,3 +95,7 @@ v0.31の16箇所から9箇所を解消し、7箇所が残る。技・能力・�
 | 通常効果 | 2 | burn、どろぼう |
 | 戦闘効果 | 3 | switch_after_attack、みがわり、バトンタッチ |
 | 威力ルール | 2 | speed_advantage |
+
+## v0.33の参照整合性
+
+7箇所から3箇所を解消し、4箇所が残る。戦闘効果の switch_after_attack、みがわり、バトンタッチを追加し、既存の bf_shed_tail にデコイ列を設定。残件は burn、どろぼう、speed_advantage（2箇所）。[CSV列と単位](switch-and-decoy.md) を参照。

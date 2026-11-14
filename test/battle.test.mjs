@@ -973,3 +973,272 @@ test("official multi-turn replay combines Water Absorb, reflection, charge and b
   assert.ok(list.some(e => e.type === "defense-ready" && e.name === "反射"));
   assert.equal(match.winner, "player");
 });
+
+const specialTeam = () => official("character_015", "character_001", "character_016");
+const voluntary = (index) => ({ type: "switch", index });
+const setupSpecial = (options = {}) => battle({ ...assets, skills: [...officialSkills, strike],
+  player: specialTeam(), enemy: [character({ hp: 400 })], ...options });
+const specialWait = (match, id, switchIndex) => go.resolveTurn(match, {
+  player: { ...select(id), switchIndex }, enemy: wait,
+});
+const full = (fighter) => go.changeEnergy(fighter, 7);
+
+test("Decoy checks HP, uses exact thirds, and rejects duplicate creation without consuming EN", () => {
+  const match = setupSpecial();
+  const fighter = active(match);
+  full(fighter);
+  fighter.hp = 72;
+  assert.throws(() => specialWait(match, "skill_041"), /HPが不足/);
+  assert.equal(fighter.energy, 7);
+  fighter.hp = 73;
+  specialWait(match, "skill_041");
+  assert.deepEqual([fighter.hp, fighter.decoy.hp, fighter.decoy.maxHp], [1, 72, 72]);
+  assert.throws(() => specialWait(match, "skill_041"), /すでに存在/);
+  go.resolveTurn(match, { player: voluntary(1), enemy: wait });
+  assert.equal(fighter.decoy, null);
+});
+
+test("Decoy takes capped damage without overflow, blocks a debuff, and poison still damages its owner", () => {
+  const hit = { ...strike, power: 1000, effect1: "bf_pa_down1", effect_chance1: 100 };
+  const match = setupSpecial({ skills: [...officialSkills, hit] });
+  const fighter = active(match);
+  full(fighter);
+  specialWait(match, "skill_041");
+  const hp = fighter.hp;
+  fighter.statuses.push({ definition: officialEffects.get("poison"), turns: 7 });
+  const before = JSON.stringify(fighter);
+  const predicted = go.previewDamage(match, "enemy", hit);
+  assert.equal(predicted.damage, 0);
+  assert.equal(predicted.decoyDamage, 72);
+  assert.equal(JSON.stringify(fighter), before);
+  const turn = go.resolveTurn(match, { player: wait, enemy: select() });
+  assert.equal(turn.events.find(e => e.type === "move").decoyDamage, 72);
+  assert.equal(turn.events.find(e => e.type === "move").actualDamage, 0);
+  assert.ok(turn.events.some(e => e.type === "decoy-broken"));
+  assert.equal(fighter.hp, hp - 22);
+  assert.equal(fighter.tookDirectDamage, false);
+  assert.equal(fighter.stages.phy_atk, 0);
+});
+
+test("Decoy damage shares hit, affinity, individual and field mitigation", () => {
+  const match = setupSpecial();
+  const f = active(match);
+  full(f);
+  specialWait(match, "skill_041");
+  const probe = { ...strike, power: 30 };
+  const baseline = go.previewDamage(match, "enemy", probe).decoyDamage;
+  f.halfGuard = 50;
+  const field = { definition: { battle_effect_group: "guard", guard_type: "phy_damage", damage_cut: 20 }, starts: 2, expires: 4 };
+  match.fields.player.set("test-field", field);
+  const mitigated = go.previewDamage(match, "enemy", probe).decoyDamage;
+  assert.ok(mitigated > 0 && mitigated < baseline);
+  f.dodgeActive = true;
+  assert.equal(go.previewDamage(match, "enemy", probe).decoyDamage, 0);
+  assert.equal(go.previewDamage(match, "enemy", { ...probe, hit_type: "ignore_dodge" }).decoyDamage, mitigated);
+  assert.equal(go.previewDamage(match, "enemy", { ...probe, element: "none", hit_type: "ignore_dodge" }).decoyDamage, 0);
+});
+
+test("Decoy is hit before absorption, reflection and counter; damage excludes body-hit history", () => {
+  const water = { ...strike, element: "water", attack_type: "special" };
+  for (const id of ["bf_water_absorb_guard", "reflection", "revenge"]) {
+    const match = setupSpecial();
+    const f = active(match);
+    f.defenses.set(id, { id, definition: officialDefense.get(id), starts: 1, expires: 2 });
+    f.decoy = { hp: 10, maxHp: 10 };
+    const preview = go.previewDamage(match, "enemy", water);
+    assert.equal(preview.decoyDamage, 10);
+    assert.equal(preview.response, null);
+    assert.equal(preview.heal, 0);
+  }
+  const low = { ...strike, priority: -2, element: "light", power: 5 };
+  const psycho = skill("skill_057");
+  const match = setupSpecial({ player: official("character_014"), skills: [psycho, { ...low, priority: 0 }] });
+  active(match).decoy = { hp: 10, maxHp: 10 };
+  full(active(match));
+  const turn = go.resolveTurn(match, { player: select(psycho.skill_id), enemy: select() });
+  assert.equal(turn.events.find(e => e.type === "move" && e.side === "player").power, 80);
+});
+
+test("drain and recoil use actual Decoy HP loss while Phantom cannot clear stages through it", () => {
+  for (const [user, id, event, expected] of [
+    ["character_005", "skill_019", "heal", 5], ["character_016", "skill_046", "recoil", 2],
+  ]) {
+    const match = setupSpecial({ player: official(user) });
+    full(active(match));
+    active(match).hp = 25;
+    active(match, "enemy").decoy = { hp: 10, maxHp: 10 };
+    const result = specialWait(match, id);
+    const effect = result.events.find(e => e.type === event);
+    assert.equal(effect.recovered ?? effect.damage, expected);
+    assert.equal(active(match, "enemy").hp, 400);
+  }
+  const match = setupSpecial({ player: official("character_023") });
+  full(active(match));
+  const foe = active(match, "enemy");
+  foe.decoy = { hp: 1, maxHp: 1 };
+  go.changeStage(foe, "phy_def", 2);
+  specialWait(match, "skill_062");
+  specialWait(match, "skill_062");
+  assert.equal(foe.decoy, null);
+  assert.equal(foe.stages.phy_def, 2);
+});
+
+test("Tail Purge validates and transfers atomically, then retains the per-fighter use limit after returning", () => {
+  const match = setupSpecial();
+  const tail = match.teams.player[1];
+  go.resolveTurn(match, { player: voluntary(1), enemy: wait });
+  full(tail);
+  tail.hp = 83;
+  assert.match(go.checkAction(match, "player", select("skill_006")), /HPが不足/);
+  tail.hp = 125;
+  tail.decoy = { hp: 1, maxHp: 1 };
+  assert.match(go.checkAction(match, "player", select("skill_006")), /すでに存在/);
+  tail.decoy = null;
+  assert.match(go.checkAction(match, "player", { ...select("skill_006"), switchIndex: 1 }), /交代先/);
+  assert.match(go.checkAction(match, "player", { ...select("skill_006"), switchIndex: 99 }), /交代先/);
+  const replacement = match.teams.player[2];
+  const output = specialWait(match, "skill_006", 2);
+  assert.equal(output.events.find(e => e.type === "switch").reason, "tail-purge");
+  assert.deepEqual([tail.hp, tail.energy, tail.decoy, replacement.decoy.hp, replacement.hp], [42, 5, null, 41, 139]);
+  go.resolveTurn(match, { player: voluntary(1), enemy: wait });
+  tail.hp = 125;
+  assert.match(go.checkAction(match, "player", select("skill_006")), /使用済み/);
+  assert.equal(replacement.decoy, null);
+});
+
+test("Tail Purge and Power Relay fail before EN or HP consumption when there is no bench", () => {
+  for (const [user, id] of [["character_001", "skill_006"], ["character_015", "skill_042"]]) {
+    const match = setupSpecial({ player: official(user) });
+    const fighter = active(match);
+    full(fighter);
+    const before = JSON.stringify(fighter);
+    assert.throws(() => specialWait(match, id), /控えがいません/);
+    assert.equal(JSON.stringify(fighter), before);
+  }
+});
+
+test("Power Relay passes positive and negative stages and existing decoy, preserving personal states and field", () => {
+  const phases = [];
+  const match = setupSpecial({ onSwitch: (e) => phases.push([e.phase, e.reason, e.from.base.name, e.to.base.name]) });
+  const [outgoing, incoming] = match.teams.player;
+  outgoing.decoy = { hp: 10, maxHp: 30 };
+  const ownPoison = { definition: officialEffects.get("poison"), turns: 5 };
+  const incomingPoison = { definition: officialEffects.get("poison"), turns: 3 };
+  outgoing.statuses.push(ownPoison);
+  incoming.statuses.push(incomingPoison);
+  go.changeStage(outgoing, "phy_atk", 2);
+  go.changeStage(outgoing, "speed", -3);
+  go.changeEnergy(incoming, 3);
+  incoming.hp = 80;
+  match.fields.player.set("test", { id: "test", definition: officialDefense.get("sp_protect"), starts: 1, expires: 4 });
+  outgoing.timedEffects.set("test", { starts: 1, expires: 3, definition: officialEffects.get("回避率UP") });
+  specialWait(match, "skill_042", 1);
+  assert.deepEqual([incoming.stages.phy_atk, incoming.stages.speed, incoming.decoy.hp], [2, -3, 10]);
+  assert.deepEqual([incoming.hp, incoming.energy, incoming.statuses[0], ownPoison.turns], [67, 5, incomingPoison, 5]);
+  assert.equal(outgoing.stages.phy_atk, 0);
+  assert.equal(outgoing.timedEffects.size, 0);
+  assert.equal(match.fields.player.size, 1);
+  assert.deepEqual(phases.map(([phase, reason]) => [phase, reason]), [
+    ["before-switch", "relay"], ["leave", "relay"], ["enter", "relay"], ["after-switch", "relay"],
+  ]);
+});
+
+test("MHB-style special switches bypass bind, normal switching stays locked", () => {
+  for (const [user, id] of [["character_001", "skill_006"], ["character_015", "skill_042"], ["character_016", "skill_045"]]) {
+    const match = setupSpecial({ player: [...official(user), character()] });
+    const fighter = active(match);
+    full(fighter);
+    fighter.bind = { source: active(match, "enemy"), turns: 3, definition: officialEffects.get("しめつける") };
+    assert.match(go.checkAction(match, "player", voluntary(1)), /締め付け/);
+    const after = specialWait(match, id, 1);
+    assert.ok(after.events.some(e => e.type === "switch"));
+    assert.equal(fighter.bind, null);
+  }
+});
+
+test("post-attack switch needs a hit and a surviving user; a decoy hit still qualifies", () => {
+  for (const mode of ["evaded", "immune", "no-bench", "decoy", "ko", "counter", "recoil"]) {
+    const original = skill("skill_045");
+    const move = mode === "recoil" ? { ...original, effect1: "反動ダメージ1/4", effect_target1: "self", effect_chance1: 100 } : original;
+    const field = new Map(chart);
+    if (mode === "immune") field.set("wind", new Map(chart.get("wind")).set("fire", 0));
+    const match = setupSpecial({ skills: [move], effectiveness: field,
+      player: mode === "no-bench" ? official("character_016") : [...official("character_016"), character()],
+      enemy: [character({ hp: mode === "ko" ? 1 : 400 }), character()] });
+    const [source, foe] = fighters(match);
+    if (mode === "evaded") foe.dodgeActive = true;
+    if (mode === "decoy") foe.decoy = { hp: 10, maxHp: 10 };
+    if (mode === "counter") foe.defenses.set("revenge", { id: "revenge", definition: officialDefense.get("revenge"), starts: 1, expires: 2 });
+    if (["counter", "recoil"].includes(mode)) source.hp = 1;
+    const result = specialWait(match, move.skill_id);
+    assert.equal(result.events.some(e => e.reason === "post-attack" && e.type === "switch"), ["decoy", "ko"].includes(mode), mode);
+    assert.equal(source.fainted, ["counter", "recoil"].includes(mode));
+  }
+});
+
+test("manual post-attack selection pauses ordered action and resumes once against the incoming fighter", () => {
+  const match = setupSpecial({ manualSwitches: true,
+    player: [...official("character_016", "character_015"), character({ name: "Third" })] });
+  full(active(match));
+  const energy = active(match, "enemy").energy;
+  const first = go.resolveTurn(match, { player: select("skill_045"), enemy: select() });
+  assert.equal(first.pendingSwitch.reason, "post-attack");
+  assert.equal(first.events.filter(e => e.type === "move").length, 1);
+  assert.equal(active(match, "enemy").energy, energy);
+  assert.equal(match.turn, 1);
+  assert.throws(() => go.continueSwitch(match, "enemy", 1), /交代先/);
+  assert.throws(() => go.continueSwitch(match, "player", 0), /交代先/);
+  assert.throws(() => go.resolveTurn(match, { player: wait, enemy: wait }), /選択待ち/);
+  const result = go.continueSwitch(match, "player", 2);
+  assert.equal(result.pendingSwitch, null);
+  assert.equal(result.events.find(e => e.type === "move").target, "Third");
+  assert.equal(result.events.filter(e => e.type === "energy").length, 2);
+  assert.equal(match.turn, 2);
+  assert.throws(() => go.continueSwitch(match, "player", 1), /交代先/);
+});
+
+test("manual Tail Purge awaits selection without HP or EN cost, and forced replacement resumes after upkeep", () => {
+  const match = setupSpecial({ manualSwitches: true, player: [...official("character_001"), character({ name: "Reserve" })] });
+  const source = active(match);
+  full(source);
+  const pending = specialWait(match, "skill_006");
+  assert.equal(pending.pendingSwitch.reason, "tail-purge");
+  assert.deepEqual([source.hp, source.energy, source.decoy], [125, 7, null]);
+  const continued = go.continueSwitch(match, "player", 1);
+  assert.equal(continued.events.filter(e => e.type === "decoy-created").length, 1);
+  assert.equal(source.hp, 42);
+  const reserve = active(match);
+  reserve.hp = 1;
+  reserve.statuses.push({ definition: officialEffects.get("poison"), turns: 1 });
+  const replacement = go.resolveTurn(match, { player: wait, enemy: wait });
+  assert.equal(replacement.pendingSwitch.reason, "replacement");
+  assert.equal(replacement.events.filter(e => e.type === "energy").length, 1);
+  const done = go.continueSwitch(match, "player", 0);
+  assert.equal(done.events.filter(e => e.type === "energy").length, 0);
+  assert.equal(source.energy, 5);
+  assert.equal(active(match), source);
+});
+
+test("official GO replay creates, passes and sheds decoys and targets the post-attack replacement", () => {
+  const match = setupSpecial({ manualSwitches: true, enemy: official("character_009") });
+  const ice = select("skill_029");
+  go.resolveTurn(match, { player: wait, enemy: wait });
+  const decoy = specialWait(match, "skill_041");
+  assert.ok(decoy.events.some(e => e.type === "decoy-created"));
+  const relay = specialWait(match, "skill_042");
+  assert.equal(relay.pendingSwitch.reason, "relay");
+  go.continueSwitch(match, "player", 1);
+  assert.ok(active(match).decoy);
+  go.resolveTurn(match, { player: voluntary(0), enemy: wait });
+  assert.equal(match.teams.player[1].decoy, null);
+  go.resolveTurn(match, { player: voluntary(1), enemy: wait });
+  const tail = specialWait(match, "skill_006");
+  assert.equal(tail.pendingSwitch.reason, "tail-purge");
+  go.continueSwitch(match, "player", 2);
+  assert.equal(active(match).decoy.maxHp, 41);
+  const post = go.resolveTurn(match, { player: select("skill_045"), enemy: ice });
+  assert.equal(post.pendingSwitch.reason, "post-attack");
+  const finished = go.continueSwitch(match, "player", 0);
+  assert.equal(finished.events.find(e => e.type === "move" && e.side === "enemy").target, "ユーズドマウス");
+  assert.equal(active(match).decoy, null);
+});

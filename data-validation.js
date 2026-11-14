@@ -184,7 +184,7 @@ function validateGeneOrderData(tables, imageExists) {
   }
 
   for (const table of ["effects", "battleEffects", "powerRules"]) {
-    const fields = table === "powerRules" ? ["min_ratio", "max_ratio", "power_multiplier"] : ["damage_value", "turn", "damage_cut", "modifier", "start_delay"];
+    const fields = table === "powerRules" ? ["min_ratio", "max_ratio", "power_multiplier"] : ["damage_value", "turn", "damage_cut", "modifier", "start_delay", "max_uses"];
     for (const row of tables[table]) {
       const id = row[GO_DATA_IDS[table]];
       numeric(table, id, row, fields);

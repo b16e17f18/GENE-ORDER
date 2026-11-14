@@ -1,4 +1,4 @@
-// GENE ORDER v0.32. The inherited MHB entry points below remain separate.
+// GENE ORDER v0.33. The inherited MHB entry points below remain separate.
 const geneOrderBattle = (() => {
   const START_ENERGY = 1;
   const MAX_ENERGY = 7;
@@ -83,13 +83,15 @@ const geneOrderBattle = (() => {
     const reason = attackBlockReason(defender, move, effectiveness === 0 || finalMultiplier === 0 ||
       modifiers.blocked === true);
     const virtualDamage = reason ? 0 : Math.max(1, roundHalfDown(afterEffectiveness * finalMultiplier));
-    const absorbed = virtualDamage > 0 && absorb?.definition.element === move.element;
-    const reflected = virtualDamage > 0 && !absorbed && reflection && guardApplies(reflection.definition, move);
-    const damage = absorbed || reflected ? 0 : virtualDamage;
+    const decoy = virtualDamage > 0 ? defender.decoy : null;
+    const decoyDamage = decoy ? Math.min(virtualDamage, decoy.hp) : 0;
+    const absorbed = virtualDamage > 0 && !decoy && absorb?.definition.element === move.element;
+    const reflected = virtualDamage > 0 && !decoy && !absorbed && reflection && guardApplies(reflection.definition, move);
+    const damage = decoy || absorbed || reflected ? 0 : virtualDamage;
     // Only this incoming attack can trigger a response. Returned damage is applied directly to HP.
     const response = reflected ? reflection : damage > 0 && damage < defender.hp ? revenge : null;
-    return { damage, power, attack, defense, baseDamage, stab, afterStab, effectiveness, afterEffectiveness,
-      reason: absorbed ? "absorbed" : reflected ? "reflected" : reason ?? "hit",
+    return { damage, decoyDamage, power, attack, defense, baseDamage, stab, afterStab, effectiveness, afterEffectiveness,
+      reason: decoy ? "decoy" : absorbed ? "absorbed" : reflected ? "reflected" : reason ?? "hit",
       response: response ? { id: response.id, damage: Math.max(1, Math.round(virtualDamage * response.definition.damage_value / 100)) } : null,
       heal: absorbed ? Math.floor(defender.maxHp * absorb.definition.modifier / 100) : 0 };
   }
@@ -138,6 +140,16 @@ const geneOrderBattle = (() => {
     return null;
   }
 
+  // Fractions keep exact HP costs even when max HP is divisible by the denominator.
+  function hpRatio(value) {
+    const match = /^(\d+)\/([1-9]\d*)$/.exec(value ?? "");
+    if (!match) return null;
+    const numerator = Number(match[1]);
+    const denominator = Number(match[2]);
+    return Number.isSafeInteger(numerator) && Number.isSafeInteger(denominator) &&
+      numerator > 0 && numerator <= denominator ? [numerator, denominator] : null;
+  }
+
   function battleEffectKind(effect) {
     if (!effect || Number(effect.turn) < 1) return null;
     if (effect.battle_effect_id === SWITCH_LOCK && effect.battle_effect_group === "control") return "bind-lock";
@@ -156,6 +168,12 @@ const geneOrderBattle = (() => {
     if (group === "trigger" && effect.damage_type === "received_damage_rate" && effect.damage_value > 0) return "revenge";
     if (group === "reflection" && effect.damage_type === "received_damage_rate" && effect.damage_value > 0) return "reflection";
     if (group === "charge") return "charge";
+    if (group === "relay") return "relay";
+    if (group === "change_character") return "post-attack";
+    if (["decoy", "bf_shed_tail"].includes(group) && hpRatio(effect.hp_cost_ratio) && hpRatio(effect.decoy_hp_ratio)) {
+      if (group === "decoy") return "decoy";
+      if (Number.isInteger(Number(effect.max_uses)) && Number(effect.max_uses) > 0) return "tail-purge";
+    }
     if (group === "position" && effect.weak_hit_type && positiveModifier && modifier <= 1) return "position";
     if (group === "hit_power" && effect.damage_type === "multiplier" && effect.damage_value > 0) return "hit-power";
     return null;
@@ -322,7 +340,7 @@ const geneOrderBattle = (() => {
       power: pending?.power, powerRules: battle.powerRules, battleEffects: battle.battleEffects,
       targetFields: fieldEffectsForSide(battle, other).values(), turn: battle.turn,
     });
-    return !pending && chargeSlot(move, battle) ? { ...result, damage: 0, response: null, heal: 0, reason: "charging" } : result;
+    return !pending && chargeSlot(move, battle) ? { ...result, damage: 0, decoyDamage: 0, response: null, heal: 0, reason: "charging" } : result;
   }
 
   function applyMoveEffects(battle, side, actor, defender, move, actualDamage, blocked, events, phase) {
@@ -337,7 +355,7 @@ const geneOrderBattle = (() => {
         move.category === "status" && move.hit_type !== defender.pending.definition.weak_hit_type) continue;
       const effect = battle[table].get(id);
       const kind = table === "battleEffects" ? battleEffectKind(effect) : effectKind(effect);
-      if (["charge", "position", "type-override", "hit-power"].includes(kind) ||
+      if (["charge", "position", "type-override", "hit-power", "decoy", "tail-purge", "relay", "post-attack"].includes(kind) ||
         (kind === "revenge" && slots.some((slot) => battleEffectKind(battle.battleEffects.get(slot.id)) === "reflection"))) continue;
       if (!rollChance(chance, battle.random)) continue;
       const event = { side: recipient === actor ? side : (side === "player" ? "enemy" : "player"),
@@ -417,17 +435,17 @@ const geneOrderBattle = (() => {
       throw new Error("戦闘個体のEN回復量が無効です。");
     }
     const fighter = { base: character, hp: character.hp, maxHp: character.hp, energy: START_ENERGY, fainted: false, dodgeActive: false, halfGuard: 0,
-      statuses: [], timedEffects: new Map(), defenses: new Map(), bind: null, pending: null, tookDirectDamage: false };
+      statuses: [], timedEffects: new Map(), defenses: new Map(), bind: null, pending: null, tookDirectDamage: false, decoy: null, moveUses: new Map() };
     resetStages(fighter);
     return fighter;
   }
 
   function createBattle({ player, enemy, skills, effectiveness, effects = new Map(), battleEffects = new Map(), powerRules = new Map(),
-    random = Math.random }) {
+    random = Math.random, manualSwitches = false, onSwitch = null }) {
     if (!player.length || !enemy.length) throw new Error("両チームに個体が必要です。");
     return {
       teams: { player: player.map(createFighter), enemy: enemy.map(createFighter) },
-      active: { player: 0, enemy: 0 }, fields: { player: new Map(), enemy: new Map() }, skills, effectiveness, effects, battleEffects, powerRules, random, turn: 1, winner: null,
+      active: { player: 0, enemy: 0 }, fields: { player: new Map(), enemy: new Map() }, skills, effectiveness, effects, battleEffects, powerRules, random, turn: 1, winner: null, manualSwitches, onSwitch, pendingSwitch: null,
     };
   }
 
@@ -437,14 +455,13 @@ const geneOrderBattle = (() => {
 
   function checkAction(battle, side, action) {
     const fighter = activeFighter(battle, side);
+    if (battle.pendingSwitch) return "交代先の選択待ちです。";
     if (battle.winner || !fighter || fighter.fainted) return "行動できません。";
     if (fighter.pending && (action?.type !== "move" || action.moveId !== fighter.pending.moveId)) return "溜め技の予約行動が優先されます。";
     if (action?.type === "wait") return "";
     if (action?.type === "switch") {
       if (fighter.bind) return "締め付けで交代できません。";
-      const canSwitch = Number.isInteger(action.index) && action.index !== battle.active[side] &&
-        battle.teams[side][action.index] && !battle.teams[side][action.index].fainted;
-      return canSwitch ? "" : "交代先に指定できません。";
+      return switchTargets(battle, side).includes(action.index) ? "" : "交代先に指定できません。";
     }
     if (action?.type !== "move" || (action.moveId !== COMMON_MOVE_ID && !fighter.base.skillIds.includes(action.moveId))) return "選択できない技です。";
     const move = battle.skills.get(action.moveId);
@@ -454,7 +471,99 @@ const geneOrderBattle = (() => {
     if ((move.category === "attack" && (!Number.isFinite(move.power) || move.power <= 0)) || !Number.isInteger(move.priority)) {
       return "技の威力または優先度が無効です。";
     }
-    return !fighter.pending && fighter.energy < move.cost ? "ENが不足しています。" : "";
+    if (!fighter.pending && fighter.energy < move.cost) return "ENが不足しています。";
+    const effect = specialSwitchEffect(move, battle);
+    if (!effect) return "";
+    const reason = battleEffectKind(effect.definition);
+    if (reason === "decoy" || reason === "tail-purge") {
+      const error = decoyError(fighter, effect.definition);
+      if (error) return error;
+    }
+    if (["tail-purge", "relay"].includes(reason) && !switchTargets(battle, side).length) return "生存している控えがいません。";
+    if (reason !== "decoy" && action.switchIndex != null && !switchTargets(battle, side).includes(action.switchIndex)) {
+      return "交代先に指定できません。";
+    }
+    return "";
+  }
+
+  function switchTargets(battle, side) {
+    return battle.teams[side].flatMap((fighter, index) =>
+      index !== battle.active[side] && !fighter.fainted && fighter.hp > 0 ? [index] : []);
+  }
+
+  function specialSwitchEffect(move, battle) {
+    for (const slot of moveEffects(move)) {
+      if (slot.table !== "battleEffects") continue;
+      const definition = battle.battleEffects.get(slot.id);
+      if (["decoy", "tail-purge", "relay", "post-attack"].includes(battleEffectKind(definition))) {
+        return { definition, chance: slot.chance };
+      }
+    }
+    return null;
+  }
+
+  function decoyValues(fighter, definition) {
+    const fraction = (value) => {
+      const [n, d] = hpRatio(value);
+      return Math.floor(fighter.maxHp * n / d);
+    };
+    return { cost: fraction(definition.hp_cost_ratio), maxHp: fraction(definition.decoy_hp_ratio) };
+  }
+
+  function decoyError(fighter, definition) {
+    if (definition.max_uses != null && (fighter.moveUses.get(definition.battle_effect_id) ?? 0) >= definition.max_uses) {
+      return "テールパージは使用済みです。";
+    }
+    if (fighter.decoy) return "デコイがすでに存在します。";
+    const { cost, maxHp } = decoyValues(fighter, definition);
+    if (maxHp < 1 || fighter.hp <= cost) return "デコイを出すためのHPが不足しています。";
+    return "";
+  }
+
+  function createDecoy(fighter, definition, side, events) {
+    const { cost, maxHp } = decoyValues(fighter, definition);
+    fighter.hp -= cost;
+    fighter.decoy = { hp: maxHp, maxHp };
+    if (definition.max_uses != null) {
+      const id = definition.battle_effect_id;
+      fighter.moveUses.set(id, (fighter.moveUses.get(id) ?? 0) + 1);
+    }
+    events.push({ type: "decoy-created", side, actor: fighter.base.name, cost, maxHp });
+  }
+
+  function switchFighter(battle, side, index, reason, events) {
+    if (!switchTargets(battle, side).includes(index)) throw new Error("交代先に指定できません。");
+    const from = activeFighter(battle, side);
+    const to = battle.teams[side][index];
+    const notify = (phase) => battle.onSwitch?.({ phase, battle, side, reason, from, to });
+    notify("before-switch");
+    notify("leave");
+    const stages = reason === "relay" ? { ...from.stages } : null;
+    const decoy = reason === "relay" || reason === "tail-purge" ? from.decoy : null;
+    resetStages(from);
+    from.timedEffects.clear();
+    from.defenses.clear();
+    from.dodgeActive = false;
+    from.halfGuard = 0;
+    from.pending = null;
+    from.bind = null;
+    from.decoy = null;
+    from.tookDirectDamage = false;
+    releaseBinds(battle, events, from);
+    if (stages) to.stages = stages;
+    to.decoy = decoy;
+    battle.active[side] = index;
+    notify("enter");
+    events.push({ type: reason === "replacement" ? "replacement" : "switch", side, reason,
+      actor: from.base.name, target: to.base.name, inheritedStages: stages, decoyHp: decoy?.hp ?? 0 });
+    notify("after-switch");
+  }
+
+  function* selectSwitch(battle, side, reason, index) {
+    const candidates = switchTargets(battle, side);
+    if (!candidates.length) return null;
+    if (candidates.includes(index)) return index;
+    return battle.manualSwitches ? yield { side, reason, candidates } : candidates[0];
   }
 
   function orderActions(battle, selected) {
@@ -490,6 +599,7 @@ const geneOrderBattle = (() => {
   function recordFaint(battle, side, fighter, events) {
     fighter.bind = null;
     fighter.pending = null;
+    fighter.decoy = null;
     fighter.defenses.clear();
     events.push({ type: "faint", side, actor: fighter.base.name });
     releaseBinds(battle, events, fighter);
@@ -542,23 +652,34 @@ const geneOrderBattle = (() => {
       const error = checkAction(battle, side, selected[side]);
       if (error) throw new Error(`${side}: ${error}`);
     }
-    const events = [];
-    const turn = battle.turn;
-    for (const { side, action, actor, move } of orderActions(battle, selected)) {
+    const state = { turn: battle.turn, events: [] };
+    return advanceTurn(battle, state, runTurn(battle, orderActions(battle, selected), state.events));
+  }
+
+  function advanceTurn(battle, state, iterator, choice) {
+    const next = iterator.next(choice);
+    battle.pendingSwitch = next.done ? null : next.value;
+    battle.turnContinuation = next.done ? null : { state, iterator };
+    return { turn: state.turn, events: state.events.splice(0), winner: battle.winner, pendingSwitch: battle.pendingSwitch };
+  }
+
+  function continueSwitch(battle, side, index) {
+    const pending = battle.pendingSwitch;
+    if (!pending || pending.side !== side || !pending.candidates.includes(index) ||
+      !switchTargets(battle, side).includes(index)) throw new Error("交代先に指定できません。");
+    const { state, iterator } = battle.turnContinuation;
+    return advanceTurn(battle, state, iterator, index);
+  }
+
+  function* runTurn(battle, actions, events) {
+    for (const { side, action, actor, move } of actions) {
       if (actor.fainted) {
         events.push({ type: "skipped", side, actor: actor.base.name });
         continue;
       }
       const other = side === "player" ? "enemy" : "player";
       if (action.type === "switch") {
-        resetStages(actor);
-        actor.timedEffects.clear();
-        actor.defenses.clear();
-        actor.dodgeActive = false;
-        actor.halfGuard = 0;
-        releaseBinds(battle, events, actor);
-        battle.active[side] = action.index;
-        events.push({ type: "switch", side, actor: actor.base.name, target: activeFighter(battle, side).base.name });
+        switchFighter(battle, side, action.index, "normal", events);
         continue;
       }
       if (action.type === "wait") {
@@ -566,6 +687,21 @@ const geneOrderBattle = (() => {
         continue;
       }
       const defender = activeFighter(battle, other);
+      const special = specialSwitchEffect(move, battle);
+      const kind = special && battleEffectKind(special.definition);
+      let switchIndex = null;
+      let specialTriggered = false;
+      if (["tail-purge", "relay", "decoy"].includes(kind)) {
+        if ((kind !== "decoy" && !switchTargets(battle, side).length) ||
+          (kind !== "relay" && decoyError(actor, special.definition))) {
+          events.push({ type: "move-failed", side, actor: actor.base.name, move: move.name });
+          continue;
+        }
+        specialTriggered = rollChance(special.chance, battle.random);
+        if (specialTriggered && kind !== "decoy") {
+          switchIndex = yield* selectSwitch(battle, side, kind, action.switchIndex);
+        }
+      }
       const pending = actor.pending;
       const charge = !pending && chargeSlot(move, battle);
       const result = previewDamage(battle, side, move);
@@ -579,9 +715,18 @@ const geneOrderBattle = (() => {
       }
       actor.pending = null;
       const actualDamage = applyHPDamage(defender, result.damage);
+      const decoyDamage = result.decoyDamage ?? 0;
+      if (decoyDamage) {
+        defender.decoy.hp -= decoyDamage;
+        events.push({ type: "decoy-hit", side: other, actor: defender.base.name, damage: decoyDamage, hp: defender.decoy.hp });
+        if (!defender.decoy.hp) {
+          defender.decoy = null;
+          events.push({ type: "decoy-broken", side: other, actor: defender.base.name });
+        }
+      }
       if (actualDamage > 0) defender.tookDirectDamage = true;
       events.push({ type: "move", side, actor: actor.base.name, target: defender.base.name, move: move.name,
-        category: move.category, cost, power: result.power, damage: result.damage, actualDamage, reason: result.reason });
+        category: move.category, cost, power: result.power, damage: result.damage, actualDamage, decoyDamage, reason: result.reason });
       if (result.reason === "evaded") events.push({ type: "evaded", side: other, actor: defender.base.name, move: move.name });
       if (result.reason === "absorbed") {
         const recovered = Math.min(result.heal, defender.maxHp - defender.hp);
@@ -593,11 +738,19 @@ const geneOrderBattle = (() => {
         events.push({ type: result.response.id === "reflection" ? "reflected" : "revenge", side: other,
           actor: defender.base.name, target: actor.base.name, damage: applyHPDamage(actor, result.response.damage) });
       }
-      applyMoveEffects(battle, side, actor, defender, move, actualDamage,
+      applyMoveEffects(battle, side, actor, defender, move, actualDamage + decoyDamage,
         move.category === "attack" && result.reason !== "hit", events, pending ? "release" : null);
       if (defender.fainted) recordFaint(battle, other, defender, events);
       if (actor.fainted) recordFaint(battle, side, actor, events);
       if (defender.fainted || actor.fainted) determineWinner(battle, events);
+      if (battle.winner || actor.fainted) continue;
+      if (specialTriggered && (kind === "decoy" || kind === "tail-purge")) createDecoy(actor, special.definition, side, events);
+      if (switchIndex !== null) switchFighter(battle, side, switchIndex, kind, events);
+      if (kind === "post-attack" && (actualDamage > 0 || decoyDamage > 0) && switchTargets(battle, side).length &&
+        rollChance(special.chance, battle.random)) {
+        const index = yield* selectSwitch(battle, side, kind, action.switchIndex);
+        switchFighter(battle, side, index, kind, events);
+      }
     }
 
     if (!battle.winner) finishResiduals(battle, events);
@@ -628,16 +781,15 @@ const geneOrderBattle = (() => {
       }
       for (const side of SIDES) {
         if (!activeFighter(battle, side).fainted) continue;
-        battle.active[side] = battle.teams[side].findIndex((candidate) => !candidate.fainted);
-        events.push({ type: "replacement", side, target: activeFighter(battle, side).base.name });
+        const index = yield* selectSwitch(battle, side, "replacement");
+        switchFighter(battle, side, index, "replacement", events);
       }
       battle.turn += 1;
     }
-    return { turn, events, winner: battle.winner };
   }
 
   return { START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, statValue, changeEnergy,
-    calculateDamage, previewDamage, effectiveSpeed, evasionRate, moveAvailability, unsupportedMoveReason, effectKind, battleEffectKind, createBattle, activeFighter, checkAction, resolveTurn };
+    calculateDamage, previewDamage, effectiveSpeed, evasionRate, moveAvailability, unsupportedMoveReason, effectKind, battleEffectKind, createBattle, activeFighter, switchTargets, checkAction, resolveTurn, continueSwitch };
 })();
 
 // Pure battle calculation and battle-state helpers shared by app.js.

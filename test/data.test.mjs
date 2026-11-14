@@ -225,3 +225,35 @@ test("reloading CSV over the data loader changes live battle tuning without code
   assert.deepEqual(JSON.parse(go.run(scenario)), [195, 35, 6, 100, 150]);
   assert.deepEqual(JSON.parse(updated.run(scenario)), [200, 70, 2, 50, 200]);
 });
+
+test("the HTTP loader re-reads decoy cost, durability, use cap, EN and proc rate", async () => {
+  const revised = runtime({ transforms: {
+    "./data/battle_effect.csv": (csv) => csv.replace("2/3,1/3,1", "1/3,1/2,2"),
+    "./data/skill.csv": (csv) => csv.replace(",shed_tail,100,none,0,self,0,2,", ",shed_tail,50,none,0,self,0,1,"),
+  } });
+  await revised.boot();
+  function simulate(environment, roll) {
+    return JSON.parse(environment.run(`
+      (() => {
+        const b = geneOrderBattle.createBattle({
+          player: [state.characterMap.get("character_001"), state.characterMap.get("character_015")],
+          enemy: [state.characterMap.get("character_009")], skills: state.skills, effects: state.effects,
+          battleEffects: state.battleEffects, powerRules: state.powerRules, effectiveness: state.effectiveness,
+          random: () => ${roll},
+        });
+        const original = geneOrderBattle.activeFighter(b, "player");
+        geneOrderBattle.changeEnergy(original, 6);
+        geneOrderBattle.resolveTurn(b, { player: { type: "move", moveId: "skill_006", switchIndex: 1 }, enemy: { type: "wait" } });
+        const decoy = geneOrderBattle.activeFighter(b, "player").decoy?.maxHp ?? 0;
+        if (b.active.player === 1) {
+          geneOrderBattle.resolveTurn(b, { player: { type: "switch", index: 0 }, enemy: { type: "wait" } });
+        }
+        const allowedAgain = geneOrderBattle.checkAction(b, "player", { type: "move", moveId: "skill_006" }) === "";
+        return JSON.stringify([original.hp, decoy, original.energy, b.active.player, allowedAgain]);
+      })()
+    `));
+  }
+  assert.deepEqual(simulate(go, 0.9), [42, 41, 6, 0, false]);
+  assert.deepEqual(simulate(revised, 0.4), [84, 62, 7, 0, true]);
+  assert.deepEqual(simulate(revised, 0.5), [125, 0, 7, 0, true]);
+});
