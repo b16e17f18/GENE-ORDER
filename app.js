@@ -4011,8 +4011,8 @@ function mountGeneOrderBattlePreview() {
   function newBattle() {
     const team = (...ids) => ids.map((id) => state.characterMap.get(id));
     return geneOrderBattle.createBattle({
-      player: team("character_002", "character_006"),
-      enemy: team("character_007", "character_009"),
+      player: team("character_003", "character_020", "character_023"),
+      enemy: team("character_009", "character_021", "character_007"),
       skills: state.skills,
       effectiveness: state.effectiveness,
       effects: state.effects,
@@ -4030,6 +4030,7 @@ function mountGeneOrderBattlePreview() {
       const stages = Object.entries(active.stages).map(([stat, stage]) => `${statLabels[stat]} ${stage > 0 ? "+" : ""}${stage}`);
       const defense = [active.dodgeActive ? "回避成功状態" : "", active.halfGuard ? "半減防御" : ""].filter(Boolean);
       const conditions = active.statuses.map(({ definition, turns }) => `${definition.name} 残り${turns}ターン`);
+      if (active.pending) conditions.push(`予約：${state.skills.get(active.pending.moveId).name}（威力${active.pending.power}）`);
       if (active.bind) conditions.push(`締め付け 残り${active.bind.turns}ターン`);
       const timedLabel = ({ definition, starts, expires }) => starts > battle.turn
         ? `${definition.name}（ターン${starts}から${expires - starts}ターン）`
@@ -4047,7 +4048,11 @@ function mountGeneOrderBattlePreview() {
       const commonDodge = state.skills.get("skill_000");
       if (commonDodge && !moves.includes(commonDodge)) moves.push(commonDodge);
       for (const move of moves) {
-        addOption(`${move.name} (EN ${move.cost})`, `move:${move.skill_id}`, { type: "move", moveId: move.skill_id });
+        const action = { type: "move", moveId: move.skill_id };
+        const pending = active.pending?.moveId === move.skill_id;
+        const preview = !battle.winner && !geneOrderBattle.checkAction(battle, side, action) && move.category === "attack"
+          ? geneOrderBattle.previewDamage(battle, side, move) : null;
+        addOption(`${move.name} (EN ${pending ? 0 : move.cost}${preview ? ` / 威力 ${preview.power}` : ""})`, `move:${move.skill_id}`, action);
       }
       battle.teams[side].forEach((fighter, index) => {
         if (index !== battle.active[side] && !fighter.fainted) {
@@ -4073,7 +4078,13 @@ function mountGeneOrderBattlePreview() {
       const sideName = (side) => side === "player" ? "自分側" : "相手側";
       const describe = {
         move: (e) => `${e.actor}の${e.move}（EN −${e.cost}）` +
-          (e.category === "attack" ? ` → ${e.target}に${e.actualDamage}ダメージ` : ""),
+          (e.category === "attack" ? ` → ${e.target}に${e.actualDamage}ダメージ（威力${e.power}）` : ""),
+        charge: (e) => `${e.actor}は${e.move}を予約（威力${e.power}、EN −${e.cost}）`,
+        "defense-ready": (e) => `${e.actor}は${e.name}を構えた`,
+        absorbed: (e) => `${e.actor}は水技を吸収しHPを${e.recovered}回復`,
+        reflected: (e) => `${e.actor}は${e.target}に${e.damage}ダメージを反射`,
+        revenge: (e) => `${e.actor}は${e.target}に${e.damage}ダメージの反撃`,
+        recoil: (e) => `${e.actor}は反動で${e.damage}ダメージ`,
         "dodge-attempt": (e) => `${e.actor}の回避判定（${e.chance}%）${e.success ? "成功：回避状態" : "失敗"}`,
         evaded: (e) => `${e.actor}は${e.move}を回避した`,
         "half-guard": (e) => `${e.actor}は被ダメージ半減状態になった`,
@@ -4368,6 +4379,8 @@ function normalizeBattleEffect(row) {
     weak_hit_type: safeText(row.weak_hit_type, "none"),
     damage_cut: number(row.damage_cut),
     start_delay: number(row.start_delay),
+    element: safeText(row.element),
+    modifier: optionalNumber(row.modifier),
     start_text: csvText(row.start_text),
     animation: animationAssetName(row.animation),
     animation_duration_ms: Math.max(0, number(row.animation_duration_ms)),

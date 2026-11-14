@@ -21,3 +21,5 @@ bf_heal_en,EN1回復,heal,none,1,0,TRUE,en,{target}のENが回復した！
 回避率UP,回避率上昇,evasion,multiplier,2,1,TRUE,evasion_percent,
 場リセット,フィールド解除,clear_field,none,0,0,TRUE,none,
 しめつける,締め付け,damage,percent_maxhp,10,3,TRUE,none,
+反動ダメージ1/4,反動ダメージ,recoil,actual_damage_percent,25,0,TRUE,hp,
+clear_buff,能力上昇解除,clear_buff,none,0,0,TRUE,none,

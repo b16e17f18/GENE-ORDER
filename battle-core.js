@@ -1,4 +1,4 @@
-// GENE ORDER v0.31. The inherited MHB entry points below remain separate.
+// GENE ORDER v0.32. The inherited MHB entry points below remain separate.
 const geneOrderBattle = (() => {
   const START_ENERGY = 1;
   const MAX_ENERGY = 7;
@@ -37,13 +37,13 @@ const geneOrderBattle = (() => {
     fighter.energy = Math.max(0, Math.min(MAX_ENERGY, fighter.energy + delta));
   }
 
-  function effectivenessFor(element, defender, chart) {
+  function effectivenessFor(element, defender, chart, override) {
     const row = chart.get(element);
     const defendingTypes = [defender.element_1, defender.element_2].filter((type) => type != null);
     if (!row || !defendingTypes.length) throw new Error("攻撃技または防御側の属性が未定義です。");
     let multiplier = 1;
     for (const type of new Set(defendingTypes)) {
-      const factor = row.get(type);
+      const factor = override?.element === type ? override.modifier : row.get(type);
       if (!Number.isFinite(factor) || factor < 0) throw new Error(`属性相性が未定義です (${element}/${type})。`);
       multiplier *= factor;
     }
@@ -56,11 +56,21 @@ const geneOrderBattle = (() => {
     const stats = Object.hasOwn(DAMAGE_STATS, move.attack_type) && DAMAGE_STATS[move.attack_type];
     if (!stats || move.element2 != null) throw new Error("未対応の攻撃分類または複合属性技です。");
 
-    const power = modifiers.power ?? resolvePower(move, attacker, defender, modifiers.powerRules);
+    const effects = moveEffects(move).filter(({ table, chance }) => table === "battleEffects" && chance > 0)
+      .map(({ id }) => modifiers.battleEffects?.get(id)).filter(Boolean);
+    const override = effects.find((effect) => battleEffectKind(effect) === "type-override");
+    const power = modifiers.power ?? resolvePower(move, attacker, defender, modifiers.powerRules, effects);
+    const pierce = move.hit_type === "guard_break"
+      ? effects.find((effect) => battleEffectKind(effect) === "position")?.modifier ?? 1 : 1;
+    const absorb = activeDefense(defender, "absorb", modifiers.turn ?? 1);
+    const reflection = activeDefense(defender, "reflection", modifiers.turn ?? 1);
+    const revenge = activeDefense(defender, "revenge", modifiers.turn ?? 1);
     const attack = statValue(attacker, modifiers.attackStat ?? (move.skill_id === "skill_033" ? "phy_def" : stats[0]));
     const defense = statValue(defender, stats[1]);
-    const finalMultiplier = (modifiers.finalMultiplier ?? (100 - (defender.halfGuard ?? 0)) / 100) *
-      fieldDamageMultiplier(move, modifiers.targetFields ?? [], modifiers.turn ?? 1);
+    const guard = activeDefense(defender, "guard", modifiers.turn ?? 1);
+    const cut = Math.max(guard?.definition.damage_cut ?? (defender.halfGuard ?? 0), absorb?.definition.damage_cut ?? 0);
+    const finalMultiplier = (modifiers.finalMultiplier ?? (100 - cut * pierce) / 100) *
+      fieldDamageMultiplier(move, modifiers.targetFields ?? [], modifiers.turn ?? 1, pierce);
     if (!Number.isFinite(power) || power <= 0 || !Number.isFinite(finalMultiplier) || finalMultiplier < 0) {
       throw new Error("技威力または最終補正が無効です。");
     }
@@ -68,16 +78,35 @@ const geneOrderBattle = (() => {
     const baseDamage = Math.floor(22 * power * attack / (50 * defense)) + 2;
     const stab = [attacker.base.element_1, attacker.base.element_2].includes(move.element) ? 1.5 : 1;
     const afterStab = roundHalfDown(baseDamage * stab);
-    const effectiveness = effectivenessFor(move.element, defender.base, chart);
+    const effectiveness = effectivenessFor(move.element, defender.base, chart, override);
     const afterEffectiveness = Math.floor(afterStab * effectiveness);
-    const evaded = defender.dodgeActive === true && move.hit_type !== "ignore_dodge";
-    const immune = effectiveness === 0;
-    const blocked = immune || evaded || finalMultiplier === 0 || modifiers.blocked === true;
-    const damage = blocked ? 0 : Math.max(1, roundHalfDown(afterEffectiveness * finalMultiplier));
+    const reason = attackBlockReason(defender, move, effectiveness === 0 || finalMultiplier === 0 ||
+      modifiers.blocked === true);
+    const virtualDamage = reason ? 0 : Math.max(1, roundHalfDown(afterEffectiveness * finalMultiplier));
+    const absorbed = virtualDamage > 0 && absorb?.definition.element === move.element;
+    const reflected = virtualDamage > 0 && !absorbed && reflection && guardApplies(reflection.definition, move);
+    const damage = absorbed || reflected ? 0 : virtualDamage;
+    // Only this incoming attack can trigger a response. Returned damage is applied directly to HP.
+    const response = reflected ? reflection : damage > 0 && damage < defender.hp ? revenge : null;
     return { damage, power, attack, defense, baseDamage, stab, afterStab, effectiveness, afterEffectiveness,
-      reason: evaded && !immune ? "evaded" : blocked ? "blocked" : "hit" };
+      reason: absorbed ? "absorbed" : reflected ? "reflected" : reason ?? "hit",
+      response: response ? { id: response.id, damage: Math.max(1, Math.round(virtualDamage * response.definition.damage_value / 100)) } : null,
+      heal: absorbed ? Math.floor(defender.maxHp * absorb.definition.modifier / 100) : 0 };
   }
 
+
+  function attackBlockReason(defender, move, immune) {
+    if (immune) return "blocked";
+    if (defender.pending?.definition.battle_effect_group === "position" &&
+      move.hit_type !== defender.pending.definition.weak_hit_type) return "position-miss";
+    if (defender.dodgeActive && move.hit_type !== "ignore_dodge") return "evaded";
+    return null;
+  }
+
+  function activeDefense(fighter, kind, turn) {
+    return [...(fighter.defenses?.values() ?? [])].find((effect) => activeTimed(effect, turn) &&
+      battleEffectKind(effect.definition) === kind);
+  }
 
   const COMMON_MOVE_ID = "skill_000";
   const DODGE_ID = "bf_dodge_guard";
@@ -100,6 +129,8 @@ const geneOrderBattle = (() => {
     }
     if (effect.effect_group === "evasion" && effect.damage_type === "multiplier") return "evasion-boost";
     if (effect.effect_group === "clear_field") return "clear-field";
+    if (effect.effect_group === "clear_buff") return "clear-buff";
+    if (effect.effect_group === "recoil" && effect.damage_type === "actual_damage_percent" && value > 0) return "recoil";
     if (effect.effect_group !== "heal" || value < 0) return null;
     if (effect.target_stat === "hp" && effect.damage_type === "percent_maxhp") return "heal";
     if (effect.target_stat === "hp" && effect.damage_type === "actual_damage_percent") return "drain";
@@ -114,26 +145,49 @@ const geneOrderBattle = (() => {
     if (effect.battle_effect_group === "guard" && effect.battle_effect_id !== GUARD_ID &&
       (["phy_damage", "sp_damage"].includes(effect.guard_type) || effect.guard_type?.endsWith("_damage")) &&
       Number(effect.damage_cut) > 0 && Number(effect.damage_cut) <= 100) return "field-guard";
-    if (Number(effect.turn) !== 1) return null;
+    const cut = Number(effect.damage_cut);
     if (effect.battle_effect_id === DODGE_ID && effect.battle_effect_group === DODGE_ID) return "dodge";
-    if (effect.battle_effect_id === GUARD_ID && effect.battle_effect_group === "guard" &&
-      Number(effect.damage_cut) === 50) return "guard";
+    if (effect.battle_effect_id === GUARD_ID && effect.battle_effect_group === "guard" && cut >= 0 && cut <= 100) return "guard";
+    const group = effect.battle_effect_group;
+    const modifier = Number(effect.modifier);
+    const positiveModifier = modifier > 0 && Number.isFinite(modifier);
+    if (group === "bf_water_absorb_guard" && effect.element && positiveModifier && cut >= 0 && cut <= 100) return "absorb";
+    if (group === "bf_water_super_effective" && effect.element && positiveModifier) return "type-override";
+    if (group === "trigger" && effect.damage_type === "received_damage_rate" && effect.damage_value > 0) return "revenge";
+    if (group === "reflection" && effect.damage_type === "received_damage_rate" && effect.damage_value > 0) return "reflection";
+    if (group === "charge") return "charge";
+    if (group === "position" && effect.weak_hit_type && positiveModifier && modifier <= 1) return "position";
+    if (group === "hit_power" && effect.damage_type === "multiplier" && effect.damage_value > 0) return "hit-power";
     return null;
   }
 
-  function binaryPowerRule(move, powerRules, condition) {
-    if (![HP_ONE_RULE, TARGET_STATUS_RULE].includes(move.power_rule)) return null;
-    const value = Number(condition);
-    return powerRules?.get(move.power_rule)?.find((rule) => rule.min_ratio === value && rule.max_ratio === value &&
-      Number.isFinite(rule.power_multiplier) && rule.power_multiplier > 0) ?? null;
+  function powerRuleAt(group, powerRules, value) {
+    if (![HP_ONE_RULE, TARGET_STATUS_RULE, "en_value"].includes(group)) return null;
+    return powerRules?.get(group)?.find(({ min_ratio: min, max_ratio: max, power_multiplier: multiplier }) =>
+      Number.isFinite(multiplier) && multiplier > 0 && (min === max ? value === min :
+        value >= min && (max === null || value < max))) ?? null;
   }
 
-  function resolvePower(move, attacker, defender, powerRules) {
-    if (!move.power_rule || move.power_rule === "none") return move.power;
-    const condition = move.power_rule === HP_ONE_RULE ? attacker.hp === 1 : Boolean(defender.statuses?.length);
-    const rule = binaryPowerRule(move, powerRules, condition);
-    if (!rule) throw new Error(`未対応の威力ルール ${move.power_rule}`);
-    return Math.min(Math.round(move.power * rule.power_multiplier), move.power_cap ?? Infinity);
+  function resolvePower(move, attacker, defender, powerRules, effects = []) {
+    const group = move.power_rule;
+    let multiplier = 1;
+    if (group && group !== "none") {
+      const value = group === "en_value" ? attacker.energy : group === HP_ONE_RULE
+        ? Number(attacker.hp === 1) : Number(Boolean(defender.statuses?.length));
+      const rule = powerRuleAt(group, powerRules, value);
+      if (!rule) throw new Error(`未対応の威力ルール ${group}`);
+      multiplier = rule.power_multiplier;
+    }
+    if (attacker.tookDirectDamage) {
+      const boost = effects.find((effect) => battleEffectKind(effect) === "hit-power");
+      if (boost) multiplier *= boost.damage_value;
+    }
+    return Math.min(Math.round(move.power * multiplier), move.power_cap ?? Infinity);
+  }
+
+  function chargeSlot(move, data) {
+    return moveEffects(move).find(({ id, table, chance }) => table === "battleEffects" && chance > 0 &&
+      ["charge", "position"].includes(battleEffectKind(data.battleEffects?.get(id))));
   }
 
   function moveEffects(move) {
@@ -153,7 +207,8 @@ const geneOrderBattle = (() => {
     if (!move) return { issues: ["技が登録されていません。"], supportedParts: 0 };
     const issues = [];
     const attack = move.category === "attack";
-    const normalHit = !move.hit_type || ["normal", "ignore_dodge"].includes(move.hit_type);
+    const normalHit = !move.hit_type || ["normal", "ignore_dodge", "sure_hit"].includes(move.hit_type) ||
+      (move.hit_type === "guard_break" && Boolean(chargeSlot(move, data)));
     const validAttack = Object.hasOwn(DAMAGE_STATS, move.attack_type) && move.element != null &&
       move.element2 == null && (!move.target || move.target === "enemy");
     let supportedParts = Number(attack && validAttack);
@@ -161,7 +216,8 @@ const geneOrderBattle = (() => {
     if (!attack && move.category !== "status") issues.push("技分類");
     if (!normalHit) issues.push(`命中種別 ${move.hit_type}`);
     if (move.power_rule && move.power_rule !== "none" &&
-      (!binaryPowerRule(move, data.powerRules, true) || !binaryPowerRule(move, data.powerRules, false))) {
+      !(move.power_rule === "en_value" ? Array.from({ length: MAX_ENERGY + 1 }, (_, en) => en) : [0, 1])
+        .every((value) => powerRuleAt(move.power_rule, data.powerRules, value))) {
       issues.push(`威力ルール ${move.power_rule}`);
     }
     const slots = moveEffects(move);
@@ -171,11 +227,15 @@ const geneOrderBattle = (() => {
       if (kind) supportedParts++;
       else issues.push(id);
     }
+    for (const slot of slots) {
+      const effect = data.battleEffects?.get(slot.id);
+      if (slot.table === "battleEffects" && ["type-override", "hit-power", "charge", "position"].includes(battleEffectKind(effect)) &&
+          slot.chance !== 100) issues.push(`${slot.id}の発動率`);
+    }
     const bind = slots.find(({ id }) => id === BIND_EFFECT);
     const lock = slots.find(({ id }) => id === SWITCH_LOCK);
     if (bind || lock) {
-      if (!bind || !lock || bind.target !== "enemy" ||
-        Number(data.effects?.get(BIND_EFFECT)?.turn) !== Number(data.battleEffects?.get(SWITCH_LOCK)?.turn)) {
+      if (!bind || !lock || bind.target !== "enemy") {
         issues.push("締め付けと交代封じの定義不整合");
       }
     }
@@ -185,7 +245,7 @@ const geneOrderBattle = (() => {
 
   function unsupportedMoveReason(move, data) {
     const { issues } = moveAvailability(move, data);
-    return issues.length ? `v0.31未対応（${issues.join("、")}）` : "";
+    return issues.length ? `v0.32未対応（${issues.join("、")}）` : "";
   }
 
   function rollChance(chance, random) {
@@ -227,11 +287,11 @@ const geneOrderBattle = (() => {
     return type === move.element + "_damage";
   }
 
-  function fieldDamageMultiplier(move, effects, turn) {
+  function fieldDamageMultiplier(move, effects, turn, pierce) {
     let multiplier = 1;
     for (const effect of effects) {
       if (activeTimed(effect, turn) && effect.definition.battle_effect_group === "guard" &&
-        guardApplies(effect.definition, move)) multiplier *= (100 - effect.definition.damage_cut) / 100;
+        guardApplies(effect.definition, move)) multiplier *= (100 - effect.definition.damage_cut * pierce) / 100;
     }
     return multiplier;
   }
@@ -256,46 +316,71 @@ const geneOrderBattle = (() => {
 
   function previewDamage(battle, side, move) {
     const other = side === "player" ? "enemy" : "player";
-    return calculateDamage(activeFighter(battle, side), activeFighter(battle, other), move, battle.effectiveness,
-      { powerRules: battle.powerRules, targetFields: fieldEffectsForSide(battle, other).values(), turn: battle.turn });
+    const actor = activeFighter(battle, side);
+    const pending = actor.pending?.moveId === move.skill_id ? actor.pending : null;
+    const result = calculateDamage(actor, activeFighter(battle, other), move, battle.effectiveness, {
+      power: pending?.power, powerRules: battle.powerRules, battleEffects: battle.battleEffects,
+      targetFields: fieldEffectsForSide(battle, other).values(), turn: battle.turn,
+    });
+    return !pending && chargeSlot(move, battle) ? { ...result, damage: 0, response: null, heal: 0, reason: "charging" } : result;
   }
 
-  function applyMoveEffects(battle, side, actor, defender, move, actualDamage, blocked, events) {
+  function applyMoveEffects(battle, side, actor, defender, move, actualDamage, blocked, events, phase) {
     const slots = moveEffects(move);
     for (const { id, chance, target, table } of slots) {
       // The CSV pair is one effect instance. The lock slot drives application.
-      if (id === BIND_EFFECT) continue;
+      if (id === BIND_EFFECT || actor.fainted ||
+        (phase === "charge" && target !== "self") || (phase === "release" && target === "self")) continue;
       const recipient = target === "self" ? actor : defender;
       if (recipient === defender && (defender.fainted || blocked)) continue;
-      if (!rollChance(chance, battle.random)) continue;
+      if (recipient === defender && defender.pending?.definition.battle_effect_group === "position" &&
+        move.category === "status" && move.hit_type !== defender.pending.definition.weak_hit_type) continue;
       const effect = battle[table].get(id);
+      const kind = table === "battleEffects" ? battleEffectKind(effect) : effectKind(effect);
+      if (["charge", "position", "type-override", "hit-power"].includes(kind) ||
+        (kind === "revenge" && slots.some((slot) => battleEffectKind(battle.battleEffects.get(slot.id)) === "reflection"))) continue;
+      if (!rollChance(chance, battle.random)) continue;
       const event = { side: recipient === actor ? side : (side === "player" ? "enemy" : "player"),
         actor: recipient.base.name, effect: id };
       if (table === "battleEffects") {
-        if (battleEffectKind(effect) === "dodge") {
+        if (kind === "dodge") {
           const chance = evasionRate(actor, battle.turn);
           const success = rollChance(chance, battle.random);
-          actor.dodgeActive ||= success;
+          if (success) {
+            actor.dodgeActive = true;
+            setTimedEffect(actor.defenses, effect, battle.turn);
+          }
           events.push({ ...event, type: "dodge-attempt", chance, success });
-        } else if (battleEffectKind(effect) === "bind-lock") {
+        } else if (kind === "bind-lock") {
           const damageSlot = slots.find(({ id }) => id === BIND_EFFECT);
           if (rollChance(damageSlot.chance, battle.random)) {
             const damageDefinition = battle.effects.get(BIND_EFFECT);
             recipient.bind = { source: actor, turns: damageDefinition.turn, definition: damageDefinition };
             events.push({ ...event, type: "bind", turns: recipient.bind.turns });
           }
-        } else if (["field-guard", "field-speed"].includes(battleEffectKind(effect))) {
+        } else if (["field-guard", "field-speed"].includes(kind)) {
           const timed = setTimedEffect(fieldEffectsForSide(battle, side), effect, battle.turn, Number(effect.start_delay ?? 0));
           events.push({ ...event, type: "field-applied", name: effect.name, starts: timed.starts, expires: timed.expires });
         } else {
-          actor.halfGuard = effect.damage_cut;
-          events.push({ ...event, type: "half-guard", cut: effect.damage_cut });
+          const timed = setTimedEffect(actor.defenses, effect, battle.turn);
+          if (kind === "guard" || kind === "absorb") {
+            events.push({ ...event, type: "half-guard", cut: effect.damage_cut });
+          }
+          if (kind !== "guard") events.push({ ...event, type: "defense-ready", name: effect.name, expires: timed.expires });
         }
         continue;
       }
-      const kind = effectKind(effect);
       const value = effect.damage_value;
-      if (kind === "status-damage") {
+      if (kind === "recoil") {
+        const damage = Math.floor(actualDamage * value / 100);
+        if (damage > 0) events.push({ ...event, type: "recoil", damage: applyHPDamage(recipient, damage) });
+      } else if (kind === "clear-buff") {
+        for (const stat of STATS) {
+          if (recipient.stages[stat] <= 0) continue;
+          const delta = changeStage(recipient, stat, -recipient.stages[stat]);
+          events.push({ ...event, type: "stage", stat, delta, stage: recipient.stages[stat] });
+        }
+      } else if (kind === "status-damage") {
         const existing = recipient.statuses.find((status) => status.definition.effect_id === id);
         if (existing) existing.turns = Math.max(existing.turns, effect.turn);
         else recipient.statuses.push({ definition: effect, turns: effect.turn });
@@ -332,7 +417,7 @@ const geneOrderBattle = (() => {
       throw new Error("戦闘個体のEN回復量が無効です。");
     }
     const fighter = { base: character, hp: character.hp, maxHp: character.hp, energy: START_ENERGY, fainted: false, dodgeActive: false, halfGuard: 0,
-      statuses: [], timedEffects: new Map(), bind: null };
+      statuses: [], timedEffects: new Map(), defenses: new Map(), bind: null, pending: null, tookDirectDamage: false };
     resetStages(fighter);
     return fighter;
   }
@@ -353,6 +438,7 @@ const geneOrderBattle = (() => {
   function checkAction(battle, side, action) {
     const fighter = activeFighter(battle, side);
     if (battle.winner || !fighter || fighter.fainted) return "行動できません。";
+    if (fighter.pending && (action?.type !== "move" || action.moveId !== fighter.pending.moveId)) return "溜め技の予約行動が優先されます。";
     if (action?.type === "wait") return "";
     if (action?.type === "switch") {
       if (fighter.bind) return "締め付けで交代できません。";
@@ -368,7 +454,7 @@ const geneOrderBattle = (() => {
     if ((move.category === "attack" && (!Number.isFinite(move.power) || move.power <= 0)) || !Number.isInteger(move.priority)) {
       return "技の威力または優先度が無効です。";
     }
-    return fighter.energy < move.cost ? "ENが不足しています。" : "";
+    return !fighter.pending && fighter.energy < move.cost ? "ENが不足しています。" : "";
   }
 
   function orderActions(battle, selected) {
@@ -403,6 +489,8 @@ const geneOrderBattle = (() => {
 
   function recordFaint(battle, side, fighter, events) {
     fighter.bind = null;
+    fighter.pending = null;
+    fighter.defenses.clear();
     events.push({ type: "faint", side, actor: fighter.base.name });
     releaseBinds(battle, events, fighter);
   }
@@ -465,6 +553,9 @@ const geneOrderBattle = (() => {
       if (action.type === "switch") {
         resetStages(actor);
         actor.timedEffects.clear();
+        actor.defenses.clear();
+        actor.dodgeActive = false;
+        actor.halfGuard = 0;
         releaseBinds(battle, events, actor);
         battle.active[side] = action.index;
         events.push({ type: "switch", side, actor: actor.base.name, target: activeFighter(battle, side).base.name });
@@ -475,27 +566,53 @@ const geneOrderBattle = (() => {
         continue;
       }
       const defender = activeFighter(battle, other);
-      changeEnergy(actor, -move.cost);
+      const pending = actor.pending;
+      const charge = !pending && chargeSlot(move, battle);
       const result = previewDamage(battle, side, move);
+      const cost = pending ? 0 : move.cost;
+      changeEnergy(actor, -cost);
+      if (charge) {
+        actor.pending = { moveId: move.skill_id, power: result.power, definition: battle.battleEffects.get(charge.id) };
+        events.push({ type: "charge", side, actor: actor.base.name, move: move.name, cost, power: result.power });
+        applyMoveEffects(battle, side, actor, defender, move, 0, false, events, "charge");
+        continue;
+      }
+      actor.pending = null;
       const actualDamage = applyHPDamage(defender, result.damage);
+      if (actualDamage > 0) defender.tookDirectDamage = true;
       events.push({ type: "move", side, actor: actor.base.name, target: defender.base.name, move: move.name,
-        category: move.category, cost: move.cost, damage: result.damage, actualDamage, reason: result.reason });
+        category: move.category, cost, power: result.power, damage: result.damage, actualDamage, reason: result.reason });
       if (result.reason === "evaded") events.push({ type: "evaded", side: other, actor: defender.base.name, move: move.name });
-      const blocked = result.reason === "blocked" || result.reason === "evaded";
-      applyMoveEffects(battle, side, actor, defender, move, actualDamage, blocked, events);
-      if (!defender.fainted) continue;
-      recordFaint(battle, other, defender, events);
-      determineWinner(battle, events);
+      if (result.reason === "absorbed") {
+        const recovered = Math.min(result.heal, defender.maxHp - defender.hp);
+        defender.hp += recovered;
+        events.push({ type: "absorbed", side: other, actor: defender.base.name, recovered });
+      }
+      if (result.response) {
+        defender.defenses.delete(result.response.id);
+        events.push({ type: result.response.id === "reflection" ? "reflected" : "revenge", side: other,
+          actor: defender.base.name, target: actor.base.name, damage: applyHPDamage(actor, result.response.damage) });
+      }
+      applyMoveEffects(battle, side, actor, defender, move, actualDamage,
+        move.category === "attack" && result.reason !== "hit", events, pending ? "release" : null);
+      if (defender.fainted) recordFaint(battle, other, defender, events);
+      if (actor.fainted) recordFaint(battle, side, actor, events);
+      if (defender.fainted || actor.fainted) determineWinner(battle, events);
     }
 
     if (!battle.winner) finishResiduals(battle, events);
 
     for (const side of SIDES) {
       for (const fighter of battle.teams[side]) {
-        if (fighter.dodgeActive || fighter.halfGuard) {
+        fighter.tookDirectDamage = false;
+        tickTimedEffects(fighter.defenses, battle.turn, (effect) => {
+          if (effect.id === DODGE_ID) return;
+          events.push({ type: "effect-expired", side, actor: fighter.base.name, name: effect.definition.name });
+        });
+        if ((fighter.dodgeActive && !fighter.defenses.has(DODGE_ID)) || fighter.halfGuard) {
           events.push({ type: "defense-expired", side, actor: fighter.base.name,
-            dodge: fighter.dodgeActive, guard: fighter.halfGuard });
-          fighter.dodgeActive = false;
+            dodge: fighter.dodgeActive && !fighter.defenses.has(DODGE_ID), guard: fighter.halfGuard });
+          fighter.dodgeActive = fighter.defenses.has(DODGE_ID);
           fighter.halfGuard = 0;
         }
       }

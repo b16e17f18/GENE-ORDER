@@ -85,3 +85,13 @@ v0.30の26箇所から10箇所を解消し、16箇所が残る。技CSVは保持
 | 威力ルール | 3 | en_value、speed_advantage |
 
 [技65件の対応状況](skill-effects.md) を参照。火やられのMHB定義は [比較記録](status-and-field-effects.md) に記載。
+
+## v0.32の参照整合性
+
+v0.31の16箇所から9箇所を解消し、7箇所が残る。技・能力・相性の正式マスタは同一。通常効果2行、戦闘効果5行と列 element / modifier、EN威力8行を追加した。性能値の列と単位は [特殊技の移植記録](special-skills.md) を参照。
+
+| 分類 | 残件 | 未解決ID |
+|---|---:|---|
+| 通常効果 | 2 | burn、どろぼう |
+| 戦闘効果 | 3 | switch_after_attack、みがわり、バトンタッチ |
+| 威力ルール | 2 | speed_advantage |

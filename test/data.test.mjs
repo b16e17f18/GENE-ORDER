@@ -10,7 +10,7 @@ const read = (path) => readFileSync(join(root, path));
 const html = read("index.html").toString("utf8");
 const scripts = [...html.matchAll(/<script src="\.\/([^"?]+)(?:\?[^"]*)?"/g)].map((match) => match[1]);
 
-function runtime({ protocol = "http:", missing = "", invalid = "", utf8Error = "" } = {}) {
+function runtime({ protocol = "http:", missing = "", invalid = "", utf8Error = "", transforms = {} } = {}) {
   const requested = [];
   const images = [];
   const storageCalls = [];
@@ -51,7 +51,8 @@ function runtime({ protocol = "http:", missing = "", invalid = "", utf8Error = "
       if (path.endsWith(missing) && missing) return { ok: false, status: 404 };
       const bytes = invalid && path.endsWith(invalid) ? Buffer.from("not,a,valid,header")
         : utf8Error && path.endsWith(utf8Error) ? Buffer.from([0xff]) : read(path);
-      return { ok: true, arrayBuffer: async () => bytes };
+      const transform = transforms[path];
+      return { ok: true, arrayBuffer: async () => transform ? Buffer.from(transform(bytes.toString("utf8"))) : bytes };
     },
     Image: class {
       set src(path) {
@@ -181,3 +182,46 @@ if (process.env.GO_REPORT === "1") {
     console.log(level, entries.length, [...new Set(entries.map((entry) => entry.value).filter(Boolean))].sort().join(", "));
   }
 }
+
+test("reloading CSV over the data loader changes live battle tuning without code changes", async () => {
+  const updateCell = (csv, id, column, value) => {
+    const rows = csv.split(/\r?\n/);
+    const index = rows[0].split(",").indexOf(column);
+    const rowIndex = rows.findIndex((row) => row.startsWith(id + ","));
+    assert.notEqual(index, -1);
+    assert.notEqual(rowIndex, -1);
+    const cells = rows[rowIndex].split(",");
+    cells[index] = value;
+    rows[rowIndex] = cells.join(",");
+    return rows.join("\n");
+  };
+  const updated = runtime({ transforms: {
+    "./data/effect.csv": (text) => updateCell(updateCell(text, "poison", "damage_value", "20"), "poison", "turn", "3"),
+    "./data/skill.csv": (text) => updateCell(text, "skill_027", "effect_chance1", "50"),
+    "./data/battle_effect.csv": (text) => updateCell(text, "revenge", "damage_value", "200"),
+    "./data/power_rule.csv": (text) => updateCell(text, "go_en_value_7", "power_multiplier", "2"),
+  } });
+  await updated.boot();
+  const scenario = `
+    (() => {
+      const battle = geneOrderBattle.createBattle({
+        player: [state.characterMap.get("character_007")], enemy: [{ ...state.characterMap.get("character_020"), hp: 352 }],
+        skills: state.skills, effects: state.effects, battleEffects: state.battleEffects,
+        powerRules: state.powerRules, effectiveness: state.effectiveness, random: () => 0.49,
+      });
+      const fighter = geneOrderBattle.activeFighter(battle, "player");
+      const foe = geneOrderBattle.activeFighter(battle, "enemy");
+      geneOrderBattle.changeEnergy(fighter, 6);
+      geneOrderBattle.changeEnergy(foe, 6);
+      const charge = state.skills.get("skill_054");
+      const power = geneOrderBattle.previewDamage(battle, "enemy", charge).power;
+      const result = geneOrderBattle.resolveTurn(battle, {
+        player: { type: "move", moveId: "skill_027" }, enemy: { type: "wait" },
+      });
+      return JSON.stringify([power, result.events.find(e => e.type === "residual").damage, foe.statuses[0].turns,
+        state.skills.get("skill_027").effect_chance1, state.battleEffects.get("revenge").damage_value]);
+    })()
+  `;
+  assert.deepEqual(JSON.parse(go.run(scenario)), [195, 35, 6, 100, 150]);
+  assert.deepEqual(JSON.parse(updated.run(scenario)), [200, 70, 2, 50, 200]);
+});

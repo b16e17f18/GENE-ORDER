@@ -90,7 +90,7 @@ function validateGeneOrderData(tables, imageExists) {
   const elementNames = masterIdLookup(tables.elements, "element_id");
   const speciesNames = masterIdLookup(tables.species, "species_id");
   const powerGroups = known(tables.powerRules, "power_rule_group");
-  const supportedPowerGroups = new Set(["bf_hp_exact_1", "target_status"]);
+  const supportedPowerGroups = new Set(["bf_hp_exact_1", "target_status", "en_value"]);
   const knownPassiveTypes = new Set([
     "start_energy", "effect_chance_up", "element_damage_up", "low_hp_damage_up", "damage_cut",
     "turn_end_stat_up", "turn_end_stat_down", "damage_drain", "survive_once", "two_turn_skip_once",
@@ -184,7 +184,7 @@ function validateGeneOrderData(tables, imageExists) {
   }
 
   for (const table of ["effects", "battleEffects", "powerRules"]) {
-    const fields = table === "powerRules" ? ["min_ratio", "max_ratio", "power_multiplier"] : ["damage_value", "turn", "damage_cut"];
+    const fields = table === "powerRules" ? ["min_ratio", "max_ratio", "power_multiplier"] : ["damage_value", "turn", "damage_cut", "modifier", "start_delay"];
     for (const row of tables[table]) {
       const id = row[GO_DATA_IDS[table]];
       numeric(table, id, row, fields);

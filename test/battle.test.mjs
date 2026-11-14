@@ -705,3 +705,271 @@ test("direct victory skips residuals and active-side fields survive a forced rep
   assert.equal(source.hp, 1);
   assert.ok(!win.events.some(e => e.type === "residual"));
 });
+
+test("Spark Needle overrides only the water component without changing STAB", () => {
+  const needle = skill("skill_018");
+  const match = battle({ ...assets, player: official("character_005"),
+    enemy: [character({ element_1: "water", element_2: "fire" })], skills: [needle] });
+  const ordinary = go.previewDamage(match, "player", { ...needle, battle_effect1: "none" });
+  go.changeEnergy(active(match), 6);
+  const preview = go.previewDamage(match, "player", needle);
+  assert.equal(ordinary.effectiveness, 0.25);
+  assert.equal(preview.effectiveness, 1);
+  assert.equal(preview.stab, ordinary.stab);
+  assert.equal(action(match, needle.skill_id).events.find(e => e.type === "move").damage, preview.damage);
+});
+
+test("Water absorb heals, stops hit effects, and halves non-water attacks", () => {
+  const absorb = skill("skill_012"), poison = skill("skill_027"), waterStatus = skill("skill_014");
+  const match = battle({ ...assets, skills: [absorb, poison, strike, waterStatus],
+    player: [character({ hp: 100, element_1: "earth", skillIds: [absorb.skill_id] })],
+    enemy: [character({ skillIds: [poison.skill_id, strike.skill_id, waterStatus.skill_id] })] });
+  go.changeEnergy(active(match), 6); go.changeEnergy(active(match, "enemy"), 6);
+  active(match).hp = 33;
+  const first = action(match, absorb.skill_id, select(poison.skill_id));
+  assert.equal(first.events.find(e => e.type === "absorbed").recovered, 67);
+  assert.equal(active(match).statuses.length, 0);
+  const raw = go.previewDamage(match, "enemy", strike).damage;
+  const second = action(match, absorb.skill_id, select());
+  assert.equal(second.events.find(e => e.side === "enemy" && e.type === "move").damage, go.roundHalfDown(raw * 0.5));
+  const third = action(match, absorb.skill_id, select(waterStatus.skill_id));
+  assert.ok(!third.events.some(e => e.type === "absorbed"));
+  assert.equal(active(match, "enemy").stages.sp_def, 2);
+  assert.equal(active(match).defenses.size, 0);
+});
+
+test("evasion and affinity immunity precede absorption; full HP still absorbs", () => {
+  const absorb = skill("skill_012"), water = { ...strike, element: "water" };
+  const match = battle({ ...assets, skills: [absorb, water],
+    player: [character({ skillIds: [absorb.skill_id] })] });
+  go.changeEnergy(active(match), 6);
+  assert.equal(action(match, absorb.skill_id, select()).events.find(e => e.type === "absorbed").recovered, 0);
+  action(match, absorb.skill_id);
+  const fighter = active(match);
+  fighter.defenses.set("bf_water_absorb_guard", { id: "bf_water_absorb_guard", definition: officialDefense.get("bf_water_absorb_guard"),
+    starts: match.turn, expires: match.turn + 1 });
+  fighter.dodgeActive = true;
+  assert.equal(go.previewDamage(match, "enemy", water).reason, "evaded");
+  const waterRow = new Map(chart.get("water")); waterRow.set("fire", 0);
+  match.effectiveness = new Map(chart).set("water", waterRow);
+  assert.equal(go.previewDamage(match, "enemy", water).reason, "blocked");
+});
+
+test("reflection uses post-guard virtual damage and cannot recurse", () => {
+  const reflect = skill("skill_030"), hex = skill("skill_025");
+  const hit = { ...strike, element: "light", attack_type: "special", effect1: "poison", effect_chance1: 100, effect_target1: "enemy" };
+  const match = battle({ ...assets, skills: [reflect, hex, hit],
+    player: [character({ skillIds: [reflect.skill_id, hex.skill_id] })] });
+  go.changeEnergy(active(match), 5);
+  action(match, hex.skill_id);
+  const [a, b] = fighters(match);
+  b.defenses.set("reflection", { definition: officialDefense.get("reflection"), id: "reflection", starts: 2, expires: 3 });
+  const virtual = go.previewDamage(match, "enemy", hit).damage;
+  const result = action(match, reflect.skill_id, select());
+  assert.equal(result.events.filter(e => e.type === "reflected").length, 1);
+  assert.equal(result.events.find(e => e.type === "reflected").damage, Math.round(virtual * 1.5));
+  assert.ok(virtual > 0);
+  assert.equal(a.hp, a.maxHp);
+  assert.equal(a.statuses.length, 0);
+  assert.equal(result.winner, null);
+  go.changeEnergy(a, 3);
+  b.hp = 1;
+  assert.equal(action(match, reflect.skill_id, select()).winner, "player");
+});
+
+test("physical attacks pass through Ice Reflection without a normal counter", () => {
+  const reflect = skill("skill_030");
+  const match = battle({ ...assets, skills: [reflect, strike],
+    player: [character({ skillIds: [reflect.skill_id] })] });
+  go.changeEnergy(active(match), 1);
+  const result = action(match, reflect.skill_id, select());
+  assert.equal(active(match).hp, 178);
+  assert.ok(!result.events.some(e => ["reflected", "revenge"].includes(e.type)));
+});
+
+test("Claw Guard returns MHB's rounded damage from a surviving hit", () => {
+  const counter = skill("skill_058");
+  const match = battle({ ...assets, skills: [counter, strike],
+    player: [character({ skillIds: [counter.skill_id] })] });
+  const result = action(match, counter.skill_id, select());
+  assert.equal(active(match).hp, 189);
+  assert.equal(active(match, "enemy").hp, 183);
+  assert.equal(result.events.find(e => e.type === "revenge").damage, 17);
+});
+
+test("recoil uses actual damage, never poisons and can produce a draw", () => {
+  const recoil = skill("skill_046");
+  for (const bench of [false, true]) {
+    const match = battle({ ...assets, skills: [recoil], player: [character({ hp: 4, skillIds: [recoil.skill_id] }),
+      ...(bench ? [character({ name: "Reserve" })] : [])], enemy: [character({ hp: 20, element_1: "light" })] });
+    go.changeEnergy(active(match), 2);
+    const turn = action(match, recoil.skill_id);
+    assert.equal(turn.events.find(e => e.type === "move").actualDamage, 20);
+    assert.equal(turn.events.find(e => e.type === "recoil").damage, 4);
+    assert.equal(turn.events.filter(e => e.type === "faint").length, 2);
+    assert.equal(turn.winner, bench ? "player" : "draw");
+    assert.equal(active(match, "enemy").statuses.length, 0);
+  }
+});
+
+test("zero damage from immunity or evasion never produces recoil", () => {
+  const recoil = skill("skill_046");
+  for (const dodge of [false, true]) {
+    const match = battle({ ...assets, skills: [recoil, skill("skill_000")], player: [character({ skillIds: [recoil.skill_id] })],
+      enemy: [character({ element_1: dodge ? "light" : "dark", evasion_percent: 100 })] });
+    go.changeEnergy(active(match), 2);
+    const result = action(match, recoil.skill_id, dodge ? select("skill_000") : wait);
+    assert.ok(!result.events.some(e => e.type === "recoil"));
+    assert.equal(active(match).hp, 200);
+  }
+});
+
+test("charge snapshots pre-cost EN, caps power, uses live stats, and applies first-turn effects once", () => {
+  const charge = skill("skill_054");
+  const match = battle({ ...assets, skills: [charge], player: [character({ skillIds: [charge.skill_id] }), character()],
+    enemy: [character({ hp: 500, element_1: "light" })] });
+  const fighter = active(match);
+  go.changeEnergy(fighter, 6);
+  const first = action(match, charge.skill_id);
+  assert.equal(first.events.find(e => e.type === "charge").power, 195);
+  assert.equal(fighter.energy, 6);
+  assert.equal(fighter.stages.phy_def, 1);
+  assert.match(go.checkAction(match, "player", { type: "switch", index: 1 }), /予約行動/);
+  go.changeEnergy(fighter, -6);
+  go.changeStage(fighter, "phy_atk", 1);
+  const predicted = go.previewDamage(match, "player", charge);
+  assert.equal(predicted.power, 195);
+  assert.equal(predicted.attack, 180);
+  const second = action(match, charge.skill_id);
+  assert.equal(second.events.find(e => e.type === "move").damage, predicted.damage);
+  assert.equal(second.events.find(e => e.type === "move").cost, 0);
+  assert.equal(fighter.energy, 1);
+  assert.equal(fighter.stages.phy_def, 1);
+  assert.equal(fighter.pending, null);
+});
+
+test("a queued move does not release if its owner is KO'd first", () => {
+  const charge = skill("skill_054");
+  const lethal = { ...strike, priority: 2, power: 1000 };
+  const match = battle({ ...assets, skills: [charge, lethal], player: [character({ hp: 1, skillIds: [charge.skill_id] }), character()] });
+  go.changeEnergy(active(match), 1);
+  action(match, charge.skill_id);
+  const fighter = active(match);
+  const turn = action(match, charge.skill_id, select());
+  assert.ok(!turn.events.some(e => e.side === "player" && e.type === "move"));
+  assert.equal(fighter.pending, null);
+});
+
+test("Psycho Counter uses same-turn direct HP loss and clears history", () => {
+  const psycho = skill("skill_057");
+  const match = battle({ ...assets, skills: [psycho, strike], player: [character({ skillIds: [psycho.skill_id] })] });
+  go.changeEnergy(active(match), 6);
+  const first = action(match, psycho.skill_id, select());
+  assert.equal(first.events.find(e => e.side === "player" && e.type === "move").power, 120);
+  const second = action(match, psycho.skill_id);
+  assert.equal(second.events.find(e => e.type === "move").power, 80);
+});
+
+test("Phantom hides against ignore_dodge, pierces guards and clears positive ranks only", () => {
+  const phantom = skill("skill_062");
+  const attack = { ...strike, hit_type: "ignore_dodge", priority: -1 };
+  const match = battle({ ...assets, skills: [phantom, attack], player: [character({ skillIds: [phantom.skill_id] })],
+    enemy: [character({ hp: 500, element_1: "dark" })] });
+  go.changeEnergy(active(match), 6);
+  assert.equal(action(match, phantom.skill_id, select()).events.find(e => e.type === "move").reason, "position-miss");
+  const [a, b] = fighters(match);
+  go.changeStage(b, "phy_atk", 2);
+  go.changeStage(b, "sp_def", -1);
+  b.halfGuard = 50;
+  const field = { definition: { battle_effect_group: "guard", guard_type: "phy_damage", damage_cut: 25 }, starts: 2, expires: 4 };
+  match.fields.enemy.set("test-field", field);
+  const expected = go.previewDamage(match, "player", phantom);
+  assert.equal(expected.damage, go.roundHalfDown(expected.afterEffectiveness * 0.75 * 0.875));
+  assert.equal(go.calculateDamage(a, { ...b, base: { ...b.base, element_1: "earth" } }, phantom, chart, assets).damage, 0);
+  assert.equal(action(match, phantom.skill_id).events.find(e => e.type === "move").damage, expected.damage);
+  assert.equal(b.stages.phy_atk, 0);
+  assert.equal(b.stages.sp_def, -1);
+});
+
+test("unconfirmed speed power, fire boost, and burn remain unavailable", () => {
+  for (const id of ["skill_015", "skill_020", "skill_038", "skill_056"]) {
+    assert.match(go.unsupportedMoveReason(skill(id), assets), /未対応/);
+  }
+});
+
+test("normalization re-reads CSV tuning for status probability, damage, duration and guard", () => {
+  function definitions(file, id, normalize, changes = {}) {
+    return new Map(csv(read("data/" + file + ".csv")).map((row) => [row[id],
+      vn(normalize)({ ...row, ...(changes[row[id]] ?? {}) })]));
+  }
+  function simulate(changed) {
+    const effects = definitions("effect", "effect_id", "normalizeEffect", changed ? { poison: { damage_value: "20", turn: "3" } } : {});
+    const battleEffects = definitions("battle_effect", "battle_effect_id", "normalizeBattleEffect",
+      changed ? { bf_half_guard: { damage_cut: "25", turn: "2" } } : {});
+    const raw = csv(read("data/skill.csv")).find(row => row.skill_id === "skill_027");
+    const move = normalizeSkill({ ...raw, effect_chance1: changed ? "50" : raw.effect_chance1 }, elements);
+    const guard = skill("skill_031");
+    const match = battle({ ...assets, effects, battleEffects, skills: [move, guard],
+      player: [character({ skillIds: [guard.skill_id], hp: 400 })], enemy: official("character_007"), random: () => 0.25 });
+    go.changeEnergy(active(match, "enemy"), 6);
+    const first = action(match, guard.skill_id, select(move.skill_id));
+    const second = go.previewDamage(match, "enemy", move);
+    return [first.events.find(e => e.type === "residual").damage, active(match).statuses[0].turns,
+      first.events.find(e => e.category === "attack").damage, second.damage];
+  }
+  assert.deepEqual(simulate(false), [40, 6, 70, 140]);
+  assert.deepEqual(simulate(true), [80, 2, 105, 105]);
+  const raw = csv(read("data/skill.csv")).find(row => row.skill_id === "skill_027");
+  const move = normalizeSkill({ ...raw, effect_chance1: "50" }, elements);
+  const failure = battle({ ...assets, skills: [move], player: official("character_007"), random: () => 0.5 });
+  go.changeEnergy(active(failure), 2);
+  assert.ok(!action(failure, move.skill_id).events.some(e => e.type === "status-applied"));
+});
+
+test("re-read CSV counter, absorb and EN power numbers control the same execution path", () => {
+  function loadDefense(overrides) {
+    return new Map(csv(read("data/battle_effect.csv")).map((row) => [row.battle_effect_id,
+      vn("normalizeBattleEffect")({ ...row, ...(overrides[row.battle_effect_id] ?? {}) })]));
+  }
+  const battleEffects = loadDefense({ revenge: { damage_value: "200" }, bf_water_absorb_guard: { modifier: "20" } });
+  const counter = skill("skill_058"), absorb = skill("skill_012"), charge = skill("skill_054");
+  const testBattle = (move, hit = strike, also = {}) => battle({ ...assets, battleEffects, skills: [move, hit],
+    player: [character({ skillIds: [move.skill_id] })], ...also });
+  const response = action(testBattle(counter), counter.skill_id, select());
+  assert.equal(response.events.find(e => e.type === "revenge").damage, 22);
+  const healing = testBattle(absorb, { ...strike, element: "water" });
+  go.changeEnergy(active(healing), 1);
+  active(healing).hp = 25;
+  assert.equal(action(healing, absorb.skill_id, select()).events.find(e => e.type === "absorbed").recovered, 40);
+  const powerRules = new Map(officialPower);
+  const raw = csv(read("data/power_rule.csv")).filter(row => row.power_rule_group === "en_value");
+  powerRules.set("en_value", raw.map(row => vn("normalizePowerRule")({
+    ...row, power_multiplier: row.min_ratio === "7" ? "2" : row.power_multiplier,
+  })));
+  const charging = testBattle(charge, strike, { powerRules });
+  go.changeEnergy(active(charging), 6);
+  assert.equal(action(charging, charge.skill_id).events.find(e => e.type === "charge").power, 200);
+});
+
+test("official multi-turn replay combines Water Absorb, reflection, charge and battle resolution", () => {
+  const match = battle({ ...assets, skills: officialSkills, player: official("character_003", "character_020"),
+    enemy: official("character_007", "character_009") });
+  const list = [];
+  const turn = (player, enemy) => list.push(...go.resolveTurn(match, { player, enemy }).events);
+  turn(wait, wait);
+  turn(select("skill_012"), select("skill_026"));
+  turn({ type: "switch", index: 1 }, { type: "switch", index: 1 });
+  turn(wait, wait);
+  turn(select("skill_054"), select("skill_030"));
+  turn(select("skill_054"), select("skill_031"));
+  for (let i = 0; i < 12 && !match.winner; i++) {
+    const player = active(match);
+    const move = player.base.skillIds.includes("skill_054") ? "skill_054" : "skill_009";
+    turn(!go.checkAction(match, "player", select(move)) ? select(move) : wait, wait);
+  }
+  assert.ok(list.some(e => e.type === "absorbed"));
+  assert.ok(list.some(e => e.type === "charge" && e.move === "猪突猛進"));
+  assert.ok(list.some(e => e.type === "move" && e.move === "猪突猛進" && e.cost === 0));
+  assert.ok(list.some(e => e.type === "defense-ready" && e.name === "反射"));
+  assert.equal(match.winner, "player");
+});
