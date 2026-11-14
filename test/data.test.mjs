@@ -115,7 +115,8 @@ test("excludes placeholders and never fills absent moves with MHB attacks", () =
 });
 
 test("diagnoses unresolved move references and unset passive definitions", () => {
-  assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照不一致" && d.value === "pa_down1")'), true);
+  assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照不一致" && d.value === "burn")'), true);
+  assert.equal(go.run('state.skills.get("skill_001").effect1'), "bf_pa_down1");
   assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "効果未設定" && d.id === "passive_015")'), true);
   assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照先未設定" && d.value === "passive_025")'), true);
   assert.equal(go.run('state.dataDiagnostics.filter((d) => d.level === "予約行").length'), 93);

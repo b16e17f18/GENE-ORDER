@@ -1,3 +1,27 @@
+const GO_EFFECT_ALIASES = new Map([
+  "pa_down1", "pa_up1", "pa_up2", "pd_down1", "pd_up1", "sa_down4", "sa_down1", "sa_up1", "sa_up2",
+  "sd_down1", "sd_up2", "sp_up1", "sp_down2", "heal_half", "drain_50", "heal_en",
+].map((id) => [id, `bf_${id}`]));
+const GO_BATTLE_EFFECT_ALIASES = new Map([
+  ["dodge_guard", "bf_dodge_guard"], ["protect", "bf_half_guard"],
+  ["shed_tail", "bf_shed_tail"], ["water_absorb_guard", "bf_water_absorb_guard"],
+  ["water_super_effective", "bf_water_super_effective"], ["next_fire_power_150", "bf_next_fire_power_150"],
+]);
+
+function canonicalizeGeneOrderSkill(row) {
+  const skill = { ...row };
+  for (const slot of [1, 2, 3]) {
+    const field = `effect${slot}`;
+    skill[field] = GO_EFFECT_ALIASES.get(row[field]) ?? row[field];
+  }
+  for (const slot of [1, 2]) {
+    const field = `battle_effect${slot}`;
+    skill[field] = GO_BATTLE_EFFECT_ALIASES.get(row[field]) ?? row[field];
+  }
+  if (row.power_rule === "hp_exact_1") skill.power_rule = "bf_hp_exact_1";
+  return skill;
+}
+
 const GO_DATA_IDS = {
   characters: "character_id", passives: "passive_id", skills: "skill_id",
   effects: "effect_id", battleEffects: "battle_effect_id", powerRules: "power_rule_id",
@@ -66,10 +90,7 @@ function validateGeneOrderData(tables, imageExists) {
   const elementNames = masterIdLookup(tables.elements, "element_id");
   const speciesNames = masterIdLookup(tables.species, "species_id");
   const powerGroups = known(tables.powerRules, "power_rule_group");
-  const supportedPowerGroups = new Set(["speed_ratio", "inverse_speed_ratio", "en_value", "hp_ratio",
-    "self_status", "target_status"]);
-  const supportedBattleEffectGroups = new Set(["guard", "control", "trigger", "position", "charge",
-    "delayed_attack", "delayed_heal", "change_character"]);
+  const supportedPowerGroups = new Set(["bf_hp_exact_1"]);
   const knownPassiveTypes = new Set([
     "start_energy", "effect_chance_up", "element_damage_up", "low_hp_damage_up", "damage_cut",
     "turn_end_stat_up", "turn_end_stat_down", "damage_drain", "survive_once", "two_turn_skip_once",
@@ -122,7 +143,8 @@ function validateGeneOrderData(tables, imageExists) {
     else if (!imagePath || !imageExists(imagePath)) add("画像欠落", "characters", id, "image", row.image);
   }
 
-  for (const row of tables.skills) {
+  for (const raw of tables.skills) {
+    const row = canonicalizeGeneOrderSkill(raw);
     const id = row.skill_id;
     numeric("skills", id, row, ["power", "priority", "cost", "power_cap", "animation_duration_ms", "repeat_count",
       "effect_chance1", "effect_chance2", "effect_chance3", "battle_effect_chance1", "battle_effect_chance2"]);
@@ -166,11 +188,10 @@ function validateGeneOrderData(tables, imageExists) {
     for (const row of tables[table]) {
       const id = row[GO_DATA_IDS[table]];
       numeric(table, id, row, fields);
-      if (table === "effects" && ["stat_stage", "actual_damage_percent", "percent_maxhp"].includes(row.damage_type) &&
-          (row.effect_group !== "damage")) {
+      if (table === "effects" && !geneOrderBattle.effectKind(row)) {
         add("効果未対応", table, id, "damage_type", row.damage_type);
       }
-      if (table === "battleEffects" && !supportedBattleEffectGroups.has(row.battle_effect_group)) {
+      if (table === "battleEffects" && !geneOrderBattle.battleEffectKind(row)) {
         add("効果未対応", table, id, "battle_effect_group", row.battle_effect_group);
       }
       if (table === "powerRules" && !supportedPowerGroups.has(row.power_rule_group)) {

@@ -4011,18 +4011,25 @@ function mountGeneOrderBattlePreview() {
   function newBattle() {
     const team = (...ids) => ids.map((id) => state.characterMap.get(id));
     return geneOrderBattle.createBattle({
-      player: team("character_003", "character_006"),
-      enemy: team("character_007", "character_021"),
+      player: team("character_002", "character_006"),
+      enemy: team("character_007", "character_009"),
       skills: state.skills,
       effectiveness: state.effectiveness,
+      effects: state.effects,
+      battleEffects: state.battleEffects,
+      powerRules: state.powerRules,
     });
   }
 
   let battle = newBattle();
+  const statLabels = { phy_atk: "PA", phy_def: "PD", sp_atk: "SA", sp_def: "SD", speed: "SP" };
   function render() {
     for (const { side, select, status } of controls) {
       const active = geneOrderBattle.activeFighter(battle, side);
       status.textContent = `${active.base.name} · HP ${active.hp}/${active.maxHp} · EN ${active.energy}/${geneOrderBattle.MAX_ENERGY}`;
+      const stages = Object.entries(active.stages).map(([stat, stage]) => `${statLabels[stat]} ${stage > 0 ? "+" : ""}${stage}`);
+      const defense = [active.dodgeActive ? "回避成功状態" : "", active.halfGuard ? "半減防御" : ""].filter(Boolean);
+      status.textContent += ` · ${stages.join(" / ")} · ${defense.join(" / ") || "防御状態なし"}`;
       select.replaceChildren();
       const addOption = (label, value, action) => {
         const reason = battle.winner ? "" : geneOrderBattle.checkAction(battle, side, action);
@@ -4030,7 +4037,10 @@ function mountGeneOrderBattlePreview() {
         option.disabled = Boolean(reason);
         select.add(option);
       };
-      for (const move of movesForCharacter(active.base)) {
+      const moves = movesForCharacter(active.base);
+      const commonDodge = state.skills.get("skill_000");
+      if (commonDodge && !moves.includes(commonDodge)) moves.push(commonDodge);
+      for (const move of moves) {
         addOption(`${move.name} (EN ${move.cost})`, `move:${move.skill_id}`, { type: "move", moveId: move.skill_id });
       }
       battle.teams[side].forEach((fighter, index) => {
@@ -4056,7 +4066,15 @@ function mountGeneOrderBattlePreview() {
       const result = geneOrderBattle.resolveTurn(battle, selected);
       const sideName = (side) => side === "player" ? "自分側" : "相手側";
       const describe = {
-        move: (e) => `${e.actor}の${e.move} → ${e.target}に${e.actualDamage}ダメージ`,
+        move: (e) => `${e.actor}の${e.move}（EN −${e.cost}）` +
+          (e.category === "attack" ? ` → ${e.target}に${e.actualDamage}ダメージ` : ""),
+        "dodge-attempt": (e) => `${e.actor}の回避判定（${e.chance}%）${e.success ? "成功：回避状態" : "失敗"}`,
+        evaded: (e) => `${e.actor}は${e.move}を回避した`,
+        "half-guard": (e) => `${e.actor}は被ダメージ半減状態になった`,
+        "defense-expired": (e) => `${e.actor}の${[e.dodge && "回避状態", e.guard && "半減防御"].filter(Boolean).join("・")}が終了した`,
+        stage: (e) => `${e.actor}の${statLabels[e.stat]} ${e.delta >= 0 ? "+" : ""}${e.delta}（現在 ${e.stage}）`,
+        heal: (e) => `${e.actor}のHP +${e.recovered}`,
+        "effect-energy": (e) => `${e.actor}のEN +${e.recovered}（技効果）`,
         switch: (e) => `${e.actor}から${e.target}に交代`,
         replacement: (e) => `${sideName(e.side)}に${e.target}が登場`,
         wait: (e) => `${e.actor}は待機`,
@@ -4253,7 +4271,8 @@ function normalizeBattleAnchor(value) {
   return text ? clamp(number(text, 50), 0, 100) : 50;
 }
 
-function normalizeSkill(row, elementNames) {
+function normalizeSkill(raw, elementNames) {
+  const row = canonicalizeGeneOrderSkill(raw);
   return {
     skill_id: safeText(row.skill_id),
     name: safeText(row.name),

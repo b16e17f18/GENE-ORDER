@@ -1,4 +1,4 @@
-// GENE ORDER v0.20. The inherited MHB entry points below remain separate.
+// GENE ORDER v0.30. The inherited MHB entry points below remain separate.
 const geneOrderBattle = (() => {
   const START_ENERGY = 1;
   const MAX_ENERGY = 7;
@@ -56,10 +56,10 @@ const geneOrderBattle = (() => {
     const stats = Object.hasOwn(DAMAGE_STATS, move.attack_type) && DAMAGE_STATS[move.attack_type];
     if (!stats || move.element2 != null) throw new Error("未対応の攻撃分類または複合属性技です。");
 
-    const power = modifiers.power ?? move.power;
-    const attack = statValue(attacker, modifiers.attackStat ?? stats[0]);
+    const power = modifiers.power ?? resolvePower(move, attacker, modifiers.powerRules);
+    const attack = statValue(attacker, modifiers.attackStat ?? (move.skill_id === "skill_033" ? "phy_def" : stats[0]));
     const defense = statValue(defender, stats[1]);
-    const finalMultiplier = modifiers.finalMultiplier ?? 1;
+    const finalMultiplier = modifiers.finalMultiplier ?? (100 - (defender.halfGuard ?? 0)) / 100;
     if (!Number.isFinite(power) || power <= 0 || !Number.isFinite(finalMultiplier) || finalMultiplier < 0) {
       throw new Error("技威力または最終補正が無効です。");
     }
@@ -69,25 +69,138 @@ const geneOrderBattle = (() => {
     const afterStab = roundHalfDown(baseDamage * stab);
     const effectiveness = effectivenessFor(move.element, defender.base, chart);
     const afterEffectiveness = Math.floor(afterStab * effectiveness);
-    const blocked = effectiveness === 0 || finalMultiplier === 0 || modifiers.blocked === true;
+    const evaded = defender.dodgeActive === true && move.hit_type !== "ignore_dodge";
+    const immune = effectiveness === 0;
+    const blocked = immune || evaded || finalMultiplier === 0 || modifiers.blocked === true;
     const damage = blocked ? 0 : Math.max(1, roundHalfDown(afterEffectiveness * finalMultiplier));
     return { damage, power, attack, defense, baseDamage, stab, afterStab, effectiveness, afterEffectiveness,
-      reason: blocked ? "blocked" : "hit" };
+      reason: evaded && !immune ? "evaded" : blocked ? "blocked" : "hit" };
   }
 
-  function unsupportedMoveReason(move) {
-    if (!move) return "技が登録されていません。";
-    const pending = [];
-    if (move.category !== "attack") pending.push("変化技");
-    if (!Object.hasOwn(DAMAGE_STATS, move.attack_type) && move.category === "attack") pending.push("攻撃分類");
-    if (move.element == null || move.element2 != null) pending.push("属性");
-    if (move.hit_type && move.hit_type !== "normal") pending.push(`命中種別 ${move.hit_type}`);
-    if (move.target && move.target !== "enemy") pending.push("技の対象");
-    if (move.power_rule && move.power_rule !== "none") pending.push(`威力ルール ${move.power_rule}`);
-    for (const field of ["effect1", "effect2", "effect3", "battle_effect1", "battle_effect2"]) {
-      if (move[field] && move[field] !== "none") pending.push(move[field]);
+
+  const COMMON_MOVE_ID = "skill_000";
+  const DODGE_ID = "bf_dodge_guard";
+  const GUARD_ID = "bf_half_guard";
+  const HP_ONE_RULE = "bf_hp_exact_1";
+
+  function effectKind(effect) {
+    if (!effect || effect.damage_value === "" || !Number.isFinite(Number(effect.damage_value))) return null;
+    const value = Number(effect.damage_value);
+    if (effect.damage_type === "stat_stage" && STATS.includes(effect.target_stat) && Number.isInteger(value) &&
+      ((effect.effect_group === "buff" && value > 0) || (effect.effect_group === "debuff" && value < 0))) return "stage";
+    if (effect.effect_group !== "heal" || value < 0) return null;
+    if (effect.target_stat === "hp" && effect.damage_type === "percent_maxhp") return "heal";
+    if (effect.target_stat === "hp" && effect.damage_type === "actual_damage_percent") return "drain";
+    if (effect.target_stat === "en" && effect.damage_type === "none" && Number.isInteger(value)) return "recover-en";
+    return null;
+  }
+
+  function battleEffectKind(effect) {
+    if (Number(effect?.turn) !== 1) return null;
+    if (effect.battle_effect_id === DODGE_ID && effect.battle_effect_group === DODGE_ID) return "dodge";
+    if (effect.battle_effect_id === GUARD_ID && effect.battle_effect_group === "guard" &&
+      Number(effect.damage_cut) === 50) return "guard";
+    return null;
+  }
+
+  function powerRuleForHP(move, powerRules, hpIsOne) {
+    if (move.power_rule !== HP_ONE_RULE) return null;
+    const value = Number(hpIsOne);
+    return powerRules?.get(HP_ONE_RULE)?.find((rule) => rule.min_ratio === value && rule.max_ratio === value &&
+      Number.isFinite(rule.power_multiplier) && rule.power_multiplier > 0) ?? null;
+  }
+
+  function resolvePower(move, attacker, powerRules) {
+    if (!move.power_rule || move.power_rule === "none") return move.power;
+    const rule = powerRuleForHP(move, powerRules, attacker.hp === 1);
+    if (!rule) throw new Error(`未対応の威力ルール ${move.power_rule}`);
+    return Math.min(Math.round(move.power * rule.power_multiplier), move.power_cap ?? Infinity);
+  }
+
+  function moveEffects(move) {
+    return [
+      ...[1, 2, 3].map((slot) => ({
+        id: move[`effect${slot}`], chance: move[`effect_chance${slot}`],
+        target: move[`effect_target${slot}`] ?? "enemy", table: "effects",
+      })),
+      ...[1, 2].map((slot) => ({
+        id: move[`battle_effect${slot}`], chance: move[`battle_effect_chance${slot}`],
+        target: "self", table: "battleEffects",
+      })),
+    ].filter(({ id }) => id && id !== "none");
+  }
+
+  function moveAvailability(move, data = {}) {
+    if (!move) return { issues: ["技が登録されていません。"], supportedParts: 0 };
+    const issues = [];
+    const attack = move.category === "attack";
+    const normalHit = !move.hit_type || ["normal", "ignore_dodge"].includes(move.hit_type);
+    const validAttack = Object.hasOwn(DAMAGE_STATS, move.attack_type) && move.element != null &&
+      move.element2 == null && (!move.target || move.target === "enemy");
+    let supportedParts = Number(attack && validAttack);
+    if (attack && !validAttack) issues.push("攻撃分類・属性・対象");
+    if (!attack && move.category !== "status") issues.push("技分類");
+    if (!normalHit) issues.push(`命中種別 ${move.hit_type}`);
+    if (move.power_rule && move.power_rule !== "none" &&
+      (!powerRuleForHP(move, data.powerRules, true) || !powerRuleForHP(move, data.powerRules, false))) {
+      issues.push(`威力ルール ${move.power_rule}`);
     }
-    return pending.length ? `v0.20未対応（${pending.join("、")}）` : "";
+    for (const { id, table } of moveEffects(move)) {
+      const definition = data[table]?.get(id);
+      const kind = table === "effects" ? effectKind(definition) : battleEffectKind(definition);
+      if (kind) supportedParts++;
+      else issues.push(id);
+    }
+    if (!attack && !supportedParts && !issues.length) issues.push("変化技の効果未設定");
+    return { issues, supportedParts };
+  }
+
+  function unsupportedMoveReason(move, data) {
+    const { issues } = moveAvailability(move, data);
+    return issues.length ? `v0.30未対応（${issues.join("、")}）` : "";
+  }
+
+  function rollChance(chance, random) {
+    return chance >= 100 || (chance > 0 && random() * 100 < chance);
+  }
+
+  function applyMoveEffects(battle, side, actor, defender, move, actualDamage, blocked, events) {
+    for (const { id, chance, target, table } of moveEffects(move)) {
+      const recipient = target === "self" ? actor : defender;
+      if (recipient === defender && (defender.fainted || blocked)) continue;
+      if (!rollChance(chance, battle.random)) continue;
+      const effect = battle[table].get(id);
+      const event = { side: recipient === actor ? side : (side === "player" ? "enemy" : "player"),
+        actor: recipient.base.name, effect: id };
+      if (table === "battleEffects") {
+        if (battleEffectKind(effect) === "dodge") {
+          const chance = Math.max(0, Math.min(100, actor.base.evasion_percent ?? 0));
+          const success = rollChance(chance, battle.random);
+          actor.dodgeActive ||= success;
+          events.push({ ...event, type: "dodge-attempt", chance, success });
+        } else {
+          actor.halfGuard = effect.damage_cut;
+          events.push({ ...event, type: "half-guard", cut: effect.damage_cut });
+        }
+        continue;
+      }
+      const kind = effectKind(effect);
+      const value = effect.damage_value;
+      if (kind === "stage") {
+        const delta = changeStage(recipient, effect.target_stat, value);
+        events.push({ ...event, type: "stage", stat: effect.target_stat, delta, stage: recipient.stages[effect.target_stat] });
+      } else if (kind === "recover-en") {
+        const before = recipient.energy;
+        changeEnergy(recipient, value);
+        events.push({ ...event, type: "effect-energy", recovered: recipient.energy - before });
+      } else {
+        const base = kind === "drain" ? actualDamage : recipient.maxHp;
+        if (kind === "drain" && base === 0) continue;
+        const before = recipient.hp;
+        recipient.hp = Math.min(recipient.maxHp, before + Math.floor(base * value / 100));
+        events.push({ ...event, type: "heal", recovered: recipient.hp - before });
+      }
+    }
   }
 
   function createFighter(character) {
@@ -96,16 +209,17 @@ const geneOrderBattle = (() => {
     if (!Number.isInteger(character.energy_charge) || character.energy_charge < 0) {
       throw new Error("戦闘個体のEN回復量が無効です。");
     }
-    const fighter = { base: character, hp: character.hp, maxHp: character.hp, energy: START_ENERGY, fainted: false };
+    const fighter = { base: character, hp: character.hp, maxHp: character.hp, energy: START_ENERGY, fainted: false, dodgeActive: false, halfGuard: 0 };
     resetStages(fighter);
     return fighter;
   }
 
-  function createBattle({ player, enemy, skills, effectiveness, random = Math.random }) {
+  function createBattle({ player, enemy, skills, effectiveness, effects = new Map(), battleEffects = new Map(), powerRules = new Map(),
+    random = Math.random }) {
     if (!player.length || !enemy.length) throw new Error("両チームに個体が必要です。");
     return {
       teams: { player: player.map(createFighter), enemy: enemy.map(createFighter) },
-      active: { player: 0, enemy: 0 }, skills, effectiveness, random, turn: 1, winner: null,
+      active: { player: 0, enemy: 0 }, skills, effectiveness, effects, battleEffects, powerRules, random, turn: 1, winner: null,
     };
   }
 
@@ -122,12 +236,12 @@ const geneOrderBattle = (() => {
         battle.teams[side][action.index] && !battle.teams[side][action.index].fainted;
       return canSwitch ? "" : "交代先に指定できません。";
     }
-    if (action?.type !== "move" || !fighter.base.skillIds.includes(action.moveId)) return "選択できない技です。";
+    if (action?.type !== "move" || (action.moveId !== COMMON_MOVE_ID && !fighter.base.skillIds.includes(action.moveId))) return "選択できない技です。";
     const move = battle.skills.get(action.moveId);
-    const unsupported = unsupportedMoveReason(move);
+    const unsupported = unsupportedMoveReason(move, battle);
     if (unsupported) return unsupported;
     if (!Number.isInteger(move.cost) || move.cost < 0) return "技の消費ENが無効です。";
-    if (!Number.isFinite(move.power) || move.power <= 0 || !Number.isInteger(move.priority)) {
+    if ((move.category === "attack" && (!Number.isFinite(move.power) || move.power <= 0)) || !Number.isInteger(move.priority)) {
       return "技の威力または優先度が無効です。";
     }
     return fighter.energy < move.cost ? "ENが不足しています。" : "";
@@ -171,18 +285,32 @@ const geneOrderBattle = (() => {
         continue;
       }
       const defender = activeFighter(battle, other);
-      const result = calculateDamage(actor, defender, move, battle.effectiveness);
       changeEnergy(actor, -move.cost);
+      const result = calculateDamage(actor, defender, move, battle.effectiveness, { powerRules: battle.powerRules });
       const actualDamage = Math.min(result.damage, defender.hp);
       defender.hp -= actualDamage;
       defender.fainted = defender.hp === 0;
       events.push({ type: "move", side, actor: actor.base.name, target: defender.base.name, move: move.name,
-        damage: result.damage, actualDamage });
+        category: move.category, cost: move.cost, damage: result.damage, actualDamage, reason: result.reason });
+      if (result.reason === "evaded") events.push({ type: "evaded", side: other, actor: defender.base.name, move: move.name });
+      const blocked = result.reason === "blocked" || result.reason === "evaded";
+      applyMoveEffects(battle, side, actor, defender, move, actualDamage, blocked, events);
       if (!defender.fainted) continue;
       events.push({ type: "faint", side: other, actor: defender.base.name });
       if (battle.teams[other].every((fighter) => fighter.fainted)) {
         battle.winner = side;
         events.push({ type: "win", side });
+      }
+    }
+
+    for (const side of SIDES) {
+      for (const fighter of battle.teams[side]) {
+        if (fighter.dodgeActive || fighter.halfGuard) {
+          events.push({ type: "defense-expired", side, actor: fighter.base.name,
+            dodge: fighter.dodgeActive, guard: fighter.halfGuard });
+          fighter.dodgeActive = false;
+          fighter.halfGuard = 0;
+        }
       }
     }
 
@@ -204,7 +332,7 @@ const geneOrderBattle = (() => {
   }
 
   return { START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, statValue, changeEnergy,
-    calculateDamage, unsupportedMoveReason, createBattle, activeFighter, checkAction, resolveTurn };
+    calculateDamage, moveAvailability, unsupportedMoveReason, effectKind, battleEffectKind, createBattle, activeFighter, checkAction, resolveTurn };
 })();
 
 // Pure battle calculation and battle-state helpers shared by app.js.

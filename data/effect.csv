@@ -14,3 +14,7 @@ bf_sp_up1,素早さ+1段階,buff,stat_stage,1,99,TRUE,speed,{target}の素早さ
 bf_heal_half,最大HPの半分回復,heal,percent_maxhp,50,0,TRUE,hp,{target}のHPが回復した！
 poison,毒,damage,percent_maxhp,10,7,TRUE,none,{target}は{name}状態になった！
 bf_drain_50,与ダメージの50%回復,heal,actual_damage_percent,50,0,TRUE,hp,{actor}は体力を吸収した！
+bf_pa_up2,物理攻撃+2段階,buff,stat_stage,2,99,TRUE,phy_atk,{target}の物理攻撃ランクが変化した！
+bf_sa_up2,特殊攻撃+2段階,buff,stat_stage,2,99,TRUE,sp_atk,{target}の特殊攻撃ランクが変化した！
+bf_sp_down2,素早さ-2段階,debuff,stat_stage,-2,99,TRUE,speed,{target}の素早さランクが変化した！
+bf_heal_en,EN1回復,heal,none,1,0,TRUE,en,{target}のENが回復した！

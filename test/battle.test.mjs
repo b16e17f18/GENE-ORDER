@@ -31,8 +31,8 @@ const select = (moveId = "strike") => ({ type: "move", moveId });
 const wait = { type: "wait" };
 
 function battle({ player = [character()], enemy = [character({ name: "Target", element_1: "light" })],
-  skills = [strike], random = () => 0 } = {}) {
-  return go.createBattle({ player, enemy, skills: new Map(skills.map((move) => [move.skill_id, move])), effectiveness: chart, random });
+  skills = [strike], random = () => 0, ...options } = {}) {
+  return go.createBattle({ player, enemy, skills: new Map(skills.map((move) => [move.skill_id, move])), effectiveness: chart, random, ...options });
 }
 const active = (match, side = "player") => go.activeFighter(match, side);
 const fighters = (match) => [active(match), active(match, "enemy")];
@@ -181,7 +181,7 @@ test("EN shortage and unsupported selections do not advance or consume EN", () =
   const unsupported = battle({ skills: [{ ...strike, effect1: "poison" }] });
   assert.throws(() => go.resolveTurn(unsupported, { player: select(), enemy: wait }), /未対応.*poison/);
   assert.equal(active(unsupported, "enemy").hp, 200);
-  for (const move of [{ ...strike, battle_effect1: "protect" }, { ...strike, hit_type: "ignore_dodge" },
+  for (const move of [{ ...strike, battle_effect1: "protect" }, { ...strike, hit_type: "guard_break" },
     { ...strike, power_rule: "hp_exact_1" }, { ...strike, category: "status" }]) {
     assert.match(go.unsupportedMoveReason(move), /未対応/);
   }
@@ -252,4 +252,203 @@ test("official CSV integration: ミズアメネバムシ beats メトロシー�
   }
   assert.equal(active(match).hp, 4);
   assert.equal(active(match, "enemy").hp, 0);
+});
+
+const officialCharacters = new Map(csv(read("data/character.csv")).filter((row) => row.name)
+  .map((row) => [row.character_id, normalizeCharacter(row, elements, species)]));
+const officialSkills = csv(read("data/skill.csv")).filter((row) => row.category).map((row) => normalizeSkill(row, elements));
+const officialEffects = new Map(csv(read("data/effect.csv")).map((row) => [row.effect_id,
+  vn("normalizeEffect")(row)]));
+const officialDefense = new Map(csv(read("data/battle_effect.csv")).map((row) => [row.battle_effect_id,
+  vn("normalizeBattleEffect")(row)]));
+function vn(name) { return vm.runInContext(name, context); }
+const officialPower = new Map();
+for (const rule of csv(read("data/power_rule.csv")).map(vn("normalizePowerRule"))) {
+  if (!officialPower.has(rule.power_rule_group)) officialPower.set(rule.power_rule_group, []);
+  officialPower.get(rule.power_rule_group).push(rule);
+}
+const assets = { effects: officialEffects, battleEffects: officialDefense, powerRules: officialPower };
+const skill = (id) => officialSkills.find((move) => move.skill_id === id);
+const official = (...ids) => ids.map((id) => officialCharacters.get(id));
+const action = (match, id, other = wait) => go.resolveTurn(match, { player: select(id), enemy: other });
+const statusMove = (fields) => ({ ...strike, category: "status", power: 0, cost: 0, ...fields });
+
+test("status moves apply all signed stages and healing on the declared target", () => {
+  const multi = statusMove({ effect1: "bf_pa_up2", effect_target1: "self", effect_chance1: 100,
+    effect2: "bf_pa_down1", effect_target2: "enemy", effect_chance2: 100,
+    effect3: "bf_heal_half", effect_target3: "self", effect_chance3: 100, element: "earth" });
+  const match = battle({ ...assets, skills: [multi], player: [character({ hp: 125 })],
+    enemy: [character({ element_1: "wind" })] });
+  const [a, b] = fighters(match);
+  a.hp = 10;
+  a.stages.phy_atk = 5;
+  b.stages.phy_atk = -6;
+  const result = action(match, "strike");
+  assert.equal(a.stages.phy_atk, 6);
+  assert.equal(b.stages.phy_atk, -6);
+  assert.equal(a.hp, 72);
+  assert.equal(b.hp, 200);
+  assert.equal(result.events[0].reason, "not-attack");
+  action(match, "strike");
+  assert.equal(a.hp, 125);
+});
+
+test("effect chances handle 0, 100 and a strict middle threshold", () => {
+  const move = statusMove({ effect1: "bf_pa_up1", effect_chance1: 0, effect_target1: "self",
+    effect2: "bf_sa_up1", effect_chance2: 50, effect_target2: "self",
+    effect3: "bf_sd_up1", effect_chance3: 100, effect_target3: "self", priority: 1 });
+  for (const [roll, expected] of [[0.499, 1], [0.5, 0]]) {
+    let calls = 0;
+    const match = battle({ ...assets, skills: [move], random: () => { calls++; return roll; } });
+    action(match, "strike");
+    const f = active(match);
+    assert.deepEqual([f.stages.phy_atk, f.stages.sp_atk, f.stages.sp_def, calls], [0, expected, 1, 1]);
+  }
+});
+
+test("drain uses actual HP loss, including overkill and zero", () => {
+  const drain = { ...strike, effect1: "bf_drain_50", effect_target1: "self", effect_chance1: 100 };
+  const match = battle({ ...assets, skills: [drain], enemy: [character({ hp: 30, element_1: "light" })] });
+  active(match).hp = 100;
+  const result = action(match, "strike");
+  assert.equal(result.events[0].damage, 66);
+  assert.equal(result.events[0].actualDamage, 30);
+  assert.equal(active(match).hp, 115);
+  const immune = battle({ ...assets, skills: [{ ...drain, element: "earth" }],
+    enemy: [character({ element_1: "wind" })] });
+  active(immune).hp = 100;
+  assert.equal(action(immune, "strike").events.some((e) => e.type === "heal"), false);
+  assert.equal(active(immune).hp, 100);
+});
+
+test("EN recovery and guard from 大地の恵み are independent and capped", () => {
+  const move = skill("skill_032");
+  const match = battle({ ...assets, skills: [strike, move], player: [character({ skillIds: [move.skill_id] })] });
+  active(match).energy = 6;
+  const result = action(match, move.skill_id, select());
+  assert.equal(result.events.find((e) => e.type === "effect-energy").recovered, 1);
+  assert.equal(result.events.find((e) => e.side === "enemy" && e.type === "move").damage, 11);
+  assert.equal(active(match).energy, 7);
+  assert.equal(active(match).halfGuard, 0);
+});
+
+test("the common evasion action is independent of skill slots and has exact chance thresholds", () => {
+  for (const [rate, roll, success] of [[0, 0, false], [50, 0.4999, true], [50, 0.5, false],
+    [85, 0.8499, true], [85, 0.85, false], [100, 0.999, true], [-1, 0, false], [120, 0.999, true]]) {
+    const match = battle({ ...assets, skills: [strike, skill("skill_000")],
+      player: [character({ skillIds: [], evasion_percent: rate })], random: () => roll });
+    assert.equal(go.checkAction(match, "player", select("skill_000")), "");
+    const result = action(match, "skill_000", select());
+    assert.equal(result.events.find((e) => e.type === "dodge-attempt").success, success);
+    assert.equal(result.events.some((e) => e.type === "evaded"), success);
+    assert.equal(result.events.find((e) => e.side === "enemy" && e.type === "move").damage, success ? 0 : 22);
+    assert.equal(active(match).hp, success ? 200 : 178);
+    assert.equal(active(match).energy, 2);
+    assert.equal(active(match).dodgeActive, false);
+    go.resolveTurn(match, { player: wait, enemy: select() });
+    assert.equal(active(match).hp, success ? 178 : 156);
+  }
+});
+
+test("刃研ぎ shares evasion and still raises PA", () => {
+  const match = battle({ ...assets, skills: [strike, skill("skill_043")],
+    player: [character({ skillIds: ["skill_043"], evasion_percent: 85 })], random: () => 0.84 });
+  const result = action(match, "skill_043", select());
+  assert.equal(active(match).stages.phy_atk, 1);
+  assert.equal(result.events.some((e) => e.type === "evaded"), true);
+});
+
+test("ignore_dodge bypasses evasion but not guard or type immunity", () => {
+  const ignore = { ...strike, hit_type: "ignore_dodge" };
+  const guard = skill("skill_031");
+  const dodge = skill("skill_000");
+  const match = battle({ ...assets, skills: [ignore, guard, dodge],
+    player: [character({ skillIds: [guard.skill_id], evasion_percent: 100 })] });
+  const avoided = action(match, dodge.skill_id, select());
+  assert.equal(avoided.events.some((e) => e.type === "dodge-attempt" && e.success), true);
+  assert.equal(avoided.events.some((e) => e.type === "evaded"), false);
+  assert.equal(active(match).hp, 178);
+  const reduced = action(match, guard.skill_id, select());
+  assert.equal(reduced.events.find((e) => e.side === "enemy" && e.type === "move").damage, 11);
+  assert.equal(active(match).hp, 167);
+  const [a, b] = fighters(match);
+  b.base.element_1 = "wind";
+  b.dodgeActive = true;
+  b.halfGuard = 50;
+  assert.equal(go.calculateDamage(a, b, { ...ignore, element: "earth" }, chart).damage, 0);
+  assert.equal(go.calculateDamage(a, b, ignore, chart).damage, 16);
+});
+
+test("evaded and immune attacks skip enemy effects, retain self penalties, and never debuff a KO", () => {
+  const move = { ...strike, element: "earth", effect1: "bf_pa_down1", effect_chance1: 100,
+    effect2: "bf_pd_down1", effect_target2: "self", effect_chance2: 100 };
+  for (const { element_1, hp, useDodge } of [{ element_1: "wind", hp: 200 }, { element_1: "earth", hp: 200, useDodge: true },
+    { element_1: "light", hp: 1 }]) {
+    const match = battle({ ...assets, skills: [move, skill("skill_000")],
+      enemy: [character({ element_1, hp, evasion_percent: 100 })] });
+    action(match, "strike", useDodge ? select("skill_000") : wait);
+    assert.equal(active(match).stages.phy_def, -1);
+    assert.equal(active(match, "enemy").stages.phy_atk, 0);
+  }
+});
+
+test("evasion does not block an enemy-targeted status move", () => {
+  const song = skill("skill_001");
+  const match = battle({ ...assets, skills: [song, skill("skill_000")],
+    player: [character({ evasion_percent: 100 })], enemy: [character({ skillIds: [song.skill_id] })] });
+  const result = action(match, "skill_000", select(song.skill_id));
+  assert.equal(result.events.some((e) => e.type === "evaded"), false);
+  assert.equal(active(match).stages.phy_atk, -1);
+});
+
+test("シェルハード previews PD damage and applies its self PD penalty", () => {
+  const shell = skill("skill_033");
+  const match = battle({ ...assets, skills: [shell], player: [character({ skillIds: [shell.skill_id], phy_atk: 40, phy_def: 130 })] });
+  const [a, b] = fighters(match);
+  const preview = go.calculateDamage(a, b, shell, chart);
+  assert.equal(preview.attack, 130);
+  assert.equal(preview.defense, 100);
+  assert.equal(action(match, shell.skill_id).events[0].damage, preview.damage);
+  assert.equal(a.stages.phy_def, -1);
+});
+
+test("窮鼠猫噛 resolves exact HP 1 at action time", () => {
+  const hpOne = skill("skill_005");
+  const hit = { ...strike, power: 1, cost: 0, priority: 1 };
+  const match = battle({ ...assets, skills: [hpOne, hit], player: [character({ skillIds: [hpOne.skill_id], hp: 200 })] });
+  const [a, b] = fighters(match);
+  for (const [hp, power] of [[1, 160], [2, 70], [3, 70], [200, 70]]) {
+    a.hp = hp;
+    assert.equal(go.calculateDamage(a, b, hpOne, chart, assets).power, power);
+  }
+  go.changeEnergy(a, 1);
+  // Fire against fire: base 2, no STAB, 0.5x => 1 damage.
+  const expected = go.calculateDamage({ ...a, hp: 1 }, b, hpOne, chart, assets).damage;
+  a.hp = 2;
+  const result = action(match, hpOne.skill_id, select());
+  assert.equal(a.hp, 1);
+  assert.equal(result.events[1].damage, expected);
+});
+
+test("formal data battle includes status, evasion, guard, heal, ranks, EN, switches and victory", () => {
+  const match = battle({ ...assets, skills: officialSkills, player: official("character_002", "character_009"),
+    enemy: official("character_007"), random: () => 0.1 });
+  const water = select("skill_026");
+  const allEvents = [];
+  const turn = (player, enemy = water) => allEvents.push(...go.resolveTurn(match, { player, enemy }).events);
+  turn(select("skill_000"));
+  turn({ type: "switch", index: 1 });
+  turn(select("skill_031"));
+  turn({ type: "switch", index: 0 });
+  turn(wait);
+  turn(select("skill_003"));
+  for (let i = 0; i < 15 && !match.winner; i++) {
+    const player = active(match);
+    turn(player.energy >= 2 ? select("skill_004") : wait, wait);
+  }
+  for (const type of ["move", "dodge-attempt", "evaded", "switch", "half-guard", "heal", "stage", "energy", "faint", "win"]) {
+    assert.ok(allEvents.some((e) => e.type === type), type);
+  }
+  assert.ok(allEvents.some((e) => e.type === "heal" && e.recovered > 0));
+  assert.equal(match.winner, "player");
 });

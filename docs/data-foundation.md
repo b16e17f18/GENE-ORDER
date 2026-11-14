@@ -56,3 +56,20 @@ CP932から厳密にデコードしたキャラ・技と、ワークブックの
 - ダメージ式、丸め、複合攻撃、STAB・無効化の順、段階係数、優先度同値、初期ENとEN上限、交代時のリセットや引き継ぎ。
 - 回避の発動点と持続、追加効果やパッシブの発動順、毒付与率の資料差。
 - 編成における `slot` の意味、GOの正式な敵編成、ゲーム進行と保存形式、旧ストーリー・ショップ・装備・アリーナ等の採否。
+
+## v0.30の参照整合性
+
+上記の70箇所はv0.20までの基準値。v0.30は通常効果30、戦闘効果13、威力ルール1の計44箇所を解消し、26箇所が残る。実行時・診断とも同じ対応表を使う。skill.csv のID、説明、性能値と既存効果量はそのまま。
+
+- 通常効果のID対応（接頭辞 bf_ を付与） — pa_down1、pa_up1、pa_up2、pd_down1、pd_up1、sa_down4、sa_down1、sa_up1、sa_up2、sd_down1、sd_up2、sp_up1、sp_down2、heal_half、drain_50、heal_en。
+- 戦闘効果 — dodge_guard → bf_dodge_guard、protect → bf_half_guard。shed_tail、water_absorb_guard、water_super_effective、next_fire_power_150 も対応する bf_ IDへ解決するが処理は未対応。
+- 威力ルール — hp_exact_1 → bf_hp_exact_1。実行時に使用する。
+- 追加した定義 — bf_pa_up2（PA＋2段階）、bf_sa_up2（SA＋2段階）、bf_sp_down2（SP−2段階）、bf_heal_en（EN＋1）。既存15行を保持し、効果表は19行。
+
+| 分類 | 残件 | 未解決ID |
+|---|---:|---|
+| 通常効果 | 9 | burn、clear_buff、しめつける、どろぼう、反動ダメージ1/4、回避率UP、場リセット |
+| 戦闘効果 | 13 | charge_attack、ghost_phase、reflection、revenge、sp_protect、switch_after_attack、switch_lock、water_protect、みがわり、ゆきなだれ、バトンタッチ、追い風 |
+| 威力ルール | 4 | en_value、speed_advantage、target_status |
+
+[技の状況](skill-effects.md) はIDの解決可否に加え、エンジン上で全効果が実行できるかを分類している。
