@@ -3958,7 +3958,7 @@ async function loadGameData() {
     normalizeCharacter(row, elementNames, speciesNames)
   ));
   const passives = new Map(tables.passives.filter((row) => row.passive_id && row.name).map((row) => (
-    [row.passive_id, normalizePassive(row)]
+    [row.passive_id, geneOrderPassives.normalize(row, elementNames)]
   )));
   for (const character of characters) {
     character.passive = passives.get(character.passive_id) ?? null;
@@ -4015,6 +4015,7 @@ function mountGeneOrderBattlePreview() {
       player: team("character_015", "character_001", "character_016"),
       enemy: team("character_009", "character_021", "character_007"),
       skills: state.skills,
+      passives: state.passives,
       effectiveness: state.effectiveness,
       effects: state.effects,
       battleEffects: state.battleEffects,
@@ -4023,6 +4024,7 @@ function mountGeneOrderBattlePreview() {
   }
 
   let battle = newBattle();
+  const startLog = () => battle.startEvents.map((event) => event.text).join("\n");
   const statLabels = { phy_atk: "PA", phy_def: "PD", sp_atk: "SA", sp_def: "SD", speed: "SP" };
   function render() {
     for (const { side, select, status } of controls) {
@@ -4031,6 +4033,19 @@ function mountGeneOrderBattlePreview() {
       const stages = Object.entries(active.stages).map(([stat, stage]) => `${statLabels[stat]} ${stage > 0 ? "+" : ""}${stage}`);
       const defense = [active.dodgeActive ? "回避成功状態" : "", active.halfGuard ? "半減防御" : ""].filter(Boolean);
       const conditions = active.statuses.map(({ definition, turns }) => `${definition.name} 残り${turns}ターン`);
+      if (active.passive) {
+        const { name, text, status: implementation, effects } = active.passive;
+        const uses = effects.filter((effect) => geneOrderPassives.used(active, effect) > 0);
+        const used = uses.map((effect) => {
+          const count = geneOrderPassives.used(active, effect);
+          return effect.phase === "before-hp-damage" ? `効果${effect.slot} ${count}/${effect.value}回使用`
+            : `効果${effect.slot} ${count}回発動`;
+        });
+        const support = implementation === "pending" ? "（未対応）" : implementation === "partial" ? "（一部未対応）" : "";
+        conditions.push(`パッシブ：${name}${support} ${text}${used.length ? ` [${used.join("、")}]` : ""}`);
+      } else {
+        conditions.push("パッシブ未設定");
+      }
       if (active.pending) conditions.push(`予約：${state.skills.get(active.pending.moveId).name}（威力${active.pending.power}）`);
       if (active.decoy) conditions.push(`デコイ HP ${active.decoy.hp}/${active.decoy.maxHp}`);
       const tailUses = active.moveUses.get("bf_shed_tail") ?? 0;
@@ -4100,6 +4115,7 @@ function mountGeneOrderBattlePreview() {
         : geneOrderBattle.resolveTurn(battle, selected);
       const sideName = (side) => side === "player" ? "自分側" : "相手側";
       const describe = {
+        passive: (e) => e.text,
         move: (e) => `${e.actor}の${e.move}（EN −${e.cost}）` +
           (e.category === "attack" && e.reason !== "decoy" ? ` → ${e.target}に${e.actualDamage}ダメージ（威力${e.power}）` : ""),
         charge: (e) => `${e.actor}は${e.move}を予約（威力${e.power}、EN −${e.cost}）`,
@@ -4138,7 +4154,7 @@ function mountGeneOrderBattlePreview() {
         "field-cleared": (e) => `${sideName(e.side)}のフィールドを解除${e.removed.length ? `（${e.removed.join("、")}）` : ""}`,
         "field-expired": (e) => `${sideName(e.side)}の${e.name}が終了した`,
       };
-      const lines = pending ? log.textContent.split("\n").slice(0, -1) : [`ターン ${result.turn}`];
+      const lines = pending ? log.textContent.split("\n").slice(0, -1) : [startLog(), `ターン ${result.turn}`].filter(Boolean);
       lines.push(...result.events.map((entry) => describe[entry.type](entry)));
       if (result.pendingSwitch) lines.push(`${sideName(result.pendingSwitch.side)}の交代先を選択`);
       log.textContent = lines.join("\n");
@@ -4151,9 +4167,10 @@ function mountGeneOrderBattlePreview() {
   form.querySelector('[type="reset"]').addEventListener("click", (event) => {
     event.preventDefault();
     battle = newBattle();
-    log.textContent = "";
+    log.textContent = startLog();
     render();
   });
+  log.textContent = startLog();
   render();
   panel.hidden = false;
 }

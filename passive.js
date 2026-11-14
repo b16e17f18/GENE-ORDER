@@ -398,3 +398,111 @@ function findBlockingBattleEffectPassive({ actor, target, battleEffect, move }) 
     passiveTargetMatches(passiveEffect, battleEffectId)
   ));
 }
+
+
+/* GO uses the same master slots as MHB, with its own effect and target semantics. */
+const geneOrderPassives = (() => {
+  const ELEMENT_ALIASES = new Map([["neutral", "none"], ["flash", "light"]]);
+  const STAT_ALIASES = new Map([
+    ["pa", "phy_atk"], ["pd", "phy_def"], ["sa", "sp_atk"], ["sd", "sp_def"], ["sp", "speed"],
+  ]);
+  const TYPE_ALIASES = new Map([["start_energy", "starting_en"]]);
+  const integer = (value) => Number.isInteger(value);
+  const positive = (value) => value > 0;
+  const limit = (value) => integer(value) && positive(value);
+  const stat = (id) => STAT_ALIASES.get(id) ?? ([...STAT_ALIASES.values()].includes(id) ? id : null);
+  const element = (id, elements) => {
+    const canonical = ELEMENT_ALIASES.get(id) ?? id;
+    return elements.has(canonical) ? canonical : null;
+  };
+  const elementalStage = (id, elements) => {
+    const separator = id.indexOf("_");
+    if (separator < 0) return null;
+    const type = element(id.slice(0, separator), elements);
+    const ability = stat(id.slice(separator + 1));
+    return type && ability ? { element: type, stat: ability } : null;
+  };
+
+  const definitions = new Map([
+    ["starting_en", { phase: "battle-start", target: (id) => ["en", "none"].includes(id) ? {} : null,
+      value: (value) => integer(value) && value >= 0 }],
+    ["element_immunity", { phase: "element-immunity", target: elementalTarget, value: (value) => value >= 0 }],
+    ["element_power_multiplier", { phase: "power", target: elementalTarget, value: positive }],
+    ["on_use_element_stat_stage", { phase: "after-use", target: elementalStage, value: integer }],
+    ["turn_end_stat_stage", { phase: "turn-end", target: (id) => stat(id) ? { stat: stat(id) } : null, value: integer }],
+    ["debuff_immunity", { phase: "before-stage", target: (id) => {
+      const ability = id.endsWith("_down") && stat(id.slice(0, -5));
+      return ability ? { stat: ability } : null;
+    }, value: (value) => value >= 0 }],
+    ["survive_once", { phase: "before-hp-damage", target: (id) => id === "hp_full_once" ? {} : null, value: limit }],
+  ]);
+
+  function elementalTarget(id, elements) {
+    const canonical = element(id, elements);
+    return canonical ? { element: canonical } : null;
+  }
+
+  function normalize(row, elements) {
+    const passive = normalizePassive(row);
+    const issues = [];
+    const effects = [];
+    for (const original of passive.effects) {
+      const { slot, target_id } = original;
+      const type = TYPE_ALIASES.get(original.type) ?? original.type;
+      const definition = definitions.get(type);
+      if (!definition) {
+        issues.push({ field: "passive_type" + slot, value: original.type });
+        continue;
+      }
+      const target = definition.target(target_id, elements);
+      if (!target) {
+        issues.push({ field: "target_id" + slot, value: target_id });
+        continue;
+      }
+      const raw = row["value" + slot];
+      const value = Number(raw);
+      if (!String(raw ?? "").trim() || !Number.isFinite(value) || !definition.value(value)) {
+        issues.push({ field: "value" + slot, value: raw });
+        continue;
+      }
+      effects.push({ ...original, type, passive_type: type, phase: definition.phase, value, ...target });
+    }
+    const unconfigured = [passive.effect1, passive.effect2, passive.effect3].filter((effect) =>
+      effect.type === PASSIVE_EFFECT_TYPE_NONE && (effect.target_id !== PASSIVE_EFFECT_TYPE_NONE || effect.value !== 0));
+    const status = !passive.name && !passive.text ? "unset" :
+      effects.length ? (issues.length || unconfigured.length ? "partial" : "implemented") : "pending";
+    return { ...passive, effects, issues, unconfigured, status };
+  }
+
+  function matching(fighter, phase, predicate = () => true) {
+    return passiveEffectsOf(fighter).filter((effect) => effect.phase === phase && predicate(effect));
+  }
+
+  function first(fighter, phase, predicate = () => true) {
+    return findPassiveEffect(fighter, (effect) => effect.phase === phase && predicate(effect));
+  }
+
+  function used(fighter, effect) {
+    return fighter.passiveState?.uses.get(effect.slot) ?? 0;
+  }
+
+  function survive(fighter, damage) {
+    if (fighter.hp !== fighter.maxHp || damage < fighter.hp || fighter.fainted) return null;
+    return first(fighter, "before-hp-damage", (effect) => used(fighter, effect) < effect.value);
+  }
+
+  function blocksStage(fighter, stat, delta, source) {
+    if (delta >= 0 || !externalPassiveSource(source, fighter)) return null;
+    return first(fighter, "before-stage", (effect) => effect.stat === stat && effect.value > 0);
+  }
+
+  function activate(fighter, side, effect, events, details = {}) {
+    fighter.passiveState.uses.set(effect.slot, used(fighter, effect) + 1);
+    const title = fighter.base.name + "の「" + effect.passive_name + "」";
+    const message = passiveActivationLogEvents(fighter, effect)[0]?.text;
+    events.push({ type: "passive", phase: effect.phase, actor: fighter.base.name, side, passive: effect.passive_id,
+      slot: effect.slot, text: title + (message ? "：" + message : "が発動"), ...details });
+  }
+
+  return { normalize, matching, first, used, survive, blocksStage, activate };
+})();

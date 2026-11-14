@@ -91,12 +91,6 @@ function validateGeneOrderData(tables, imageExists) {
   const speciesNames = masterIdLookup(tables.species, "species_id");
   const powerGroups = known(tables.powerRules, "power_rule_group");
   const supportedPowerGroups = new Set(["bf_hp_exact_1", "target_status", "en_value"]);
-  const knownPassiveTypes = new Set([
-    "start_energy", "effect_chance_up", "element_damage_up", "low_hp_damage_up", "damage_cut",
-    "turn_end_stat_up", "turn_end_stat_down", "damage_drain", "survive_once", "two_turn_skip_once",
-    "switch_heal", "status_move_priority_up", "heal_block", "passive_pierce", "field_effect_immunity",
-    "status_immunity", "debuff_immunity", "en_down_immunity", "clear_buff_immunity", "battle_effect_immunity",
-  ]);
   const numeric = (table, id, row, fields) => {
     for (const field of fields) {
       if (row[field] !== "" && row[field] !== undefined && !Number.isFinite(Number(row[field]))) {
@@ -169,18 +163,14 @@ function validateGeneOrderData(tables, imageExists) {
       add("予約行", "passives", id, "name");
       continue;
     }
-    const slots = [1, 2, 3].filter((slot) => isSet(row[`passive_type${slot}`]));
-    if (!slots.length) add("効果未設定", "passives", id, "passive_type", row.name);
-    for (const slot of slots) {
-      const field = `passive_type${slot}`;
-      if (!knownPassiveTypes.has(row[field])) add("効果未対応", "passives", id, field, row[field]);
-      if (row[field] === "debuff_immunity" && !["debuff", ...ids.effects.keys()].includes(row[`target_id${slot}`])) {
-        add("効果未対応", "passives", id, `target_id${slot}`, row[`target_id${slot}`]);
-      }
-      if (row[field] === "survive_once" && row[`target_id${slot}`] !== "none") {
-        add("効果未対応", "passives", id, `target_id${slot}`, row[`target_id${slot}`]);
-      }
+    const passive = geneOrderPassives.normalize(row, elements);
+    if (passive.status === "pending" && !passive.issues.length) {
+      add("効果未設定", "passives", id, "passive_type", row.name);
     }
+    if (passive.status === "partial") {
+      for (const { slot } of passive.unconfigured) add("効果未設定", "passives", id, "passive_type" + slot, row.name);
+    }
+    for (const { field, value } of passive.issues) add("効果未対応", "passives", id, field, value);
   }
 
   for (const table of ["effects", "battleEffects", "powerRules"]) {

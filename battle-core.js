@@ -1,4 +1,4 @@
-// GENE ORDER v0.33. The inherited MHB entry points below remain separate.
+// GENE ORDER v0.40. The inherited MHB entry points below remain separate.
 const geneOrderBattle = (() => {
   const START_ENERGY = 1;
   const MAX_ENERGY = 7;
@@ -18,8 +18,13 @@ const geneOrderBattle = (() => {
     fighter.stages = Object.fromEntries(STATS.map((stat) => [stat, 0]));
   }
 
-  function changeStage(fighter, stat, delta) {
+  function changeStage(fighter, stat, delta, { source, side, events } = {}) {
     if (!STATS.includes(stat) || !Number.isInteger(delta)) throw new Error("無効な能力ランク変更です。");
+    const blocked = geneOrderPassives.blocksStage(fighter, stat, delta, source);
+    if (blocked) {
+      if (events) geneOrderPassives.activate(fighter, side, blocked, events, { stat, blockedDelta: delta });
+      return 0;
+    }
     const before = fighter.stages[stat];
     fighter.stages[stat] = Math.max(MIN_STAGE, Math.min(MAX_STAGE, before + delta));
     return fighter.stages[stat] - before;
@@ -59,7 +64,12 @@ const geneOrderBattle = (() => {
     const effects = moveEffects(move).filter(({ table, chance }) => table === "battleEffects" && chance > 0)
       .map(({ id }) => modifiers.battleEffects?.get(id)).filter(Boolean);
     const override = effects.find((effect) => battleEffectKind(effect) === "type-override");
-    const power = modifiers.power ?? resolvePower(move, attacker, defender, modifiers.powerRules, effects);
+    const powerPassives = modifiers.power == null
+      ? geneOrderPassives.matching(attacker, "power", (effect) => effect.element === move.element) : [];
+    const power = modifiers.power ?? resolvePower(move, attacker, defender, modifiers.powerRules, effects, powerPassives);
+    const immunity = geneOrderPassives.first(defender, "element-immunity",
+      (effect) => effect.element === move.element && effect.value > 0);
+    if (immunity) return { damage: 0, decoyDamage: 0, power, reason: "passive-immune", powerPassives, immunity };
     const pierce = move.hit_type === "guard_break"
       ? effects.find((effect) => battleEffectKind(effect) === "position")?.modifier ?? 1 : 1;
     const absorb = activeDefense(defender, "absorb", modifiers.turn ?? 1);
@@ -87,13 +97,16 @@ const geneOrderBattle = (() => {
     const decoyDamage = decoy ? Math.min(virtualDamage, decoy.hp) : 0;
     const absorbed = virtualDamage > 0 && !decoy && absorb?.definition.element === move.element;
     const reflected = virtualDamage > 0 && !decoy && !absorbed && reflection && guardApplies(reflection.definition, move);
-    const damage = decoy || absorbed || reflected ? 0 : virtualDamage;
+    const incoming = decoy || absorbed || reflected ? 0 : virtualDamage;
+    // Only the direct damage to the fighter can spend this passive's use.
+    const survival = incoming > 0 ? geneOrderPassives.survive(defender, incoming) : null;
+    const damage = survival ? defender.hp - 1 : incoming;
     // Only this incoming attack can trigger a response. Returned damage is applied directly to HP.
     const response = reflected ? reflection : damage > 0 && damage < defender.hp ? revenge : null;
     return { damage, decoyDamage, power, attack, defense, baseDamage, stab, afterStab, effectiveness, afterEffectiveness,
       reason: decoy ? "decoy" : absorbed ? "absorbed" : reflected ? "reflected" : reason ?? "hit",
       response: response ? { id: response.id, damage: Math.max(1, Math.round(virtualDamage * response.definition.damage_value / 100)) } : null,
-      heal: absorbed ? Math.floor(defender.maxHp * absorb.definition.modifier / 100) : 0 };
+      powerPassives, survival, heal: absorbed ? Math.floor(defender.maxHp * absorb.definition.modifier / 100) : 0 };
   }
 
 
@@ -186,7 +199,7 @@ const geneOrderBattle = (() => {
         value >= min && (max === null || value < max))) ?? null;
   }
 
-  function resolvePower(move, attacker, defender, powerRules, effects = []) {
+  function resolvePower(move, attacker, defender, powerRules, effects, powerPassives) {
     const group = move.power_rule;
     let multiplier = 1;
     if (group && group !== "none") {
@@ -200,6 +213,7 @@ const geneOrderBattle = (() => {
       const boost = effects.find((effect) => battleEffectKind(effect) === "hit-power");
       if (boost) multiplier *= boost.damage_value;
     }
+    for (const effect of powerPassives) multiplier *= effect.value;
     return Math.min(Math.round(move.power * multiplier), move.power_cap ?? Infinity);
   }
 
@@ -340,7 +354,9 @@ const geneOrderBattle = (() => {
       power: pending?.power, powerRules: battle.powerRules, battleEffects: battle.battleEffects,
       targetFields: fieldEffectsForSide(battle, other).values(), turn: battle.turn,
     });
-    return !pending && chargeSlot(move, battle) ? { ...result, damage: 0, decoyDamage: 0, response: null, heal: 0, reason: "charging" } : result;
+    if (pending || !chargeSlot(move, battle)) return result;
+    const { immunity, survival, ...charge } = result;
+    return { ...charge, damage: 0, decoyDamage: 0, response: null, heal: 0, reason: "charging" };
   }
 
   function applyMoveEffects(battle, side, actor, defender, move, actualDamage, blocked, events, phase) {
@@ -412,7 +428,7 @@ const geneOrderBattle = (() => {
         fields.clear();
         events.push({ ...event, type: "field-cleared", removed });
       } else if (kind === "stage") {
-        const delta = changeStage(recipient, effect.target_stat, value);
+        const delta = changeStage(recipient, effect.target_stat, value, { source: actor, side: event.side, events });
         events.push({ ...event, type: "stage", stat: effect.target_stat, delta, stage: recipient.stages[effect.target_stat] });
       } else if (kind === "recover-en") {
         const before = recipient.energy;
@@ -428,7 +444,15 @@ const geneOrderBattle = (() => {
     }
   }
 
-  function createFighter(character) {
+  function applyPassiveStages(fighter, side, phase, events, move) {
+    const effects = geneOrderPassives.matching(fighter, phase, (effect) => !move || effect.element === move.element);
+    for (const effect of effects) {
+      const delta = changeStage(fighter, effect.stat, effect.value);
+      if (delta) geneOrderPassives.activate(fighter, side, effect, events, { stat: effect.stat, delta });
+    }
+  }
+
+  function createFighter(character, passives) {
     if (!character?.name || ![character.hp, ...STATS.map((stat) => character[stat])]
       .every((value) => Number.isInteger(value) && value > 0)) throw new Error("戦闘個体の能力値が無効です。");
     if (!Number.isInteger(character.energy_charge) || character.energy_charge < 0) {
@@ -436,15 +460,29 @@ const geneOrderBattle = (() => {
     }
     const fighter = { base: character, hp: character.hp, maxHp: character.hp, energy: START_ENERGY, fainted: false, dodgeActive: false, halfGuard: 0,
       statuses: [], timedEffects: new Map(), defenses: new Map(), bind: null, pending: null, tookDirectDamage: false, decoy: null, moveUses: new Map() };
+    fighter.passive = passives.get(character.passive_id) ?? null;
+    fighter.passiveEffects = fighter.passive?.effects ?? [];
+    fighter.passiveState = { uses: new Map() };
     resetStages(fighter);
     return fighter;
   }
 
   function createBattle({ player, enemy, skills, effectiveness, effects = new Map(), battleEffects = new Map(), powerRules = new Map(),
-    random = Math.random, manualSwitches = false, onSwitch = null }) {
+    passives = new Map(), random = Math.random, manualSwitches = false, onSwitch = null }) {
     if (!player.length || !enemy.length) throw new Error("両チームに個体が必要です。");
+    const teams = { player: player.map((base) => createFighter(base, passives)),
+      enemy: enemy.map((base) => createFighter(base, passives)) };
+    const startEvents = [];
+    for (const side of SIDES) {
+      for (const fighter of teams[side]) {
+        const effect = geneOrderPassives.first(fighter, "battle-start");
+        if (!effect) continue;
+        changeEnergy(fighter, effect.value - fighter.energy);
+        geneOrderPassives.activate(fighter, side, effect, startEvents, { energy: fighter.energy });
+      }
+    }
     return {
-      teams: { player: player.map(createFighter), enemy: enemy.map(createFighter) },
+      teams, startEvents,
       active: { player: 0, enemy: 0 }, fields: { player: new Map(), enemy: new Map() }, skills, effectiveness, effects, battleEffects, powerRules, random, turn: 1, winner: null, manualSwitches, onSwitch, pendingSwitch: null,
     };
   }
@@ -535,7 +573,7 @@ const geneOrderBattle = (() => {
     if (!switchTargets(battle, side).includes(index)) throw new Error("交代先に指定できません。");
     const from = activeFighter(battle, side);
     const to = battle.teams[side][index];
-    const notify = (phase) => battle.onSwitch?.({ phase, battle, side, reason, from, to });
+    const notify = (phase) => battle.onSwitch?.({ phase, battle, side, reason, from, to, events });
     notify("before-switch");
     notify("leave");
     const stages = reason === "relay" ? { ...from.stages } : null;
@@ -707,13 +745,19 @@ const geneOrderBattle = (() => {
       const result = previewDamage(battle, side, move);
       const cost = pending ? 0 : move.cost;
       changeEnergy(actor, -cost);
+      for (const effect of result.powerPassives ?? []) {
+        geneOrderPassives.activate(actor, side, effect, events, { power: result.power });
+      }
       if (charge) {
         actor.pending = { moveId: move.skill_id, power: result.power, definition: battle.battleEffects.get(charge.id) };
         events.push({ type: "charge", side, actor: actor.base.name, move: move.name, cost, power: result.power });
         applyMoveEffects(battle, side, actor, defender, move, 0, false, events, "charge");
+        if (!actor.fainted) applyPassiveStages(actor, side, "after-use", events, move);
         continue;
       }
       actor.pending = null;
+      if (result.immunity) geneOrderPassives.activate(defender, other, result.immunity, events);
+      if (result.survival) geneOrderPassives.activate(defender, other, result.survival, events);
       const actualDamage = applyHPDamage(defender, result.damage);
       const decoyDamage = result.decoyDamage ?? 0;
       if (decoyDamage) {
@@ -740,6 +784,7 @@ const geneOrderBattle = (() => {
       }
       applyMoveEffects(battle, side, actor, defender, move, actualDamage + decoyDamage,
         move.category === "attack" && result.reason !== "hit", events, pending ? "release" : null);
+      if (!pending && !actor.fainted) applyPassiveStages(actor, side, "after-use", events, move);
       if (defender.fainted) recordFaint(battle, other, defender, events);
       if (actor.fainted) recordFaint(battle, side, actor, events);
       if (defender.fainted || actor.fainted) determineWinner(battle, events);
@@ -775,6 +820,7 @@ const geneOrderBattle = (() => {
       for (const side of SIDES) {
         const fighter = activeFighter(battle, side);
         if (fighter.fainted) continue;
+        applyPassiveStages(fighter, side, "turn-end", events);
         const before = fighter.energy;
         changeEnergy(fighter, fighter.base.energy_charge);
         events.push({ type: "energy", side, recovered: fighter.energy - before });

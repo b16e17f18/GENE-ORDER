@@ -1242,3 +1242,320 @@ test("official GO replay creates, passes and sheds decoys and targets the post-a
   assert.equal(finished.events.find(e => e.type === "move" && e.side === "enemy").target, "ユーズドマウス");
   assert.equal(active(match).decoy, null);
 });
+
+const normalizeGoPassive = vm.runInContext("geneOrderPassives.normalize", context);
+const officialPassives = new Map(csv(read("data/passive.csv")).filter((row) => row.name)
+  .map((row) => [row.passive_id, normalizeGoPassive(row, elements)]));
+const withPassive = (number, overrides = {}) => character({ passive_id: "passive_" + number, ...overrides });
+const passiveBattle = (options = {}) => battle({ ...assets, passives: officialPassives, ...options });
+const passivesIn = (result, phase) => result.events.filter((event) => event.type === "passive" && event.phase === phase);
+const idle = (match) => go.resolveTurn(match, { player: wait, enemy: wait });
+
+test("normalizes three GO slots, compound IDs, explicit neutral and MHB's EN alias", () => {
+  const row = { passive_id: "synthetic", name: "Three slots",
+    passive_type1: "start_energy", target_id1: "en", value1: "3",
+    passive_type2: "on_use_element_stat_stage", target_id2: "flash_phy_atk", value2: "1",
+    passive_type3: "element_power_multiplier", target_id3: "none", value3: "1.3" };
+  const normalized = normalizeGoPassive(row, elements);
+  assert.equal(normalized.status, "implemented");
+  assert.equal(normalized.effects.length, 3);
+  assert.equal(normalized.effects[0].type, "starting_en");
+  assert.equal(normalized.effects[0].element, undefined);
+  assert.equal(normalized.effects[1].element, "light");
+  assert.equal(normalized.effects[1].stat, "phy_atk");
+  assert.equal(normalized.effects[2].element, "none");
+  assert.equal(officialPassives.get("passive_007").effects[0].element, "none");
+  assert.equal(normalizeGoPassive({ ...row, target_id3: "unknown" }, elements).status, "partial");
+  assert.equal(normalizeGoPassive({ ...row, passive_type3: "none" }, elements).status, "partial");
+  assert.equal(officialPassives.size, 24);
+  assert.equal([...officialPassives.values()].filter((p) => p.status === "implemented").length, 15);
+  assert.equal([...officialPassives.values()].filter((p) => p.status === "pending").length, 9);
+});
+
+test("starting EN is capped and applies once to every fighter including the bench", () => {
+  const team = [withPassive("003"), withPassive("008"), withPassive("013")];
+  const match = passiveBattle({ player: team });
+  assert.deepEqual(Array.from(match.teams.player, (f) => f.energy), [4, 5, 2]);
+  assert.deepEqual(Array.from(match.startEvents, (e) => e.energy), [4, 5, 2]);
+  go.resolveTurn(match, { player: voluntary(1), enemy: wait });
+  assert.equal(match.teams.player[0].energy, 4);
+  assert.equal(active(match).stages.sp_atk, -1);
+  go.changeEnergy(match.teams.player[0], -3);
+  go.resolveTurn(match, { player: voluntary(0), enemy: wait });
+  assert.equal(active(match).energy, 2);
+  assert.equal(active(match).stages.sp_atk, 1);
+  assert.equal(active(match).passiveState.uses.get(1), 1);
+  const capped = normalizeGoPassive({ name: "EN", passive_type1: "starting_en", target_id1: "none", value1: "99" }, elements);
+  assert.equal(active(passiveBattle({ player: team, passives: new Map([["passive_003", capped]]) })).energy, 7);
+});
+
+test("elemental immunity blocks water, neutral and fire before dodge, absorption, reflection or decoy", () => {
+  for (const [id, element] of [["002", "water"], ["007", "none"], ["024", "fire"]]) {
+    const move = { ...strike, element, attack_type: "special", effect1: "bf_pd_down1", effect_target1: "enemy", effect_chance1: 100 };
+    const match = passiveBattle({ skills: [move], enemy: [withPassive(id, { element_1: "earth", element_2: "dark" })] });
+    const target = active(match, "enemy");
+    target.dodgeActive = true;
+    target.halfGuard = 50;
+    target.decoy = { hp: 20, maxHp: 20 };
+    for (const defenseId of ["bf_water_absorb_guard", "reflection", "revenge"]) {
+      target.defenses.set(defenseId, { id: defenseId, starts: 1, expires: 2, definition: officialDefense.get(defenseId) });
+    }
+    const preview = go.previewDamage(match, "player", move);
+    assert.deepEqual([preview.reason, preview.damage, preview.decoyDamage], ["passive-immune", 0, 0]);
+    assert.equal(target.passiveState.uses.size, 0);
+    const round = action(match);
+    assert.equal(passivesIn(round, "element-immunity").length, 1);
+    assert.deepEqual([target.hp, target.decoy.hp, target.stages.phy_def], [target.maxHp, 20, 0]);
+    assert.equal(round.events.some((e) => ["absorbed", "evaded", "reflected", "revenge", "decoy-hit"].includes(e.type)), false);
+  }
+});
+
+test("all elemental use-stage passives apply to status, hit, evade or immunity on use", () => {
+  for (const [id, element, stat, delta, mode] of [
+    ["004", "wind", "speed", 1, "evaded"], ["009", "water", "phy_def", 1, "immune"],
+    ["011", "light", "phy_atk", 1, "status"], ["012", "fire", "sp_def", 1, "hit"],
+    ["013", "fire", "phy_atk", -1, "hit"], ["006", "none", "phy_atk", -1, "immune"],
+  ]) {
+    const move = { ...(mode === "status" ? { ...skill("skill_060"), skill_id: "strike" } : strike), element, cost: 0 };
+    const enemyPassive = mode === "immune" ? (element === "water" ? "002" : "007") : "";
+    const match = passiveBattle({ skills: [move], player: [withPassive(id)],
+      enemy: [withPassive(enemyPassive, { element_1: "light" })] });
+    active(match, "enemy").dodgeActive = mode === "evaded";
+    const result = action(match);
+    assert.equal(active(match).stages[stat], delta, id);
+    assert.equal(passivesIn(result, "after-use").length, 1, id);
+  }
+  const status = { ...skill("skill_001"), element: "water" };
+  const match = passiveBattle({ skills: [status], player: [withPassive("009", { skillIds: [status.skill_id] })],
+    enemy: [withPassive("002")] });
+  const result = action(match, status.skill_id);
+  assert.equal(active(match, "enemy").stages.phy_atk, -1);
+  assert.equal(passivesIn(result, "element-immunity").length, 0);
+});
+
+test("neutral power modifies move power before damage and self PA falls after the hit", () => {
+  const neutral = { ...strike, element: "none", power: 80 };
+  const options = { skills: [neutral], player: [withPassive("006", { element_1: "none" })] };
+  const match = passiveBattle(options);
+  const attacker = active(match);
+  const preview = go.previewDamage(match, "player", neutral);
+  const baseline = go.previewDamage(battle({ ...options, skills: [{ ...neutral, power: 96 }] }), "player", { ...neutral, power: 96 });
+  assert.equal(preview.power, 96);
+  assert.equal(preview.damage, baseline.damage);
+  assert.equal(attacker.passiveState.uses.size, 0);
+  const result = action(match);
+  assert.equal(result.events.find((e) => e.type === "move").actualDamage, preview.damage);
+  assert.equal(passivesIn(result, "power").length, 1);
+  assert.equal(attacker.stages.phy_atk, -1);
+});
+
+test("stage immunity blocks hostile PD drops only, including a future external passive caller", () => {
+  const spiral = skill("skill_013");
+  const self = { ...spiral, skill_id: "self-pd", element: "fire", effect_target1: "self", cost: 0 };
+  const clear = { ...skill("skill_001"), skill_id: "clear", effect1: "clear_buff", cost: 0 };
+  const match = passiveBattle({ skills: [spiral, self, clear], player: [withPassive("010", { skillIds: [self.skill_id] }), character()],
+    enemy: [character({ skillIds: [spiral.skill_id, clear.skill_id] })] });
+  const [holder, foe] = fighters(match);
+  full(foe);
+  assert.equal(passivesIn(go.resolveTurn(match, { player: wait, enemy: select(spiral.skill_id) }), "before-stage").length, 1);
+  assert.equal(holder.stages.phy_def, 0);
+  assert.equal(go.changeStage(holder, "phy_def", -2, { source: foe }), 0);
+  assert.equal(go.changeStage(holder, "phy_def", -1, { source: holder }), -1);
+  action(match, self.skill_id);
+  assert.equal(holder.stages.phy_def, -2);
+  go.changeStage(holder, "phy_def", 4);
+  go.resolveTurn(match, { player: wait, enemy: select(clear.skill_id) });
+  assert.equal(holder.stages.phy_def, 0);
+  go.changeStage(holder, "phy_def", 1);
+  go.resolveTurn(match, { player: voluntary(1), enemy: wait });
+  assert.equal(holder.stages.phy_def, 0);
+});
+
+test("Revive is a pure prediction and consumes one per individual on full-HP direct lethal damage", () => {
+  const lethal = { ...strike, power: 900, cost: 0 };
+  const revive = withPassive("001", { hp: 40 });
+  const options = { player: [revive, revive], skills: [lethal], manualSwitches: true };
+  const match = passiveBattle(options);
+  const [first, second] = match.teams.player;
+  first.hp--;
+  assert.equal(go.previewDamage(match, "enemy", lethal).survival, null);
+  first.hp++;
+  function snapshot() {
+    return JSON.stringify(match, (_, value) => value instanceof Map || Object.prototype.toString.call(value) === "[object Map]" ? [...value] : value);
+  }
+  const before = snapshot();
+  for (let n = 0; n < 3; n++) {
+    const prediction = go.previewDamage(match, "enemy", lethal);
+    assert.ok(prediction.survival);
+    assert.equal(prediction.damage, 39);
+  }
+  assert.equal(snapshot(), before);
+  const hit = () => go.resolveTurn(match, { player: wait, enemy: select() });
+  const triggering = hit();
+  assert.equal(triggering.events.find((e) => e.type === "move").actualDamage, 39);
+  assert.match(passivesIn(triggering, "before-hp-damage")[0].text, /HPが1残った！/);
+  assert.equal(first.hp, 1);
+  assert.equal(first.passiveState.uses.get(1), 1);
+  assert.equal(second.passiveState.uses.size, 0);
+  go.resolveTurn(match, { player: voluntary(1), enemy: wait });
+  go.resolveTurn(match, { player: voluntary(0), enemy: wait });
+  first.hp = first.maxHp;
+  const defeated = hit();
+  assert.equal(passivesIn(defeated, "before-hp-damage").length, 0);
+  assert.equal(defeated.pendingSwitch.reason, "replacement");
+  go.continueSwitch(match, "player", 1);
+  assert.equal(passivesIn(hit(), "before-hp-damage").length, 1);
+  assert.equal(active(passiveBattle(options)).passiveState.uses.size, 0);
+});
+
+test("decoy takes direct damage without spending Revive, which only counts body HP loss for drain and recoil", () => {
+  const recoil = { ...officialEffects.get("bf_pd_down1"), effect_id: "fixture_recoil", effect_group: "recoil", damage_type: "actual_damage_percent", damage_value: 100 };
+  const drain = { target_stat: "hp", effect_id: "fixture_drain", effect_group: "heal", damage_type: "actual_damage_percent", damage_value: 100 };
+  const match = passiveBattle({ player: [withPassive("001", { hp: 20 })],
+    enemy: [character({ hp: 100 })], skills: [{ ...strike, power: 900, cost: 0 }],
+    effects: new Map([...officialEffects, [recoil.effect_id, recoil], [drain.effect_id, drain]]) });
+  const [holder, foe] = fighters(match);
+  holder.decoy = { hp: 10, maxHp: 10 };
+  const hit = () => go.resolveTurn(match, { player: wait, enemy: select() });
+  assert.equal(passivesIn(hit(), "before-hp-damage").length, 0);
+  assert.equal(holder.hp, 20);
+  const lethal = match.skills.get("strike");
+  Object.assign(lethal, { effect1: "fixture_drain", effect_target1: "self", effect_chance1: 100,
+    effect2: "fixture_recoil", effect_target2: "self", effect_chance2: 100 });
+  foe.hp = 40;
+  const result = hit();
+  assert.equal(result.events.find((e) => e.type === "move").actualDamage, 19);
+  assert.equal(result.events.find((e) => e.type === "heal").recovered, 19);
+  assert.equal(result.events.find((e) => e.type === "recoil").damage, 19);
+  assert.equal(foe.hp, 40);
+});
+
+test("poison and binding precede living active fighters' two end stages and EN, then replacement resumes once", () => {
+  const match = passiveBattle({ player: [withPassive("014"), withPassive("005")],
+    enemy: [withPassive("014"), withPassive("005")], manualSwitches: true });
+  const [holder, foe] = fighters(match);
+  holder.statuses.push({ definition: officialEffects.get("poison"), turns: 1 });
+  holder.bind = { source: foe, turns: 1, definition: officialEffects.get("しめつける") };
+  foe.hp = 1;
+  foe.statuses.push({ definition: officialEffects.get("poison"), turns: 1 });
+  const result = idle(match);
+  const eventKinds = Array.from(result.events, (e) => e.type);
+  assert.equal(eventKinds.filter((type) => type === "residual").length, 3);
+  assert.ok(eventKinds.lastIndexOf("residual") < eventKinds.indexOf("passive"));
+  assert.ok(eventKinds.lastIndexOf("passive") < eventKinds.indexOf("energy"));
+  assert.deepEqual([holder.stages.phy_def, holder.stages.sp_def], [1, -1]);
+  assert.equal(foe.passiveState.uses.size, 0);
+  assert.equal(match.teams.player[1].passiveState.uses.size, 0);
+  assert.equal(result.pendingSwitch.reason, "replacement");
+  assert.equal(passivesIn(go.continueSwitch(match, "enemy", 1), "turn-end").length, 0);
+  assert.equal(active(match, "enemy").stages.phy_atk, 0);
+});
+
+test("Revive cannot prevent residual KO even at full HP", () => {
+  const match = passiveBattle({ player: [withPassive("001", { hp: 1 })] });
+  const holder = active(match);
+  holder.statuses.push({ definition: officialEffects.get("poison"), turns: 1 });
+  assert.equal(passivesIn(idle(match), "before-hp-damage").length, 0);
+  assert.equal(holder.fainted, true);
+});
+
+test("charge spends after-use and power triggers at reservation only and skips a KO'd actor", () => {
+  const charge = { ...skill("skill_054"), element: "none" };
+  const lethal = { ...strike, priority: 2, power: 900, cost: 0 };
+  const match = passiveBattle({ skills: [charge, lethal], player: [withPassive("006", { skillIds: [charge.skill_id] }), character()],
+    enemy: [character({ hp: 1000 })] });
+  const holder = active(match);
+  full(holder);
+  const base = go.previewDamage(battle({ ...assets, skills: [charge], player: [holder.base] }), "player", charge);
+  assert.equal(base.reason, "charging");
+  const first = action(match, charge.skill_id);
+  assert.equal(passivesIn(first, "after-use").length, 1);
+  assert.equal(passivesIn(first, "power").length, 1);
+  assert.equal(holder.stages.phy_atk, -1);
+  const reserved = holder.pending.power;
+  assert.equal(go.previewDamage(match, "player", charge).power, reserved);
+  const second = action(match, charge.skill_id);
+  assert.equal(passivesIn(second, "after-use").length + passivesIn(second, "power").length, 0);
+  assert.equal(holder.stages.phy_atk, -1);
+  holder.hp = 1;
+  full(holder);
+  const stopped = action(match, charge.skill_id, select());
+  assert.ok(stopped.events.some((e) => e.type === "skipped"));
+  assert.equal(passivesIn(stopped, "after-use").length + passivesIn(stopped, "power").length, 0);
+});
+
+test("special switch suspension does not repeat use passives and Relay transfers their resulting stage", () => {
+  for (const [moveId, reason] of [["skill_006", "tail-purge"], ["skill_042", "relay"], ["skill_045", "post-attack"]]) {
+    const move = { ...skill(moveId), element: "wind" };
+    const match = passiveBattle({ manualSwitches: true, skills: [move],
+      player: [withPassive("004", { skillIds: [moveId] }), withPassive("005")],
+      enemy: [character({ hp: 500 })] });
+    const outgoing = active(match);
+    full(outgoing);
+    const first = action(match, moveId);
+    assert.equal(first.pendingSwitch.reason, reason);
+    assert.equal(passivesIn(first, "after-use").length, reason === "post-attack" ? 1 : 0);
+    const second = go.continueSwitch(match, "player", 1);
+    assert.equal(passivesIn(first, "after-use").length + passivesIn(second, "after-use").length, 1);
+    assert.equal(passivesIn(second, "turn-end").length, 1);
+    assert.equal(outgoing.passiveState.uses.get(1), 1);
+    assert.equal(active(match).stages.speed, reason === "relay" ? 1 : 0);
+  }
+});
+
+test("official GO teams replay starting EN, elemental immunity, a normal switch and turn-end stages", () => {
+  const match = passiveBattle({ skills: officialSkills, player: official("character_003", "character_002"),
+    enemy: official("character_009", "character_005") });
+  assert.equal(active(match).energy, 4);
+  const results = [];
+  results.push(idle(match));
+  results.push(go.resolveTurn(match, { player: voluntary(1), enemy: select("skill_029") }));
+  results.push(go.resolveTurn(match, { player: wait, enemy: voluntary(1) }));
+  results.push(idle(match));
+  assert.equal(active(match).base.name, "メイジェリー");
+  assert.equal(active(match).hp, active(match).maxHp);
+  assert.equal(passivesIn(results[1], "element-immunity").length, 1);
+  assert.equal(match.teams.enemy[0].passiveState.uses.get(1), 1);
+  assert.equal(active(match, "enemy").stages.phy_atk, 2);
+  assert.equal(match.turn, 5);
+});
+
+
+test("Revive excludes reflection, counter, recoil and HP paid for a decoy", () => {
+  for (const defenseId of ["reflection", "revenge", null]) {
+    const recoil = { effect_id: "lethal_recoil", effect_group: "recoil",
+      damage_type: "actual_damage_percent", damage_value: 100 };
+    const move = { ...strike, element: "water", attack_type: "special", power: 400, cost: 0,
+      ...(defenseId ? {} : { effect1: recoil.effect_id, effect_target1: "self", effect_chance1: 100 }) };
+    const match = passiveBattle({ skills: [move], player: [withPassive("001", { hp: 1 })],
+      enemy: [character({ hp: 1000 })], effects: new Map([[recoil.effect_id, recoil]]) });
+    const foe = active(match, "enemy");
+    if (defenseId) foe.defenses.set(defenseId, { id: defenseId, starts: 1, expires: 2, definition: officialDefense.get(defenseId) });
+    const result = action(match);
+    assert.equal(active(match).fainted, true, defenseId);
+    assert.equal(passivesIn(result, "before-hp-damage").length, 0);
+  }
+  const decoy = setupSpecial({ passives: officialPassives, player: [...official("character_001"), character()] });
+  const holder = active(decoy);
+  full(holder);
+  const result = specialWait(decoy, "skill_006", 1);
+  assert.equal(holder.hp, 42);
+  assert.equal(passivesIn(result, "before-hp-damage").length, 0);
+});
+
+test("Revive tests lethality after half guard and the field multiplier", () => {
+  const match = passiveBattle({ player: [withPassive("001", { hp: 50, element_1: "light" })],
+    enemy: [character({ element_1: "fire" })] });
+  const holder = active(match);
+  assert.ok(go.previewDamage(match, "enemy", strike).survival);
+  holder.halfGuard = 50;
+  assert.equal(go.previewDamage(match, "enemy", strike).survival, null);
+  const field = officialDefense.get("sp_protect");
+  assert.ok(field);
+  match.fields.player.set(field.battle_effect_id, { definition: field, starts: 1, expires: 3 });
+  const guarded = go.previewDamage(match, "enemy", { ...strike, power: 115, attack_type: "special" });
+  const unguarded = go.calculateDamage(active(match, "enemy"), holder, { ...strike, power: 115, attack_type: "special" }, chart);
+  assert.ok(unguarded.survival);
+  assert.equal(guarded.survival, null);
+  assert.ok(guarded.damage < unguarded.damage);
+});

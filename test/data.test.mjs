@@ -257,3 +257,42 @@ test("the HTTP loader re-reads decoy cost, durability, use cap, EN and proc rate
   assert.deepEqual(simulate(revised, 0.4), [84, 62, 7, 0, true]);
   assert.deepEqual(simulate(revised, 0.5), [125, 0, 7, 0, true]);
 });
+
+test("the HTTP loader re-reads passive values and target attributes for new battles", async () => {
+  const revised = runtime({ transforms: {
+    "./data/passive.csv": (csv) => csv.replace("starting_en,none,4", "starting_en,none,3")
+      .replace("turn_end_stat_stage,pa,1", "turn_end_stat_stage,pa,2")
+      .replace("element_power_multiplier,neutral,1.2", "element_power_multiplier,neutral,1.3")
+      .replace("element_immunity,water,1", "element_immunity,fire,1"),
+  } });
+  await revised.boot();
+  const simulate = `
+    (() => {
+      const go = geneOrderBattle;
+      const character = (id) => state.characterMap.get("character_" + id);
+      const data = { passives: state.passives, skills: state.skills, effects: state.effects,
+        battleEffects: state.battleEffects, powerRules: state.powerRules, effectiveness: state.effectiveness };
+      const match = go.createBattle({ ...data, player: [character("005"), character("003")], enemy: [character("007")] });
+      go.resolveTurn(match, { player: { type: "wait" }, enemy: { type: "wait" } });
+      const second = go.createBattle({ ...data, player: [character("006")], enemy: [character("002")] });
+      const neutral = state.skills.get("skill_023");
+      const preview = (element) => go.previewDamage(second, "player", { ...neutral, element });
+      return JSON.stringify([match.teams.player[1].energy, match.teams.player[0].stages.phy_atk, preview("none").power,
+        preview("water").immunity?.element ?? "", preview("fire").immunity?.element ?? ""]);
+    })()
+  `;
+  assert.deepEqual(JSON.parse(go.run(simulate)), [4, 1, 180, "water", ""]);
+  assert.deepEqual(JSON.parse(revised.run(simulate)), [3, 2, 195, "", "fire"]);
+});
+
+test("the data loader diagnoses pending and partial passives using the same registry as battle", async () => {
+  const revised = runtime({ transforms: {
+    "./data/passive.csv": (csv) => csv.replace("starting_en,none,4,turn_end_stat_stage,sa,1", "starting_en,none,4,turn_end_stat_stage,unknown,1"),
+  } });
+  await revised.boot();
+  assert.equal(revised.run('state.passives.get("passive_003").status'), "partial");
+  assert.equal(revised.run('state.passives.get("passive_003").effects.length'), 1);
+  assert.equal(revised.run('state.dataDiagnostics.some(d => d.id === "passive_003" && d.field === "target_id2" && d.level === "効果未対応")'), true);
+  assert.equal(go.run('state.dataDiagnostics.filter(d => d.level === "効果未設定").length'), 9);
+  assert.equal(go.run('state.dataDiagnostics.filter(d => d.table === "passives" && d.level === "効果未対応").length'), 0);
+});
