@@ -90,7 +90,7 @@ function validateGeneOrderData(tables, imageExists) {
   const elementNames = masterIdLookup(tables.elements, "element_id");
   const speciesNames = masterIdLookup(tables.species, "species_id");
   const powerGroups = known(tables.powerRules, "power_rule_group");
-  const supportedPowerGroups = new Set(["bf_hp_exact_1"]);
+  const supportedPowerGroups = new Set(["bf_hp_exact_1", "target_status"]);
   const knownPassiveTypes = new Set([
     "start_energy", "effect_chance_up", "element_damage_up", "low_hp_damage_up", "damage_cut",
     "turn_end_stat_up", "turn_end_stat_down", "damage_drain", "survive_once", "two_turn_skip_once",

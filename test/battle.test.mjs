@@ -452,3 +452,256 @@ test("formal data battle includes status, evasion, guard, heal, ranks, EN, switc
   assert.ok(allEvents.some((e) => e.type === "heal" && e.recovered > 0));
   assert.equal(match.winner, "player");
 });
+
+test("official poison is guaranteed, rounds like MHB, refreshes and ticks seven times", () => {
+  const poison = skill("skill_027");
+  const match = battle({ ...assets, skills: [poison], player: official("character_007"),
+    enemy: [character({ hp: 125, element_1: "water" })], random: () => { throw Error("100% must not roll"); } });
+  const victim = active(match, "enemy");
+  go.changeEnergy(active(match), 6);
+  const first = action(match, poison.skill_id);
+  assert.equal(first.events.find(e => e.type === "residual").damage, 13);
+  assert.equal(victim.statuses[0].turns, 6);
+  const pass = () => go.resolveTurn(match, { player: wait, enemy: wait });
+  pass();
+  victim.hp = victim.maxHp;
+  go.changeEnergy(active(match), 6);
+  action(match, poison.skill_id);
+  assert.equal(victim.statuses.length, 1);
+  assert.equal(victim.statuses[0].turns, 6);
+  victim.hp = victim.maxHp;
+  for (let i = 0; i < 6; i++) assert.equal(pass().events.find(e => e.type === "residual").damage, 13);
+  assert.equal(victim.statuses.length, 0);
+  assert.ok(!pass().events.some(e => e.type === "residual"));
+});
+
+test("poison is retained and paused on the bench, and is blocked by evasion or immunity", () => {
+  const original = skill("skill_053");
+  const poisoner = character({ skillIds: [original.skill_id] });
+  const match = battle({ ...assets, skills: [original, skill("skill_000")], player: [poisoner],
+    enemy: [character({ element_1: "dark", evasion_percent: 100 }), character({ evasion_percent: 100 })] });
+  go.changeEnergy(active(match), 6);
+  const run = (enemy) => action(match, original.skill_id, enemy);
+  run(wait);
+  assert.equal(active(match, "enemy").statuses.length, 0);
+  run({ type: "switch", index: 1 });
+  const poisoned = active(match, "enemy");
+  assert.equal(poisoned.statuses[0].turns, 6);
+  const hp = poisoned.hp;
+  go.resolveTurn(match, { player: wait, enemy: { type: "switch", index: 0 } });
+  assert.equal(poisoned.hp, hp);
+  assert.equal(poisoned.statuses[0].turns, 6);
+  poisoned.statuses = [];
+  go.resolveTurn(match, { player: wait, enemy: { type: "switch", index: 1 } });
+  go.changeEnergy(active(match), 6);
+  assert.ok(run(select("skill_000")).events.some(e => e.type === "evaded"));
+  assert.equal(poisoned.statuses.length, 0);
+});
+
+test("residual KO cancels EN recovery and simultaneous residual KOs draw", () => {
+  for (const withBench of [false, true]) {
+    const match = battle({ ...assets, player: [character(), ...(withBench ? [character({name: "Bench"})] : [])] });
+    const [a, b] = fighters(match);
+    for (const f of [a, b]) {
+      f.hp = 1;
+      f.statuses.push({ definition: officialEffects.get("poison"), turns: 1 });
+    }
+    const result = go.resolveTurn(match, { player: wait, enemy: wait });
+    assert.equal(result.winner, withBench ? "player" : "draw");
+    assert.equal(result.events.filter(e => e.type === "faint").length, 2);
+    assert.equal(result.events.filter(e => e.type === "energy").length, 0);
+    assert.equal(a.energy, 1);
+    assert.equal(b.energy, 1);
+  }
+});
+
+test("official 六芒星術 halves now and cuts only special attacks in rounds 2–4", () => {
+  const guard = skill("skill_025");
+  const special = { ...strike, attack_type: "special" };
+  const match = battle({ ...assets, skills: [guard, special],
+    player: [character({ skillIds: [guard.skill_id] }), character({ name: "Bench" })] });
+  const raw = go.previewDamage(match, "enemy", special).damage;
+  const first = action(match, guard.skill_id, select());
+  assert.equal(first.events.find(e => e.side === "enemy" && e.type === "move").damage, go.roundHalfDown(raw * 0.5));
+  assert.equal(first.events.find(e => e.type === "field-applied").starts, 2);
+  for (let turn = 2; turn <= 5; turn++) {
+    const predicted = go.previewDamage(match, "enemy", special).damage;
+    assert.equal(predicted, turn <= 4 ? go.roundHalfDown(raw * 0.75) : raw);
+    assert.equal(go.previewDamage(match, "enemy", strike).damage, 22);
+    const output = go.resolveTurn(match, { player: turn === 2 ? { type: "switch", index: 1 } : wait, enemy: select() });
+    assert.equal(output.events.find(e => e.side === "enemy" && e.type === "move").damage, predicted);
+  }
+});
+
+test("砂煙 is immediate for four turns and distinct guards multiply without duplicate stacking", () => {
+  const water = { ...strike, element: "water", attack_type: "special" };
+  const sand = skill("skill_050"), hex = skill("skill_025");
+  const match = battle({ ...assets, skills: [water, sand, hex], player: [character({ skillIds: [sand.skill_id, hex.skill_id] })] });
+  const raw = go.previewDamage(match, "enemy", water).damage;
+  const damage = (result) => result.events.find(e => e.side === "enemy" && e.type === "move").damage;
+  action(match, hex.skill_id);
+  assert.equal(damage(action(match, sand.skill_id, select())), go.roundHalfDown(raw * 0.5 * 0.5 * 0.75));
+  assert.equal(damage(action(match, sand.skill_id, select())), go.roundHalfDown(raw * 0.5 * 0.5 * 0.75));
+  assert.equal(match.fields.player.size, 2);
+  assert.equal(match.fields.player.get("water_protect").expires, 7);
+  assert.equal(go.previewDamage(match, "enemy", water).damage, go.roundHalfDown(raw * 0.5 * 0.75));
+  for (; match.turn < 7;) go.resolveTurn(match, { player: wait, enemy: wait });
+  assert.equal(go.previewDamage(match, "enemy", water).damage, raw);
+});
+
+test("six-point field refresh preserves current coverage and extends the delayed window", () => {
+  const guard = skill("skill_025");
+  const match = battle({ ...assets, skills: [guard], player: [character({ skillIds: [guard.skill_id] })] });
+  action(match, guard.skill_id);
+  action(match, guard.skill_id);
+  const state = match.fields.player.get("sp_protect");
+  assert.deepEqual([state.createdTurn, state.starts, state.expires], [2, 2, 6]);
+});
+
+test("芭蕉扇 clears only the other field and tailwind modifies speed until expiry", () => {
+  const fan = skill("skill_039"), guard = skill("skill_050");
+  const match = battle({ ...assets, skills: [fan, guard], player: [character({ speed: 81, skillIds: [fan.skill_id] }), character({ speed: 91 })],
+    enemy: [character({ skillIds: [guard.skill_id] })] });
+  const foe = active(match, "enemy");
+  foe.statuses.push({ definition: officialEffects.get("poison"), turns: 7 });
+  go.changeStage(foe, "phy_def", 1);
+  go.changeEnergy(active(match), 4);
+  const initial = action(match, fan.skill_id, select(guard.skill_id));
+  assert.ok(initial.events.some(e => e.type === "field-cleared" && e.removed.includes("水属性ダメージ軽減")));
+  assert.equal(match.fields.enemy.size, 0);
+  assert.equal(foe.stages.phy_def, 1);
+  assert.equal(foe.statuses[0].turns, 6);
+  assert.equal(go.effectiveSpeed(match, "player"), 121);
+  go.resolveTurn(match, { player: { type: "switch", index: 1 }, enemy: wait });
+  assert.equal(go.effectiveSpeed(match, "player"), 136);
+  go.resolveTurn(match, { player: wait, enemy: wait });
+  assert.equal(go.effectiveSpeed(match, "player"), 91);
+});
+
+test("ブロッサムシャイン applies capped evasion next turn only, including after a miss", () => {
+  const shine = skill("skill_034");
+  for (const [base, next] of [[25, 50], [50, 100], [85, 100]]) {
+    const match = battle({ ...assets, skills: [shine, skill("skill_000")],
+      player: [character({ evasion_percent: base, skillIds: [shine.skill_id] }), character()],
+      enemy: [character({ evasion_percent: 100 })] });
+    go.changeEnergy(active(match), 3);
+    assert.equal(go.evasionRate(active(match), 1), base);
+    const first = action(match, shine.skill_id, select("skill_000"));
+    assert.ok(first.events.some(e => e.type === "evaded"));
+    assert.equal(go.evasionRate(active(match), 1), base);
+    assert.equal(go.evasionRate(active(match), 2), next);
+    if (base === 85) go.resolveTurn(match, { player: { type: "switch", index: 1 }, enemy: wait });
+    else go.resolveTurn(match, { player: wait, enemy: wait });
+    assert.equal(go.evasionRate(match.teams.player[0], 3), base);
+    assert.equal(match.teams.player[0].timedEffects.size, 0);
+  }
+});
+
+test("binding combines residual and lock, refreshes, coexists with poison, and clears on source switch", () => {
+  const coil = skill("skill_052");
+  const match = battle({ ...assets, skills: [coil],
+    player: [character({ skillIds: [coil.skill_id] }), character()],
+    enemy: [character({ hp: 125, element_1: "water" }), character()] });
+  const victim = active(match, "enemy");
+  victim.statuses.push({ definition: officialEffects.get("poison"), turns: 7 });
+  const first = action(match, coil.skill_id);
+  assert.equal(first.events.filter(e => e.type === "residual").length, 2);
+  assert.equal(victim.bind.turns, 2);
+  assert.match(go.checkAction(match, "enemy", { type: "switch", index: 1 }), /締め付け/);
+  action(match, coil.skill_id);
+  assert.equal(victim.bind.turns, 2);
+  const output = go.resolveTurn(match, { player: { type: "switch", index: 1 }, enemy: wait });
+  assert.ok(output.events.some(e => e.type === "bind-ended"));
+  assert.equal(victim.bind, null);
+  assert.equal(go.checkAction(match, "enemy", { type: "switch", index: 1 }), "");
+});
+
+test("a bound fighter can be replaced after residual KO, and source KO releases the lock", () => {
+  const coil = skill("skill_052");
+  for (const sourceDies of [false, true]) {
+    const match = battle({ ...assets, skills: [coil], player: [character({ skillIds: [coil.skill_id] }), character({name: "Source bench"})],
+      enemy: [character({element_1: "water"}), character({name: "Target bench"})] });
+    action(match, coil.skill_id);
+    const [a, b] = fighters(match);
+    (sourceDies ? a : b).hp = 1;
+    if (sourceDies) a.statuses.push({ definition: officialEffects.get("poison"), turns: 1 });
+    const turn = go.resolveTurn(match, { player: wait, enemy: wait });
+    assert.equal(turn.events.find(e => e.type === "replacement").target, sourceDies ? "Source bench" : "Target bench");
+    assert.equal(b.bind, null);
+    assert.equal(b.fainted, !sourceDies);
+  }
+});
+
+test("追い討ち reads the actual target's condition after a switch, excluding bind and stages", () => {
+  const pursuit = skill("skill_061");
+  const match = battle({ ...assets, skills: [pursuit], player: official("character_022"),
+    enemy: [character({element_1: "light"}), character({element_1: "light", name: "Incoming"})] });
+  const [source, target] = fighters(match);
+  target.bind = { source, turns: 2, definition: officialEffects.get("しめつける") };
+  go.changeStage(target, "sp_def", -1);
+  assert.equal(go.previewDamage(match, "player", pursuit).power, 70);
+  target.bind = null;
+  const incoming = match.teams.enemy[1];
+  incoming.statuses.push({ definition: officialEffects.get("poison"), turns: 4 });
+  const expected = go.calculateDamage(source, incoming, pursuit, chart, assets);
+  assert.equal(expected.power, 100);
+  const output = action(match, pursuit.skill_id, { type: "switch", index: 1 });
+  assert.equal(output.events.find(e => e.type === "move").damage, expected.damage);
+});
+
+test("official teams: 砂煙 persists through a swap, ベノムアシッド poisons the replacement, and residuals finish the fight", () => {
+  const match = battle({ ...assets, skills: officialSkills, player: official("character_018", "character_009"),
+    enemy: official("character_007") });
+  go.changeEnergy(active(match, "enemy"), 6);
+  const first = action(match, "skill_050", select("skill_026"));
+  assert.ok(first.events.some(e => e.type === "field-applied"));
+  const next = go.resolveTurn(match, { player: { type: "switch", index: 1 }, enemy: select("skill_027") });
+  assert.ok(next.events.some(e => e.type === "status-applied" && e.name === "毒"));
+  assert.equal(active(match).statuses[0].turns, 6);
+  const events = [];
+  while (!match.winner && match.turn < 25) {
+    const enemy = active(match, "enemy").energy >= 3 ? select("skill_027") : select("skill_026");
+    const player = active(match).base.skillIds.includes("skill_031") ? select("skill_031") : wait;
+    events.push(...go.resolveTurn(match, { player, enemy }).events);
+  }
+  assert.equal(match.winner, "enemy");
+  assert.ok(events.some(e => e.type === "field-expired"));
+  assert.ok(events.some(e => e.type === "residual"));
+});
+
+test("binding expires after exactly three residuals", () => {
+  const coil = skill("skill_059");
+  const match = battle({ ...assets, skills: [coil], player: official("character_021"),
+    enemy: [character({ hp: 125, element_1: "fire" }), character()] });
+  go.changeEnergy(active(match), 1);
+  const victim = active(match, "enemy");
+  const switchAction = { type: "switch", index: 1 };
+  const pass = () => go.resolveTurn(match, { player: wait, enemy: wait });
+  for (const result of [action(match, coil.skill_id), pass()]) {
+    assert.equal(result.events.find(e => e.type === "residual").damage, 13);
+  }
+  assert.match(go.checkAction(match, "enemy", switchAction), /締め付け/);
+  assert.equal(pass().events.find(e => e.type === "residual").damage, 13);
+  assert.equal(victim.bind, null);
+  assert.equal(go.checkAction(match, "enemy", switchAction), "");
+  assert.ok(!pass().events.some(e => e.type === "residual"));
+});
+
+test("direct victory skips residuals and active-side fields survive a forced replacement", () => {
+  const sand = skill("skill_050");
+  const attack = { ...strike, element: "light", power: 200 };
+  const match = battle({ ...assets, skills: [attack, sand],
+    player: [character({ element_1: "light" })],
+    enemy: [character({ hp: 3, skillIds: [sand.skill_id] }), character({ hp: 1, name: "Bench" })] });
+  const result = action(match, "strike", select(sand.skill_id));
+  assert.ok(result.events.some(e => e.type === "replacement"));
+  assert.equal(active(match, "enemy").energy, 1);
+  assert.equal(match.fields.enemy.size, 1);
+  const source = active(match);
+  source.hp = 1;
+  source.statuses.push({ definition: officialEffects.get("poison"), turns: 1 });
+  const win = action(match, "strike");
+  assert.equal(win.winner, "player");
+  assert.equal(source.hp, 1);
+  assert.ok(!win.events.some(e => e.type === "residual"));
+});

@@ -73,3 +73,15 @@ CP932から厳密にデコードしたキャラ・技と、ワークブックの
 | 威力ルール | 4 | en_value、speed_advantage、target_status |
 
 [技の状況](skill-effects.md) はIDの解決可否に加え、エンジン上で全効果が実行できるかを分類している。
+
+## v0.31の参照整合性
+
+v0.30の26箇所から10箇所を解消し、16箇所が残る。技CSVは保持。通常効果に回避率UP・場リセット・しめつける、戦闘効果にsp_protect・water_protect・追い風・switch_lock、威力表にtarget_statusの真偽2行を追加。sp_protectの翌ターン開始を記録する start_delay 列を加え、既存行は空欄のまま保持。
+
+| 分類 | 残件 | 未解決ID |
+|---|---:|---|
+| 通常効果 | 4 | burn、clear_buff、どろぼう、反動ダメージ1/4 |
+| 戦闘効果 | 9 | charge_attack、ghost_phase、reflection、revenge、switch_after_attack、みがわり、ゆきなだれ、バトンタッチ |
+| 威力ルール | 3 | en_value、speed_advantage |
+
+[技65件の対応状況](skill-effects.md) を参照。火やられのMHB定義は [比較記録](status-and-field-effects.md) に記載。

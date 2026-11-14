@@ -18,3 +18,6 @@ bf_pa_up2,物理攻撃+2段階,buff,stat_stage,2,99,TRUE,phy_atk,{target}の物�
 bf_sa_up2,特殊攻撃+2段階,buff,stat_stage,2,99,TRUE,sp_atk,{target}の特殊攻撃ランクが変化した！
 bf_sp_down2,素早さ-2段階,debuff,stat_stage,-2,99,TRUE,speed,{target}の素早さランクが変化した！
 bf_heal_en,EN1回復,heal,none,1,0,TRUE,en,{target}のENが回復した！
+回避率UP,回避率上昇,evasion,multiplier,2,1,TRUE,evasion_percent,
+場リセット,フィールド解除,clear_field,none,0,0,TRUE,none,
+しめつける,締め付け,damage,percent_maxhp,10,3,TRUE,none,

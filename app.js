@@ -4029,7 +4029,13 @@ function mountGeneOrderBattlePreview() {
       status.textContent = `${active.base.name} · HP ${active.hp}/${active.maxHp} · EN ${active.energy}/${geneOrderBattle.MAX_ENERGY}`;
       const stages = Object.entries(active.stages).map(([stat, stage]) => `${statLabels[stat]} ${stage > 0 ? "+" : ""}${stage}`);
       const defense = [active.dodgeActive ? "回避成功状態" : "", active.halfGuard ? "半減防御" : ""].filter(Boolean);
-      status.textContent += ` · ${stages.join(" / ")} · ${defense.join(" / ") || "防御状態なし"}`;
+      const conditions = active.statuses.map(({ definition, turns }) => `${definition.name} 残り${turns}ターン`);
+      if (active.bind) conditions.push(`締め付け 残り${active.bind.turns}ターン`);
+      const timedLabel = ({ definition, starts, expires }) => starts > battle.turn
+        ? `${definition.name}（ターン${starts}から${expires - starts}ターン）`
+        : `${definition.name} 残り${Math.max(0, expires - battle.turn)}ターン`;
+      const timed = [...active.timedEffects.values(), ...battle.fields[side].values()].map(timedLabel);
+      status.textContent += ` · ${stages.join(" / ")} · ${[...defense, ...conditions, ...timed].join(" / ") || "状態変化なし"}`;
       select.replaceChildren();
       const addOption = (label, value, action) => {
         const reason = battle.winner ? "" : geneOrderBattle.checkAction(battle, side, action);
@@ -4082,6 +4088,16 @@ function mountGeneOrderBattlePreview() {
         skipped: (e) => `${e.actor}は行動できなかった`,
         energy: (e) => `${sideName(e.side)}のEN +${e.recovered}`,
         win: (e) => `${sideName(e.side)}の勝利`,
+        draw: () => "引き分け",
+        residual: (e) => `${e.actor}は${e.name}で ${e.damage} ダメージ`,
+        "status-applied": (e) => `${e.actor}は${e.name}状態（${e.turns}ターン）`,
+        bind: (e) => `${e.actor}は締め付けで交代できない（${e.turns}ターン）`,
+        "bind-ended": (e) => `${e.actor}の締め付けが解除された`,
+        "evasion-boost": (e) => `${e.actor}の回避率が次ターンに上昇する`,
+        "effect-expired": (e) => `${e.actor}の${e.name}が終了した`,
+        "field-applied": (e) => `${sideName(e.side)}の${e.name}（ターン${e.starts}〜${e.expires - 1}）`,
+        "field-cleared": (e) => `${sideName(e.side)}のフィールドを解除${e.removed.length ? `（${e.removed.join("、")}）` : ""}`,
+        "field-expired": (e) => `${sideName(e.side)}の${e.name}が終了した`,
       };
       log.textContent = [`ターン ${result.turn}`, ...result.events.map((entry) => describe[entry.type](entry))].join("\n");
       render();
@@ -4351,6 +4367,7 @@ function normalizeBattleEffect(row) {
     guard_type: safeText(row.guard_type, "none"),
     weak_hit_type: safeText(row.weak_hit_type, "none"),
     damage_cut: number(row.damage_cut),
+    start_delay: number(row.start_delay),
     start_text: csvText(row.start_text),
     animation: animationAssetName(row.animation),
     animation_duration_ms: Math.max(0, number(row.animation_duration_ms)),
