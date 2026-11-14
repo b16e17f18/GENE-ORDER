@@ -115,10 +115,10 @@ test("excludes placeholders and never fills absent moves with MHB attacks", () =
   assert.equal(go.run('state.skills.has("basic_strike")'), false);
 });
 
-test("diagnoses unresolved move references and unset passive definitions", () => {
+test("diagnoses unresolved move references and keeps passive placeholders separate", () => {
   assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照不一致" && d.value === "burn")'), true);
   assert.equal(go.run('state.skills.get("skill_001").effect1'), "bf_pa_down1");
-  assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "効果未設定" && d.id === "passive_015")'), true);
+  assert.equal(go.run('[...state.passives.values()].every((p) => p.status === "implemented")'), true);
   assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照先未設定" && d.value === "passive_025")'), true);
   assert.equal(go.run('state.dataDiagnostics.filter((d) => d.level === "予約行").length'), 93);
 });
@@ -287,12 +287,64 @@ test("the HTTP loader re-reads passive values and target attributes for new batt
 
 test("the data loader diagnoses pending and partial passives using the same registry as battle", async () => {
   const revised = runtime({ transforms: {
-    "./data/passive.csv": (csv) => csv.replace("starting_en,none,4,turn_end_stat_stage,sa,1", "starting_en,none,4,turn_end_stat_stage,unknown,1"),
+    "./data/passive.csv": (csv) => csv
+      .replace("starting_en,none,4,turn_end_stat_stage,sa,1", "starting_en,none,4,turn_end_stat_stage,unknown,1")
+      .replace("on_evade_stat_stage,sa,1", "none,sa,1"),
   } });
   await revised.boot();
   assert.equal(revised.run('state.passives.get("passive_003").status'), "partial");
   assert.equal(revised.run('state.passives.get("passive_003").effects.length'), 1);
   assert.equal(revised.run('state.dataDiagnostics.some(d => d.id === "passive_003" && d.field === "target_id2" && d.level === "効果未対応")'), true);
-  assert.equal(go.run('state.dataDiagnostics.filter(d => d.level === "効果未設定").length'), 9);
+  assert.equal(revised.run('state.passives.get("passive_023").status'), "pending");
+  assert.equal(revised.run('state.dataDiagnostics.some(d => d.id === "passive_023" && d.level === "効果未設定")'), true);
+  assert.equal(go.run('state.dataDiagnostics.filter(d => d.level === "効果未設定").length'), 0);
   assert.equal(go.run('state.dataDiagnostics.filter(d => d.table === "passives" && d.level === "効果未対応").length'), 0);
+});
+
+test("the HTTP loader re-reads v0.41 thresholds, multipliers, priority HP costs and poison chance", async () => {
+  const revised = runtime({ transforms: {
+    "./data/passive.csv": (csv) => csv.replaceAll("self_hp_lte:1/2", "self_hp_lte:2/3")
+      .replace("conditional_stat_multiplier,pa,1.2", "conditional_stat_multiplier,pa,1.4")
+      .replace("opponent_hp_lte:1/3", "opponent_hp_lte:1/2")
+      .replace("priority_move_hp_cost,hp,-0.1", "priority_move_hp_cost,hp,-0.2")
+      .replace(/(passive_020,.*),1,,/, "$1,2,,")
+      .replace("on_hit_inflict_status,poison,1", "on_hit_inflict_status,poison,0"),
+  } });
+  await revised.boot();
+  const scenario = `
+    (() => {
+      const go = geneOrderBattle;
+      const fighter = (id) => state.characterMap.get("character_" + id);
+      const data = { passives: state.passives, skills: state.skills, effects: state.effects,
+        battleEffects: state.battleEffects, powerRules: state.powerRules, effectiveness: state.effectiveness, random: () => 0 };
+      const battle = (player, enemy) => go.createBattle({ ...data, player: [fighter(player)], enemy: [fighter(enemy)] });
+      const active = (match, side = "player") => go.activeFighter(match, side);
+      const actions = (match, id) => go.resolveTurn(match, { player: { type: "move", moveId: id }, enemy: { type: "wait" } });
+      const burn = battle("017", "019");
+      active(burn).hp = 100;
+      const hunter = battle("018", "019");
+      active(hunter, "enemy").hp = 120;
+      const cost = battle("020", "019");
+      go.changeEnergy(active(cost), 6);
+      actions(cost, "skill_055");
+      actions(cost, "skill_000");
+      const toxic = battle("016", "022");
+      go.changeEnergy(active(toxic), 6);
+      actions(toxic, "skill_013");
+      return JSON.stringify([go.statValue(active(burn), "phy_atk"), go.effectiveSpeed(hunter, "player"),
+        active(cost).hp, active(toxic).statuses.length]);
+    })()
+  `;
+  assert.deepEqual(JSON.parse(go.run(scenario)), [77, 96, 122, 1]);
+  assert.deepEqual(JSON.parse(revised.run(scenario)), [107, 144, 122, 0]);
+});
+
+test("diagnoses invalid passive conditions and missing status targets", async () => {
+  const invalid = runtime({ transforms: {
+    "./data/passive.csv": (csv) => csv.replace("opponent_hp_lte:1/3", "opponent_hp_lte:1/0")
+      .replace("on_hit_inflict_status,poison,1", "on_hit_inflict_status,unknown,1"),
+  } });
+  await invalid.boot();
+  assert.equal(invalid.run('state.dataDiagnostics.some(d => d.id === "passive_018" && d.field === "condition1" && d.level === "効果未対応")'), true);
+  assert.equal(invalid.run('state.dataDiagnostics.some(d => d.id === "passive_022" && d.field === "target_id1" && d.level === "効果未対応")'), true);
 });

@@ -1244,8 +1244,9 @@ test("official GO replay creates, passes and sheds decoys and targets the post-a
 });
 
 const normalizeGoPassive = vm.runInContext("geneOrderPassives.normalize", context);
+const officialStatusIds = vm.runInContext("geneOrderStatusIds", context)([...officialEffects.values()]);
 const officialPassives = new Map(csv(read("data/passive.csv")).filter((row) => row.name)
-  .map((row) => [row.passive_id, normalizeGoPassive(row, elements)]));
+  .map((row) => [row.passive_id, normalizeGoPassive(row, elements, officialStatusIds)]));
 const withPassive = (number, overrides = {}) => character({ passive_id: "passive_" + number, ...overrides });
 const passiveBattle = (options = {}) => battle({ ...assets, passives: officialPassives, ...options });
 const passivesIn = (result, phase) => result.events.filter((event) => event.type === "passive" && event.phase === phase);
@@ -1268,8 +1269,8 @@ test("normalizes three GO slots, compound IDs, explicit neutral and MHB's EN ali
   assert.equal(normalizeGoPassive({ ...row, target_id3: "unknown" }, elements).status, "partial");
   assert.equal(normalizeGoPassive({ ...row, passive_type3: "none" }, elements).status, "partial");
   assert.equal(officialPassives.size, 24);
-  assert.equal([...officialPassives.values()].filter((p) => p.status === "implemented").length, 15);
-  assert.equal([...officialPassives.values()].filter((p) => p.status === "pending").length, 9);
+  assert.equal([...officialPassives.values()].filter((p) => p.status === "implemented").length, 24);
+  assert.equal([...officialPassives.values()].filter((p) => p.status === "pending").length, 0);
 });
 
 test("starting EN is capped and applies once to every fighter including the bench", () => {
@@ -1558,4 +1559,303 @@ test("Revive tests lethality after half guard and the field multiplier", () => {
   assert.ok(unguarded.survival);
   assert.equal(guarded.survival, null);
   assert.ok(guarded.damage < unguarded.damage);
+});
+
+test("perception reacts twice to a surviving light body hit, never to other attack paths", () => {
+  const light = { ...strike, element: "light", attack_type: "special", cost: 0 };
+  for (const mode of ["hit", "other", "status", "decoy", "evade", "reflection", "immune", "lethal"]) {
+    const move = mode === "status" ? { ...skill("skill_001"), skill_id: "strike", element: "light" } :
+      { ...light, element: mode === "other" ? "fire" : "light", power: mode === "lethal" ? 900 : 40 };
+    const base = officialPassives.get("passive_015");
+    const passive = { ...base, effects: mode === "immune" ? [...base.effects,
+      { ...officialPassives.get("passive_024").effects[0], element: "light", slot: 3 }] : base.effects };
+    const match = passiveBattle({ enemy: [withPassive("015")], skills: [move],
+      passives: new Map([["passive_015", passive]]) });
+    const target = active(match, "enemy");
+    if (mode === "decoy") target.decoy = { hp: 20, maxHp: 20 };
+    if (mode === "evade") target.dodgeActive = true;
+    if (mode === "reflection") target.defenses.set("reflection",
+      { id: "reflection", starts: 1, expires: 2, definition: officialDefense.get("reflection") });
+    const turn = action(match);
+    assert.equal(passivesIn(turn, "body-hit").length, mode === "hit" ? 2 : 0, mode);
+    assert.equal(target.stages.speed, mode === "hit" ? 1 : 0, mode);
+    assert.equal(target.stages.phy_atk, mode === "hit" ? 1 : mode === "status" ? -1 : 0, mode);
+  }
+});
+
+test("entry debuffs both initial fighters and activates on normal switch but not on the bench", () => {
+  const same = withPassive("016");
+  const match = passiveBattle({ player: [same, same], enemy: [same] });
+  assert.deepEqual(Array.from(match.startEvents, (e) => e.side), ["player", "enemy"]);
+  assert.deepEqual(fighters(match).map((fighter) => fighter.stages.speed), [-1, -1]);
+  const incoming = match.teams.player[1];
+  assert.equal(incoming.passiveState.uses.size, 0);
+  const turn = go.resolveTurn(match, { player: voluntary(1), enemy: wait });
+  assert.equal(passivesIn(turn, "entry").length, 1);
+  assert.equal(active(match, "enemy").stages.speed, -2);
+  assert.equal(incoming.stages.speed, 0);
+});
+
+test("entry debuffs fire once on each special switch and see the incoming Relay state", () => {
+  for (const id of ["skill_006", "skill_042", "skill_045"]) {
+    const phases = [];
+    const move = skill(id);
+    const match = passiveBattle({ skills: [move], manualSwitches: true,
+      player: [character({ skillIds: [id] }), withPassive("016")],
+      enemy: [character({ hp: 1000 })], onSwitch: ({ phase }) => phases.push(phase) });
+    const outgoing = active(match);
+    go.changeStage(outgoing, "speed", 2);
+    full(outgoing);
+    const pending = action(match, id);
+    assert.ok(pending.pendingSwitch);
+    assert.equal(passivesIn(pending, "entry").length, 0);
+    assert.equal(passivesIn(go.continueSwitch(match, "player", 1), "entry").length, 1);
+    assert.equal(active(match).stages.speed, id === "skill_042" ? 2 : 0);
+    assert.equal(active(match, "enemy").stages.speed, -1);
+    assert.deepEqual(phases, ["before-switch", "leave", "enter", "after-switch"]);
+  }
+});
+
+test("both manual replacements are selected before entry passives resolve against the two new actives", () => {
+  const holder = withPassive("016");
+  const match = passiveBattle({ player: [character(), holder], enemy: [character(), holder], manualSwitches: true });
+  const [outgoingPlayer, outgoingEnemy] = fighters(match);
+  for (const fighter of [outgoingPlayer, outgoingEnemy]) {
+    fighter.hp = 1;
+    fighter.statuses.push({ definition: officialEffects.get("poison"), turns: 1 });
+  }
+  assert.equal(idle(match).pendingSwitch.side, "player");
+  const midway = go.continueSwitch(match, "player", 1);
+  assert.equal(midway.pendingSwitch.side, "enemy");
+  assert.equal(midway.events.length, 0);
+  assert.deepEqual(fighters(match), [outgoingPlayer, outgoingEnemy]);
+  const events = go.continueSwitch(match, "enemy", 1).events;
+  assert.deepEqual(Array.from(events, (e) => e.type), ["replacement", "replacement", "passive", "passive"]);
+  assert.deepEqual(fighters(match).map((fighter) => fighter.stages.speed), [-1, -1]);
+  assert.deepEqual(fighters(match).map((fighter) => fighter.passiveState.uses.get(1)), [1, 1]);
+});
+
+test("conditional attack stats use exact half HP, stage multipliers, and current HP after recovery", () => {
+  const shell = skill("skill_033");
+  const match = passiveBattle({ skills: [strike, shell], player: [withPassive("017", { hp: 201, phy_atk: 101 })] });
+  const [holder] = fighters(match);
+  go.changeStage(holder, "phy_atk", 1);
+  holder.hp = 101;
+  assert.equal(go.statValue(holder, "phy_atk"), 151);
+  holder.hp--;
+  assert.equal(go.statValue(holder, "phy_atk"), 181);
+  assert.equal(go.statValue(holder, "sp_atk"), 192);
+  assert.equal(go.previewDamage(match, "player", shell).attack, holder.base.phy_def);
+  const predicted = go.previewDamage(match, "player", strike);
+  const turn = action(match);
+  assert.equal(turn.events.find((e) => e.type === "move").damage, predicted.damage);
+  assert.equal(passivesIn(turn, "stat-multiplier").length, 1);
+  holder.hp++;
+  assert.equal(go.statValue(holder, "phy_atk"), 151);
+  assert.equal(go.statValue(holder, "sp_atk"), 160);
+  holder.hp = 100;
+  holder.maxHp = 200;
+  assert.equal(go.statValue(holder, "phy_atk"), 181);
+});
+
+test("hunter speed uses exact one third, rank and Tailwind, and fixes order at turn start", () => {
+  const match = passiveBattle({ player: [withPassive("018", { speed: 101 })],
+    enemy: [character({ hp: 200, speed: 160 })] });
+  const [holder, foe] = fighters(match);
+  foe.hp = 67;
+  assert.equal(go.effectiveSpeed(match, "player"), 101);
+  foe.hp--;
+  assert.equal(go.effectiveSpeed(match, "player"), 151);
+  go.changeStage(holder, "speed", 1);
+  const wind = officialDefense.get("追い風");
+  match.fields.player.set(wind.battle_effect_id, { definition: wind, starts: 1, expires: 3 });
+  assert.equal(go.effectiveSpeed(match, "player"), 340);
+  go.changeStage(holder, "speed", -1);
+  match.fields.player.clear();
+  foe.base.speed = 130;
+  const snap = go.effectiveSpeed(match, "player");
+  const turn = go.resolveTurn(match, { player: select(), enemy: select() });
+  assert.equal(turn.events.find((e) => e.type === "move").side, "player");
+  assert.equal(passivesIn(turn, "stat-multiplier")[0].stat, "speed");
+  assert.equal(snap, 151);
+  const boundary = passiveBattle({ player: [withPassive("018")],
+    enemy: [character({ hp: 210, speed: 120 })] });
+  active(boundary, "enemy").hp = 71;
+  const early = go.resolveTurn(boundary, { player: select(), enemy: select() });
+  assert.equal(early.events.find((e) => e.type === "move").side, "enemy");
+  assert.equal(passivesIn(early, "stat-multiplier").length, 0);
+  active(boundary, "enemy").hp = 70;
+  assert.equal(go.effectiveSpeed(boundary, "player"), 150);
+});
+
+test("metabolism uses only the live status collection and multiplies each stat once", () => {
+  const match = passiveBattle({ enemy: [withPassive("019")] });
+  const [, foe] = fighters(match);
+  const poison = officialEffects.get("poison");
+  foe.bind = { turns: 1, definition: officialEffects.get("しめつける") };
+  foe.halfGuard = 50;
+  go.changeStage(foe, "phy_def", -1);
+  assert.equal(go.statValue(foe, "phy_def"), 66);
+  foe.statuses.push({ definition: poison, turns: 2 }, { definition: poison, turns: 2 });
+  assert.equal(go.statValue(foe, "phy_def"), 100);
+  assert.equal(go.statValue(foe, "sp_def"), 165);
+  const preview = go.previewDamage(match, "player", strike);
+  assert.equal(preview.defense, 100);
+  assert.equal(foe.passiveState.uses.size, 0);
+  const round = action(match);
+  assert.equal(passivesIn(round, "stat-multiplier").length, 1);
+  foe.statuses = [];
+  assert.equal(go.statValue(foe, "phy_def"), 66);
+  assert.equal(go.statValue(foe, "sp_def"), 110);
+});
+
+test("priority cost uses max HP and is included in preview without spending HP, EN or RNG", () => {
+  const moves = [-1, 0, 1, 2].map((priority) => ({ ...strike, priority }));
+  for (const move of moves) {
+    const match = passiveBattle({ player: [withPassive("020", { hp: 157 })],
+      skills: [move], random: () => { throw Error("unexpected RNG"); } });
+    const holder = active(match);
+    const preview = go.previewDamage(match, "player", move);
+    assert.equal(holder.hp, 157);
+    assert.equal(holder.energy, 1);
+    assert.equal(holder.passiveState.uses.size, 0);
+    const turn = action(match);
+    assert.equal(holder.hp, move.priority >= 1 ? 142 : 157);
+    assert.equal(passivesIn(turn, "move-cost").length, move.priority >= 1 ? 1 : 0);
+    assert.equal(turn.events.find((e) => e.type === "move").damage, preview.damage);
+  }
+});
+
+test("priority cost can KO before a move, cancels the hit and allows normal replacement", () => {
+  const move = { ...strike, priority: 1 };
+  const match = passiveBattle({ player: [withPassive("020"), withPassive("016")], manualSwitches: true, skills: [move] });
+  const [holder, foe] = fighters(match);
+  holder.hp = 20;
+  assert.equal(go.previewDamage(match, "player", move).reason, "hp-cost-faint");
+  const turn = go.resolveTurn(match, { player: select(), enemy: select() });
+  assert.equal(turn.pendingSwitch.reason, "replacement");
+  assert.equal(passivesIn(turn, "move-cost")[0].damage, 20);
+  assert.equal(turn.events.filter((e) => e.type === "move").length, 0);
+  assert.equal(holder.energy, 0);
+  assert.equal(foe.hp, foe.maxHp);
+  assert.equal(passivesIn(go.continueSwitch(match, "player", 1), "entry").length, 1);
+
+  const focus = skill("skill_060");
+  const self = passiveBattle({ skills: [move, focus], player: [withPassive("020"), character()],
+    enemy: [character({ skillIds: [focus.skill_id] })] });
+  active(self).hp = 20;
+  const after = action(self, "strike", select(focus.skill_id));
+  assert.equal(after.events.filter((event) => event.type === "faint").length, 1);
+  assert.equal(active(self, "enemy").stages.sp_atk, 2);
+});
+
+test("priority cost is paid once when charging, during dodge, and after a special switch choice", () => {
+  const charge = skill("skill_054"), dodge = skill("skill_000"), relay = { ...skill("skill_042"), priority: 1 };
+  const match = passiveBattle({ skills: [charge, dodge, relay], manualSwitches: true,
+    player: [withPassive("020", { skillIds: [charge.skill_id, relay.skill_id] }), character()],
+    enemy: [character({ hp: 500 })] });
+  const holder = active(match);
+  full(holder);
+  assert.equal(passivesIn(action(match, charge.skill_id), "move-cost").length, 1);
+  assert.equal(passivesIn(action(match, charge.skill_id), "move-cost").length, 0);
+  assert.equal(holder.hp, 180);
+  assert.equal(passivesIn(action(match, dodge.skill_id), "move-cost").length, 1);
+  assert.equal(holder.hp, 160);
+  const first = action(match, relay.skill_id);
+  assert.equal(first.pendingSwitch.reason, "relay");
+  assert.equal(holder.hp, 160);
+  assert.equal(passivesIn(go.continueSwitch(match, "player", 1), "move-cost").length, 1);
+  assert.equal(holder.hp, 140);
+  const returned = go.resolveTurn(match, { player: voluntary(0), enemy: wait });
+  assert.equal(passivesIn(returned, "move-cost").length, 0);
+});
+
+test("hostile status immunity blocks only individually targeted status effects", () => {
+  const mixed = { ...skill("skill_001"), effect2: "bf_pa_up1", effect_target2: "self", effect_chance2: 100 };
+  const field = skill("skill_039");
+  const strikeDown = { ...skill("skill_013"), element: "fire", cost: 0 };
+  const match = passiveBattle({ skills: [mixed, field, strikeDown],
+    player: [character({ skillIds: [mixed.skill_id, field.skill_id, strikeDown.skill_id] })],
+    enemy: [withPassive("020", { skillIds: [mixed.skill_id], element_1: "light" })] });
+  const [actor, holder] = fighters(match);
+  full(actor);
+  const blocked = action(match, mixed.skill_id);
+  assert.equal(passivesIn(blocked, "before-status-effect").length, 1);
+  assert.equal(holder.stages.phy_atk, 0);
+  assert.equal(actor.stages.phy_atk, 1);
+  const wind = officialDefense.get("追い風");
+  match.fields.enemy.set(wind.battle_effect_id, { definition: wind, starts: 1, expires: 5 });
+  const clear = action(match, field.skill_id);
+  assert.equal(passivesIn(clear, "before-status-effect").length, 0);
+  assert.equal(match.fields.enemy.size, 0);
+  assert.equal(match.fields.player.size, 1);
+  action(match, strikeDown.skill_id);
+  assert.equal(holder.stages.phy_def, -1);
+  go.resolveTurn(match, { player: wait, enemy: select(mixed.skill_id) });
+  assert.equal(holder.stages.phy_atk, 1);
+});
+
+test("dodge action and actual evade are separate, including failed dodge and ignore-dodge attacks", () => {
+  const dodge = skill("skill_000"), sharpen = skill("skill_043");
+  for (const [id, evasion, hitType, dodgeMove, count, stat] of [
+    ["021", 0, "normal", sharpen, 1, "phy_def"], ["021", 100, "normal", dodge, 1, "phy_def"],
+    ["023", 0, "normal", dodge, 0, "sp_atk"], ["023", 100, "normal", dodge, 1, "sp_atk"],
+    ["023", 100, "ignore_dodge", dodge, 0, "sp_atk"],
+  ]) {
+    const match = passiveBattle({ skills: [dodgeMove, { ...strike, hit_type: hitType }],
+      player: [withPassive(id, { evasion_percent: evasion, skillIds: [dodgeMove.skill_id] })] });
+    const turn = action(match, dodgeMove.skill_id, select());
+    assert.equal(passivesIn(turn, id === "021" ? "dodge-action" : "evaded").length, count);
+    assert.equal(active(match).stages[stat], count);
+  }
+  const match = passiveBattle({ skills: [dodge], player: [withPassive("023", { evasion_percent: 100 })] });
+  action(match, dodge.skill_id);
+  assert.equal(active(match).stages.sp_atk, 0);
+});
+
+test("toxic sweat uses normal poison refresh, requires surviving physical body loss and excludes decoy", () => {
+  for (const mode of ["hit", "refresh", "special", "decoy", "evade", "lethal"]) {
+    const match = passiveBattle({ skills: [{ ...strike, attack_type: mode === "special" ? "special" : "physical" }],
+      enemy: [withPassive("022", { hp: mode === "lethal" ? 1 : 200 })] });
+    const [actor, holder] = fighters(match);
+    if (mode === "refresh") actor.statuses.push({ definition: officialEffects.get("poison"), turns: 2 });
+    if (mode === "decoy") holder.decoy = { hp: 10, maxHp: 10 };
+    if (mode === "evade") holder.dodgeActive = true;
+    const turn = action(match);
+    const triggered = ["hit", "refresh"].includes(mode);
+    assert.equal(passivesIn(turn, "body-hit-status").length, Number(triggered), mode);
+    assert.equal(actor.statuses.length, Number(triggered), mode);
+    if (triggered) {
+      const poison = officialEffects.get("poison");
+      assert.equal(actor.statuses[0].definition, poison);
+      assert.equal(actor.statuses[0].turns, poison.turn - 1);
+    }
+  }
+});
+
+test("official teams replay prioritised cost, reactive poison, normal entry and metabolism across turns", () => {
+  const match = passiveBattle({ skills: officialSkills,
+    player: official("character_020", "character_016", "character_007"),
+    enemy: official("character_022", "character_019") });
+  const [actor, holder] = fighters(match);
+  const turnOne = action(match, "skill_000");
+  assert.equal(passivesIn(turnOne, "move-cost")[0].damage, 15);
+  const entered = go.resolveTurn(match, { player: voluntary(1), enemy: wait });
+  assert.equal(passivesIn(entered, "entry").length, 1);
+  const wind = action(match, "skill_013");
+  assert.equal(passivesIn(wind, "body-hit-status").length, 1);
+  assert.equal(active(match).statuses.length, 1);
+  assert.ok(holder.hp < holder.maxHp);
+  go.resolveTurn(match, { player: voluntary(2), enemy: voluntary(1) });
+  const foe = active(match, "enemy");
+  const user = active(match);
+  full(user);
+  action(match, "skill_027");
+  assert.ok(foe.statuses.length > 0);
+  const expected = go.previewDamage(match, "player", skill("skill_027"));
+  assert.equal(expected.defense, Math.floor(foe.base.sp_def * 1.5));
+  const last = action(match, "skill_027");
+  assert.equal(passivesIn(last, "stat-multiplier").length, 1);
+  assert.equal(last.events.find((e) => e.type === "move").damage, expected.damage);
+  assert.equal(match.turn, 7);
 });

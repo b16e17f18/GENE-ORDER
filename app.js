@@ -3957,8 +3957,9 @@ async function loadGameData() {
   const characters = tables.characters.filter((row) => row.character_id && row.name).map((row) => (
     normalizeCharacter(row, elementNames, speciesNames)
   ));
+  const statusIds = geneOrderStatusIds(tables.effects);
   const passives = new Map(tables.passives.filter((row) => row.passive_id && row.name).map((row) => (
-    [row.passive_id, geneOrderPassives.normalize(row, elementNames)]
+    [row.passive_id, geneOrderPassives.normalize(row, elementNames, statusIds)]
   )));
   for (const character of characters) {
     character.passive = passives.get(character.passive_id) ?? null;
@@ -4012,8 +4013,8 @@ function mountGeneOrderBattlePreview() {
     const team = (...ids) => ids.map((id) => state.characterMap.get(id));
     return geneOrderBattle.createBattle({
       manualSwitches: true,
-      player: team("character_015", "character_001", "character_016"),
-      enemy: team("character_009", "character_021", "character_007"),
+      player: team("character_015", "character_001", "character_016", "character_017", "character_018", "character_020"),
+      enemy: team("character_009", "character_021", "character_007", "character_019", "character_022", "character_023"),
       skills: state.skills,
       passives: state.passives,
       effectiveness: state.effectiveness,
@@ -4024,7 +4025,12 @@ function mountGeneOrderBattlePreview() {
   }
 
   let battle = newBattle();
-  const startLog = () => battle.startEvents.map((event) => event.text).join("\n");
+  function describePassive(event) {
+    const change = event.multiplier ? `（${statLabels[event.stat]} ×${event.multiplier}）` :
+      event.damage ? `（HP −${event.damage}）` : "";
+    return event.text + change;
+  }
+  const startLog = () => battle.startEvents.map(describePassive).join("\n");
   const statLabels = { phy_atk: "PA", phy_def: "PD", sp_atk: "SA", sp_def: "SD", speed: "SP" };
   function render() {
     for (const { side, select, status } of controls) {
@@ -4043,6 +4049,21 @@ function mountGeneOrderBattlePreview() {
         });
         const support = implementation === "pending" ? "（未対応）" : implementation === "partial" ? "（一部未対応）" : "";
         conditions.push(`パッシブ：${name}${support} ${text}${used.length ? ` [${used.join("、")}]` : ""}`);
+        const opponent = geneOrderBattle.activeFighter(battle, side === "player" ? "enemy" : "player");
+        const multipliers = Object.keys(active.stages).flatMap((stat) => {
+          const { passives, multiplier, value } = geneOrderBattle.effectiveStat(active, stat, { opponent });
+          return passives.length ? [`${statLabels[stat]} ×${multiplier}（実効 ${stat === "speed" ? geneOrderBattle.effectiveSpeed(battle, side) : value}）`] : [];
+        });
+        if (multipliers.length) conditions.push(multipliers.join(" / "));
+        const thresholds = effects.flatMap(({ phase, condition, value }) => {
+          if (phase === "move-cost") return [`優先度 ${condition.priority} 以上で最大HPの ${Math.round(-value * 10000) / 100}% を消費`];
+          if (condition?.kind === "status") return ["状態異常中"];
+          if (condition?.kind === "self" || condition?.kind === "opponent") {
+            return [`${condition.kind === "self" ? "自分" : "相手"}のHPが最大HPの ${condition.numerator}/${condition.denominator} 以下`];
+          }
+          return [];
+        });
+        if (thresholds.length) conditions.push([...new Set(thresholds)].join(" / "));
       } else {
         conditions.push("パッシブ未設定");
       }
@@ -4085,7 +4106,9 @@ function mountGeneOrderBattlePreview() {
         const pending = active.pending?.moveId === move.skill_id;
         const preview = !battle.winner && !geneOrderBattle.checkAction(battle, side, action) && move.category === "attack"
           ? geneOrderBattle.previewDamage(battle, side, move) : null;
-        addOption(`${move.name} (EN ${pending ? 0 : move.cost}${preview ? ` / 威力 ${preview.power}` : ""})`, `move:${move.skill_id}`, action);
+        const powerLabel = preview?.reason === "hp-cost-faint" ? " / HP消費で戦闘不能" :
+          preview?.power === undefined ? "" : ` / 威力 ${preview.power}`;
+        addOption(`${move.name} (EN ${pending ? 0 : move.cost}${powerLabel})`, `move:${move.skill_id}`, action);
       }
       battle.teams[side].forEach((fighter, index) => {
         if (index !== battle.active[side] && !fighter.fainted) {
@@ -4115,7 +4138,7 @@ function mountGeneOrderBattlePreview() {
         : geneOrderBattle.resolveTurn(battle, selected);
       const sideName = (side) => side === "player" ? "自分側" : "相手側";
       const describe = {
-        passive: (e) => e.text,
+        passive: describePassive,
         move: (e) => `${e.actor}の${e.move}（EN −${e.cost}）` +
           (e.category === "attack" && e.reason !== "decoy" ? ` → ${e.target}に${e.actualDamage}ダメージ（威力${e.power}）` : ""),
         charge: (e) => `${e.actor}は${e.move}を予約（威力${e.power}、EN −${e.cost}）`,

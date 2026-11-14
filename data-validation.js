@@ -63,6 +63,11 @@ function characterImagePath(imageName) {
   return `./asset/${encodeURIComponent(/\.[a-z0-9]+$/i.test(name) ? name : name + ".png")}`;
 }
 
+function geneOrderStatusIds(rows) {
+  return new Set(rows.filter((row) => row.name && geneOrderBattle.effectKind(normalizeEffect(row)) === "status-damage")
+    .map((row) => row.effect_id));
+}
+
 function validateGeneOrderData(tables, imageExists) {
   const diagnostics = [];
   const add = (level, table, id, field, value = "") => diagnostics.push({ level, table, id, field, value });
@@ -156,6 +161,7 @@ function validateGeneOrderData(tables, imageExists) {
     if (isSet(row.power_rule) && !powerGroups.has(row.power_rule)) add("参照不一致", "skills", id, "power_rule", row.power_rule);
   }
 
+  const statusIds = geneOrderStatusIds(tables.effects);
   for (const row of tables.passives) {
     const id = row.passive_id;
     numeric("passives", id, row, ["value1", "value2", "value3"]);
@@ -163,7 +169,7 @@ function validateGeneOrderData(tables, imageExists) {
       add("予約行", "passives", id, "name");
       continue;
     }
-    const passive = geneOrderPassives.normalize(row, elements);
+    const passive = geneOrderPassives.normalize(row, elements, statusIds);
     if (passive.status === "pending" && !passive.issues.length) {
       add("効果未設定", "passives", id, "passive_type", row.name);
     }
