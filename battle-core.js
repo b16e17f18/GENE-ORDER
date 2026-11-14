@@ -1,3 +1,212 @@
+// GENE ORDER v0.20. The inherited MHB entry points below remain separate.
+const geneOrderBattle = (() => {
+  const START_ENERGY = 1;
+  const MAX_ENERGY = 7;
+  const SWITCH_PRIORITY = 6;
+  const MIN_STAGE = -6;
+  const MAX_STAGE = 6;
+  const STATS = ["phy_atk", "phy_def", "sp_atk", "sp_def", "speed"];
+  const DAMAGE_STATS = { physical: ["phy_atk", "phy_def"], special: ["sp_atk", "sp_def"] };
+  const SIDES = ["player", "enemy"];
+
+  function roundHalfDown(value) {
+    const integer = Math.floor(value);
+    return integer + Number(value - integer > 0.5);
+  }
+
+  function resetStages(fighter) {
+    fighter.stages = Object.fromEntries(STATS.map((stat) => [stat, 0]));
+  }
+
+  function changeStage(fighter, stat, delta) {
+    if (!STATS.includes(stat) || !Number.isInteger(delta)) throw new Error("無効な能力ランク変更です。");
+    const before = fighter.stages[stat];
+    fighter.stages[stat] = Math.max(MIN_STAGE, Math.min(MAX_STAGE, before + delta));
+    return fighter.stages[stat] - before;
+  }
+
+  function statValue(fighter, stat) {
+    if (!STATS.includes(stat)) throw new Error("無効な能力です。");
+    const stage = fighter.stages[stat];
+    const base = fighter.base[stat];
+    return Math.max(1, Math.floor(stage >= 0 ? base * (2 + stage) / 2 : base * 2 / (2 - stage)));
+  }
+
+  function changeEnergy(fighter, delta) {
+    if (!Number.isInteger(delta)) throw new Error("無効なEN変化量です。");
+    fighter.energy = Math.max(0, Math.min(MAX_ENERGY, fighter.energy + delta));
+  }
+
+  function effectivenessFor(element, defender, chart) {
+    const row = chart.get(element);
+    const defendingTypes = [defender.element_1, defender.element_2].filter((type) => type != null);
+    if (!row || !defendingTypes.length) throw new Error("攻撃技または防御側の属性が未定義です。");
+    let multiplier = 1;
+    for (const type of new Set(defendingTypes)) {
+      const factor = row.get(type);
+      if (!Number.isFinite(factor) || factor < 0) throw new Error(`属性相性が未定義です (${element}/${type})。`);
+      multiplier *= factor;
+    }
+    return multiplier;
+  }
+
+  // Shared by resolution and future previews/AI. Modifiers are resolved inputs.
+  function calculateDamage(attacker, defender, move, chart, modifiers = {}) {
+    if (move.category !== "attack") return { damage: 0, reason: "not-attack" };
+    const stats = Object.hasOwn(DAMAGE_STATS, move.attack_type) && DAMAGE_STATS[move.attack_type];
+    if (!stats || move.element2 != null) throw new Error("未対応の攻撃分類または複合属性技です。");
+
+    const power = modifiers.power ?? move.power;
+    const attack = statValue(attacker, modifiers.attackStat ?? stats[0]);
+    const defense = statValue(defender, stats[1]);
+    const finalMultiplier = modifiers.finalMultiplier ?? 1;
+    if (!Number.isFinite(power) || power <= 0 || !Number.isFinite(finalMultiplier) || finalMultiplier < 0) {
+      throw new Error("技威力または最終補正が無効です。");
+    }
+
+    const baseDamage = Math.floor(22 * power * attack / (50 * defense)) + 2;
+    const stab = [attacker.base.element_1, attacker.base.element_2].includes(move.element) ? 1.5 : 1;
+    const afterStab = roundHalfDown(baseDamage * stab);
+    const effectiveness = effectivenessFor(move.element, defender.base, chart);
+    const afterEffectiveness = Math.floor(afterStab * effectiveness);
+    const blocked = effectiveness === 0 || finalMultiplier === 0 || modifiers.blocked === true;
+    const damage = blocked ? 0 : Math.max(1, roundHalfDown(afterEffectiveness * finalMultiplier));
+    return { damage, power, attack, defense, baseDamage, stab, afterStab, effectiveness, afterEffectiveness,
+      reason: blocked ? "blocked" : "hit" };
+  }
+
+  function unsupportedMoveReason(move) {
+    if (!move) return "技が登録されていません。";
+    const pending = [];
+    if (move.category !== "attack") pending.push("変化技");
+    if (!Object.hasOwn(DAMAGE_STATS, move.attack_type) && move.category === "attack") pending.push("攻撃分類");
+    if (move.element == null || move.element2 != null) pending.push("属性");
+    if (move.hit_type && move.hit_type !== "normal") pending.push(`命中種別 ${move.hit_type}`);
+    if (move.target && move.target !== "enemy") pending.push("技の対象");
+    if (move.power_rule && move.power_rule !== "none") pending.push(`威力ルール ${move.power_rule}`);
+    for (const field of ["effect1", "effect2", "effect3", "battle_effect1", "battle_effect2"]) {
+      if (move[field] && move[field] !== "none") pending.push(move[field]);
+    }
+    return pending.length ? `v0.20未対応（${pending.join("、")}）` : "";
+  }
+
+  function createFighter(character) {
+    if (!character?.name || ![character.hp, ...STATS.map((stat) => character[stat])]
+      .every((value) => Number.isInteger(value) && value > 0)) throw new Error("戦闘個体の能力値が無効です。");
+    if (!Number.isInteger(character.energy_charge) || character.energy_charge < 0) {
+      throw new Error("戦闘個体のEN回復量が無効です。");
+    }
+    const fighter = { base: character, hp: character.hp, maxHp: character.hp, energy: START_ENERGY, fainted: false };
+    resetStages(fighter);
+    return fighter;
+  }
+
+  function createBattle({ player, enemy, skills, effectiveness, random = Math.random }) {
+    if (!player.length || !enemy.length) throw new Error("両チームに個体が必要です。");
+    return {
+      teams: { player: player.map(createFighter), enemy: enemy.map(createFighter) },
+      active: { player: 0, enemy: 0 }, skills, effectiveness, random, turn: 1, winner: null,
+    };
+  }
+
+  function activeFighter(battle, side) {
+    return battle.teams[side][battle.active[side]];
+  }
+
+  function checkAction(battle, side, action) {
+    const fighter = activeFighter(battle, side);
+    if (battle.winner || !fighter || fighter.fainted) return "行動できません。";
+    if (action?.type === "wait") return "";
+    if (action?.type === "switch") {
+      const canSwitch = Number.isInteger(action.index) && action.index !== battle.active[side] &&
+        battle.teams[side][action.index] && !battle.teams[side][action.index].fainted;
+      return canSwitch ? "" : "交代先に指定できません。";
+    }
+    if (action?.type !== "move" || !fighter.base.skillIds.includes(action.moveId)) return "選択できない技です。";
+    const move = battle.skills.get(action.moveId);
+    const unsupported = unsupportedMoveReason(move);
+    if (unsupported) return unsupported;
+    if (!Number.isInteger(move.cost) || move.cost < 0) return "技の消費ENが無効です。";
+    if (!Number.isFinite(move.power) || move.power <= 0 || !Number.isInteger(move.priority)) {
+      return "技の威力または優先度が無効です。";
+    }
+    return fighter.energy < move.cost ? "ENが不足しています。" : "";
+  }
+
+  function orderActions(battle, selected) {
+    const actions = SIDES.map((side) => {
+      const action = selected[side];
+      const actor = activeFighter(battle, side);
+      const move = action.type === "move" ? battle.skills.get(action.moveId) : null;
+      const priority = action.type === "switch" ? SWITCH_PRIORITY : move?.priority ?? -Infinity;
+      return { side, action, actor, move, priority, speed: statValue(actor, "speed") };
+    });
+    const [first, second] = actions;
+    const difference = first.priority === second.priority ? first.speed - second.speed : first.priority - second.priority;
+    if (difference < 0 || (difference === 0 && battle.random() >= 0.5)) actions.reverse();
+    return actions;
+  }
+
+  function resolveTurn(battle, selected) {
+    for (const side of SIDES) {
+      const error = checkAction(battle, side, selected[side]);
+      if (error) throw new Error(`${side}: ${error}`);
+    }
+    const events = [];
+    const turn = battle.turn;
+    for (const { side, action, actor, move } of orderActions(battle, selected)) {
+      if (actor.fainted) {
+        events.push({ type: "skipped", side, actor: actor.base.name });
+        continue;
+      }
+      const other = side === "player" ? "enemy" : "player";
+      if (action.type === "switch") {
+        resetStages(actor);
+        battle.active[side] = action.index;
+        events.push({ type: "switch", side, actor: actor.base.name, target: activeFighter(battle, side).base.name });
+        continue;
+      }
+      if (action.type === "wait") {
+        events.push({ type: "wait", side, actor: actor.base.name });
+        continue;
+      }
+      const defender = activeFighter(battle, other);
+      const result = calculateDamage(actor, defender, move, battle.effectiveness);
+      changeEnergy(actor, -move.cost);
+      const actualDamage = Math.min(result.damage, defender.hp);
+      defender.hp -= actualDamage;
+      defender.fainted = defender.hp === 0;
+      events.push({ type: "move", side, actor: actor.base.name, target: defender.base.name, move: move.name,
+        damage: result.damage, actualDamage });
+      if (!defender.fainted) continue;
+      events.push({ type: "faint", side: other, actor: defender.base.name });
+      if (battle.teams[other].every((fighter) => fighter.fainted)) {
+        battle.winner = side;
+        events.push({ type: "win", side });
+      }
+    }
+
+    if (!battle.winner) {
+      for (const side of SIDES) {
+        const fighter = activeFighter(battle, side);
+        if (fighter.fainted) {
+          battle.active[side] = battle.teams[side].findIndex((candidate) => !candidate.fainted);
+          events.push({ type: "replacement", side, target: activeFighter(battle, side).base.name });
+        } else {
+          const before = fighter.energy;
+          changeEnergy(fighter, fighter.base.energy_charge);
+          events.push({ type: "energy", side, recovered: fighter.energy - before });
+        }
+      }
+      battle.turn += 1;
+    }
+    return { turn, events, winner: battle.winner };
+  }
+
+  return { START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, statValue, changeEnergy,
+    calculateDamage, unsupportedMoveReason, createBattle, activeFighter, checkAction, resolveTurn };
+})();
+
 // Pure battle calculation and battle-state helpers shared by app.js.
 // Loaded as a classic script before app.js; project-wide module conversion is intentionally avoided.
 

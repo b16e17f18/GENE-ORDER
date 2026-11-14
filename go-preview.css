@@ -67,3 +67,20 @@
   margin: 0.25rem 0 0;
   font-size: 0.85rem;
 }
+
+.go-battle-form {
+  grid-template-columns: minmax(0, 1fr);
+  display: grid;
+  gap: 0.75rem;
+}
+
+.go-battle-form label {
+  grid-template-columns: minmax(0, 1fr);
+  display: grid;
+  gap: 0.25rem;
+}
+
+.go-battle-form select {
+  max-width: 100%;
+  width: fit-content;
+}

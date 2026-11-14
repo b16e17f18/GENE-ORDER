@@ -3925,6 +3925,7 @@ async function initializeGeneOrder() {
   try {
     await loadGameData();
     renderGeneOrderData();
+    if (document.querySelector("#go-battle")) mountGeneOrderBattlePreview();
     status.textContent = `キャラクター ${state.characters.length}体 · 技 ${state.skills.size}件 · 属性 ${state.elements.size}種`;
   } catch (error) {
     status.setAttribute("role", "alert");
@@ -3995,6 +3996,90 @@ async function loadGameData() {
     speciesMap: new Map(tables.species.map(normalizeSpecies).map((row) => [row.species_id, row])),
     dataDiagnostics: diagnostics,
   });
+}
+
+function mountGeneOrderBattlePreview() {
+  const panel = document.querySelector("#go-battle");
+  const form = panel.querySelector("form");
+  const log = panel.querySelector("#go-battle-log");
+  const controls = ["player", "enemy"].map((side) => ({
+    side,
+    select: form.querySelector(`[name="${side}"]`),
+    status: form.querySelector(`[data-fighter="${side}"]`),
+  }));
+
+  function newBattle() {
+    const team = (...ids) => ids.map((id) => state.characterMap.get(id));
+    return geneOrderBattle.createBattle({
+      player: team("character_003", "character_006"),
+      enemy: team("character_007", "character_021"),
+      skills: state.skills,
+      effectiveness: state.effectiveness,
+    });
+  }
+
+  let battle = newBattle();
+  function render() {
+    for (const { side, select, status } of controls) {
+      const active = geneOrderBattle.activeFighter(battle, side);
+      status.textContent = `${active.base.name} · HP ${active.hp}/${active.maxHp} · EN ${active.energy}/${geneOrderBattle.MAX_ENERGY}`;
+      select.replaceChildren();
+      const addOption = (label, value, action) => {
+        const reason = battle.winner ? "" : geneOrderBattle.checkAction(battle, side, action);
+        const option = new Option(reason ? `${label} — ${reason}` : label, value);
+        option.disabled = Boolean(reason);
+        select.add(option);
+      };
+      for (const move of movesForCharacter(active.base)) {
+        addOption(`${move.name} (EN ${move.cost})`, `move:${move.skill_id}`, { type: "move", moveId: move.skill_id });
+      }
+      battle.teams[side].forEach((fighter, index) => {
+        if (index !== battle.active[side] && !fighter.fainted) {
+          addOption(`交代 → ${fighter.base.name}`, `switch:${index}`, { type: "switch", index });
+        }
+      });
+      addOption("待機", "wait", { type: "wait" });
+      select.selectedIndex = [...select.options].findIndex((option) => !option.disabled);
+      select.disabled = Boolean(battle.winner);
+    }
+    form.querySelector('[type="submit"]').disabled = Boolean(battle.winner);
+  }
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const selected = Object.fromEntries(controls.map(({ side, select }) => {
+      const [type, value] = select.value.split(":");
+      const action = type === "move" ? { type, moveId: value } : type === "switch" ? { type, index: Number(value) } : { type };
+      return [side, action];
+    }));
+    try {
+      const result = geneOrderBattle.resolveTurn(battle, selected);
+      const sideName = (side) => side === "player" ? "自分側" : "相手側";
+      const describe = {
+        move: (e) => `${e.actor}の${e.move} → ${e.target}に${e.actualDamage}ダメージ`,
+        switch: (e) => `${e.actor}から${e.target}に交代`,
+        replacement: (e) => `${sideName(e.side)}に${e.target}が登場`,
+        wait: (e) => `${e.actor}は待機`,
+        faint: (e) => `${e.actor}は戦闘不能`,
+        skipped: (e) => `${e.actor}は行動できなかった`,
+        energy: (e) => `${sideName(e.side)}のEN +${e.recovered}`,
+        win: (e) => `${sideName(e.side)}の勝利`,
+      };
+      log.textContent = [`ターン ${result.turn}`, ...result.events.map((entry) => describe[entry.type](entry))].join("\n");
+      render();
+    } catch (error) {
+      log.textContent = error.message;
+    }
+  });
+
+  form.querySelector('[type="reset"]').addEventListener("click", (event) => {
+    event.preventDefault();
+    battle = newBattle();
+    log.textContent = "";
+    render();
+  });
+  render();
+  panel.hidden = false;
 }
 
 function renderGeneOrderData() {

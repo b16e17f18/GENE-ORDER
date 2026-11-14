@@ -25,6 +25,7 @@ function runtime({ protocol = "http:", missing = "", invalid = "", utf8Error = "
         if (event === "DOMContentLoaded") boot = callback;
       },
       querySelector(id) {
+        if (id === "#go-battle") return null;
         if (!elements.has(id)) elements.set(id, {
           setAttribute(name, value) { this[name] = value; },
         });
