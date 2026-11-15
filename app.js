@@ -4041,10 +4041,10 @@ function mountGeneOrderBattlePreview() {
   function describePassive(event) {
     const change = event.multiplier ? `（${statLabels[event.stat]} ×${event.multiplier}）` :
       event.damage ? `（HP −${event.damage}）` : "";
-    return event.text + change;
+    return goStatText(event.text + change);
   }
   const startLog = () => battle.startEvents.map(describePassive).join("\n");
-  const statLabels = { phy_atk: "PA", phy_def: "PD", sp_atk: "SA", sp_def: "SD", speed: "SP" };
+  const statLabels = { phy_atk: "物理攻撃", phy_def: "物理防御", sp_atk: "特殊攻撃", sp_def: "特殊防御", speed: "敏捷" };
   function render() {
     for (const { side, select, status } of controls) {
       const active = geneOrderBattle.activeFighter(battle, side);
@@ -4095,7 +4095,7 @@ function mountGeneOrderBattlePreview() {
       status.textContent += ` · ${stages.join(" / ")} · ${[...defense, ...conditions, ...timed].join(" / ") || "状態変化なし"}`;
       const attributeMarkup = [active.base.element_1, active.base.element_2].filter(Boolean)
         .map((id) => goAttributeIcon(id, state.elements.get(id)?.name ?? "未定義")).join(" ");
-      status.innerHTML = attributeMarkup + " " + escapeHtml(status.textContent);
+      status.innerHTML = attributeMarkup + " " + escapeHtml(goStatText(status.textContent));
       select.replaceChildren();
       if (battle.pendingSwitch) {
         const choosing = battle.pendingSwitch.side === side;
@@ -4188,7 +4188,7 @@ function mountGeneOrderBattlePreview() {
       if (!result.pendingSwitch && decisions.length) diagnostics.textContent = decisions.map(({ side, type, selected, candidates }) =>
         [`${sideName(side)} [${type}] ${selected.label}（${selected.reason}）`,
           ...[...candidates].sort((a, b) => b.score - a.score).map((candidate) => {
-            const damage = candidate.damage === undefined ? "" : ` / 本体HP −${candidate.damage} / デコイ −${candidate.decoyDamage}`;
+            const damage = candidate.damage === undefined ? "" : ` / 本体体力 −${candidate.damage} / デコイ −${candidate.decoyDamage}`;
             return `  ${candidate.label} ${candidate.score.toFixed(1)}${damage}（${candidate.reason}）`;
           })].join("\n")).join("\n\n");
       render();
@@ -4213,6 +4213,19 @@ function mountGeneOrderBattlePreview() {
 }
 
 // Shared GO attribute artwork. Sprite cells: none, fire, water, wind, earth, light, dark.
+function goStatText(text) {
+  const labels = { HP: "体力", PA: "物理攻撃", PD: "物理防御", SA: "特殊攻撃", SD: "特殊防御", SP: "敏捷" };
+  return String(text ?? "").replace(/(?<![A-Za-z])(HP|PA|PD|SA|SD|SP)(?![A-Za-z])/g, (key) => labels[key]);
+}
+
+// GO character-card graph scales only; these do not cap battle stats.
+function goCharacterStat(stat, value) {
+  return detailStat(STAT_LABELS[stat], value, stat, {
+    displayValue: value,
+    graphMax: stat === "regen_value" ? 50 : 255,
+  });
+}
+
 function goAttributeIcon(id, label) {
   if (!["none", "fire", "water", "wind", "earth", "light", "dark"].includes(id)) return escapeHtml(label ?? "未定義");
   return `<span class="go-attribute-icon go-attribute-${id}" role="img" aria-label="${escapeHtml(label)}属性" title="${escapeHtml(label)}属性"><span class="go-attribute-label">${escapeHtml(label)}</span></span>`;
@@ -9372,7 +9385,7 @@ function escapeHtml(value) {
 }
 
 function describeGeneOrderEvent(event) {
-  const statLabels = { phy_atk: "PA", phy_def: "PD", sp_atk: "SA", sp_def: "SD", speed: "SP" };
+  const statLabels = { phy_atk: "物理攻撃", phy_def: "物理防御", sp_atk: "特殊攻撃", sp_def: "特殊防御", speed: "敏捷" };
   const sideName = (side) => side === "player" ? "自分側" : "相手側";
   const describe = {
     passive: (event) => {
@@ -9421,5 +9434,5 @@ function describeGeneOrderEvent(event) {
     "field-cleared": (e) => `${sideName(e.side)}のフィールドを解除${e.removed.length ? `（${e.removed.join("、")}）` : ""}`,
     "field-expired": (e) => `${sideName(e.side)}の${e.name}が終了した`,
   };
-  return describe[event.type]?.(event) ?? "";
+  return goStatText(describe[event.type]?.(event) ?? "");
 }

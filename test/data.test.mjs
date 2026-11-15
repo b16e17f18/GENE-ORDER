@@ -505,3 +505,19 @@ test("official match captures poison and HP0 before resuming a replacement, then
   `));
   assert.deepEqual(actual, [7, 6, 0, true, "player", true, 1, null, 146]);
 });
+
+
+test("GO character stat card uses Japanese labels and independent graph maxima", () => {
+  const stats = ["hp", "phy_atk", "phy_def", "sp_atk", "sp_def", "speed"];
+  for (const key of stats) {
+    const markup = go.run(`goCharacterStat("${key}", 255)`);
+    assert.match(markup, /--bar-width: 100%/);
+    assert.match(go.run(`goCharacterStat("${key}", 128)`), /--bar-width: 50%/);
+  }
+  assert.match(go.run('goCharacterStat("regen_value", 25)'), /--bar-width: 50%/);
+  assert.match(go.run('goCharacterStat("regen_value", 50)'), /--bar-width: 100%/);
+  assert.match(go.run('goCharacterStat("hp", 300)'), />300<\/strong>/);
+  assert.match(go.run('goCharacterStat("regen_value", 25)'), /回復力/);
+  assert.equal(go.run('goStatText("HPとPA・PD・SA・SD・SP")'), "体力と物理攻撃・物理防御・特殊攻撃・特殊防御・敏捷");
+  assert.equal(go.run('state.characterMap.get("character_001").regen_value'), 25);
+});

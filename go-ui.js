@@ -12,7 +12,7 @@ const GO_MOVE_ART = Object.fromEntries([
 const geneOrderUI = (() => {
   const SIDES = ["player", "enemy"];
   const LABELS = { player: "自分", enemy: "相手" };
-  const STATS = { hp: "HP", phy_atk: "PA", phy_def: "PD", sp_atk: "SA", sp_def: "SD", speed: "SP" };
+  const STATS = { hp: "体力", phy_atk: "物理攻撃", phy_def: "物理防御", sp_atk: "特殊攻撃", sp_def: "特殊防御", speed: "敏捷" };
   const MODES = { enemy: "プレイヤー対AI", manual: "手動対手動", auto: "AI対AI" };
   const SWITCHES = { "tail-purge": "テールパージ", relay: "パワーリレー", "post-attack": "燕返し", replacement: "戦闘不能後の補充" };
   const TEAM_LIMIT = 4;
@@ -111,7 +111,7 @@ const geneOrderUI = (() => {
     const dex = clone("#dexOverlay");
     title.querySelector(".title-stage").innerHTML = `
       <div class="team-panel go-title-panel">
-        <h1>GENE ORDER</h1><p>v0.61</p>
+        <h1>GENE ORDER</h1><p>v0.62</p>
         <button class="primary-button" id="battleModeButton" type="button">バトルモード</button>
         <div class="setup-actions">
           <button class="small-button" data-go-page="dex" type="button">図鑑</button>
@@ -130,7 +130,7 @@ const geneOrderUI = (() => {
       <button type="button" class="small-button" data-go-page="title">タイトルへ</button>`);
     arena.querySelector("#battleTutorialOverlay").remove();
     arena.querySelector("#exchangePanel").remove();
-    arena.querySelector("#glossaryPanel").innerHTML = "<p>PA＝物理攻撃、PD＝物理防御、SA＝特殊攻撃、SD＝特殊防御、SP＝素早さ。ENは技の使用に必要です。</p>";
+    arena.querySelector("#glossaryPanel").innerHTML = "<p>HP＝体力、PA＝物理攻撃、PD＝物理防御、SA＝特殊攻撃、SD＝特殊防御、SP＝敏捷。回復力は個体の回復力を表します。ENは技の使用に必要です。</p>";
     arena.querySelector(".battle-card").insertAdjacentHTML("beforeend", `
       <div class="go-battle-footer">
         <label><input type="checkbox" id="go-fast-battle"> 演出をスキップ</label>
@@ -199,10 +199,10 @@ const geneOrderUI = (() => {
         if (!move) return `<p>${esc(id)}（未設定）</p>`;
         const issue = go.moveAvailability(move, data).issues.join("、");
         return `<div class="detail-skill"><strong>${esc(move.name)} ${typeBadge(move.element)}</strong>
-          <p>${esc(move.text)}${issue ? `（未対応 ${esc(issue)}）` : ""}</p></div>`;
+          <p>${esc(goStatText(move.text))}${issue ? `（未対応 ${esc(issue)}）` : ""}</p></div>`;
       });
       const passive = data.passives.get(base.passive_id);
-      const details = passive ? `${esc(passive.name)}${passive.status === "implemented" ? "" : "（未対応）"}　${esc(passive.text)}` : "未設定";
+      const details = passive ? `${esc(passive.name)}${passive.status === "implemented" ? "" : "（未対応）"}　${esc(goStatText(passive.text))}` : "未設定";
       const species = data.speciesMap.get(base.species_id)?.name || "種族未設定";
       const evasion = base.evasion_percent == null ? "未設定" : `${base.evasion_percent}%`;
       return `<div class="dex-profile">
@@ -213,7 +213,7 @@ const geneOrderUI = (() => {
           <div class="dex-data-row"><span>EN回復</span><strong>${energyBadge(base.energy_charge)}</strong></div>
           <div class="dex-data-row"><span>回避率</span><strong>${evasion}</strong></div></div>
       </div>
-      <div class="detail-stats dex-stats">${Object.entries(STATS).map(([stat, label]) => detailStat(label, base[stat], stat, { displayValue: base[stat] })).join("")}</div>
+      <div class="detail-stats dex-stats">${Object.keys(STATS).concat("regen_value").map((stat) => goCharacterStat(stat, base[stat])).join("")}</div>
       <div class="detail-section-title">パッシブ</div><p>${details}</p>
       <div class="detail-section-title">習得技</div>${skills.join("") || "<p>未設定</p>"}`;
     }
@@ -295,7 +295,7 @@ const geneOrderUI = (() => {
       if (fighter.bind) labels.push(`締め付け（${fighter.bind.turns}）`);
       if (fighter.dodgeActive) labels.push("回避状態");
       if (fighter.halfGuard || fighter.defenses.has("bf_half_guard")) labels.push("半減防御");
-      if (fighter.decoy) labels.push(`デコイ HP ${fighter.decoy.hp}/${fighter.decoy.maxHp}`);
+      if (fighter.decoy) labels.push(`デコイ 体力 ${fighter.decoy.hp}/${fighter.decoy.maxHp}`);
       if (fighter.pending) labels.push(`予約 ${data.skills.get(fighter.pending.moveId)?.name ?? ""}（威力${fighter.pending.power}）`);
       for (const { definition, expires, starts } of [...fighter.defenses.values(), ...fighter.timedEffects.values(), ...frame.fields[candidate].values()]) {
         if (!["bf_half_guard", "bf_dodge_guard"].includes(definition.battle_effect_id)) {
@@ -320,7 +320,7 @@ const geneOrderUI = (() => {
           hud.dataset.renderedFighterKey = key;
           hud.innerHTML = `<div class="hud-row"><div class="hud-name">${attributes(fighter.base, true)}
           <span class="hud-character-name">${esc(fighter.base.name)}</span></div></div>
-          <div class="hp-line"><span>HP</span><div class="meter"><div class="meter-fill hp-fill ${meterWidth <= 28 ? "is-low" : ""}"
+          <div class="hp-line"><span>体力</span><div class="meter"><div class="meter-fill hp-fill ${meterWidth <= 28 ? "is-low" : ""}"
             style="width:${meterWidth}%"></div></div><span class="hud-value hp-value"></span></div>
           <div class="energy-line"><span>EN</span><div class="meter energy-meter">${renderEnergySegments({ energy: fighter.energy, maxEnergy: go.MAX_ENERGY })}</div>
             <span class="hud-value go-en-value"></span></div>
@@ -425,7 +425,7 @@ const geneOrderUI = (() => {
             const reason = forced ? "" : go.checkAction(battle, candidate, { type: "switch", index });
             return `<button class="switch-button" type="button" data-go-switch="${index}" ${reason ? "disabled" : ""}>
               <span class="switch-name">${esc(member.base.name)} ${attributes(member.base)}</span>
-              <span class="switch-meta">HP ${member.hp}/${member.maxHp} / ${energyBadge(member.energy)} ${esc(reason)}</span></button>`;
+              <span class="switch-meta">体力 ${member.hp}/${member.maxHp} / ${energyBadge(member.energy)} ${esc(reason)}</span></button>`;
           }).join("") || '<div class="command-note">交代可能な控えがいません。</div>');
         return;
       }
@@ -440,12 +440,12 @@ const geneOrderUI = (() => {
         const releasing = actor.pending?.moveId === id;
         const kind = move.category === "attack" ? attackTypeLabel(move.attack_type) : "変化";
         return `<button class="move-button move-element-${esc(move.element ?? "")}" type="button" data-go-move="${esc(id)}"
-          ${issue ? "disabled" : ""} title="${esc(issue || move.text)}">
+          ${issue ? "disabled" : ""} title="${esc(goStatText(issue || move.text))}">
           <span class="move-name">${id === DODGE ? "共通回避" : esc(move.name)}</span>
           <span class="move-cost">${energyBadge(releasing ? 0 : move.cost)}</span>
           <span class="move-element">${typeBadge(move.element)}</span><span class="move-kind">${esc(kind)}</span>
           <span class="move-power power-chip">威力 ${move.category === "attack" ? releasing ? actor.pending.power : move.power : "—"}</span>
-          <span class="move-text">優先度 ${move.priority} · ${esc(move.text)}${issue ? ` · ${esc(issue)}` : ""}</span></button>`;
+          <span class="move-text">優先度 ${move.priority} · ${esc(goStatText(move.text))}${issue ? ` · ${esc(issue)}` : ""}</span></button>`;
       });
       const wait = go.checkAction(battle, candidate, { type: "wait" });
       $("moveGrid").innerHTML = `<div class="command-note">${LABELS[candidate]}の行動を選択</div>${buttons.join("")}

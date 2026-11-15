@@ -73,3 +73,7 @@
 .go-attribute-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 #go-app .hud-name .go-attribute-icon { font-size: 1rem; }
 #go-app .move-element .go-attribute-icon { font-size: 1rem; }
+
+/* Keep full Japanese stat names readable on the official cards and battle HUD. */
+#go-app .detail-stat { grid-template-columns: max-content minmax(32px, 1fr) 3ch; }
+#go-app .battle-view .hp-line { grid-template-columns: max-content minmax(0, 1fr) auto; }
