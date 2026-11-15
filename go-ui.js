@@ -132,6 +132,9 @@ const geneOrderUI = (() => {
       <button type="button" class="small-button" data-go-page="title">タイトルへ</button>`);
     arena.querySelector("#battleTutorialOverlay").remove();
     arena.querySelector("#exchangePanel").remove();
+    arena.querySelector("#dexButton").remove();
+    arena.querySelector("#switchTab").insertAdjacentHTML("beforebegin",
+      `<button id="go-dodge" class="tab-button" type="button" data-go-move="${DODGE}">回避</button>`);
     arena.querySelector("#glossaryPanel").innerHTML = '<p>HP＝体力、PA＝物理攻撃、PD＝物理防御、SA＝特殊攻撃、SD＝特殊防御、SP＝敏捷。回復力は個体の回復力を表します。ENは技の使用に必要です。</p><button class="small-button" type="button" data-go-chart>属性相性表</button>';
     arena.querySelector(".battle-card").insertAdjacentHTML("beforeend", `
       <div class="go-battle-footer">
@@ -379,7 +382,7 @@ const geneOrderUI = (() => {
             style="width:${meterWidth}%"></div></div><span class="hud-value hp-value"></span></div>
           <div class="energy-line"><span>EN</span><div class="meter energy-meter">${renderEnergySegments({ energy: fighter.energy, maxEnergy: go.MAX_ENERGY })}</div>
             <span class="hud-value go-en-value"></span></div>
-          <div class="battle-info-stack"><div class="battle-info-line"><span>ランク</span>
+          <div class="battle-info-stack"><div class="battle-info-line go-hud-rank-line is-hidden"><span>ランク</span>
             <span class="battle-info-chips go-hud-ranks"></span></div>
           <div class="battle-info-line"><span>状態</span><span class="battle-info-chips go-hud-flags"></span></div>
           <div class="battle-info-line"><span>パッシブ</span><span class="battle-info-chips">${esc(fighter.passive?.name ?? "未設定")}</span></div></div>
@@ -391,8 +394,10 @@ const geneOrderUI = (() => {
         hud.querySelector(".hp-value").textContent = fighter.hp + "/" + fighter.maxHp;
         hud.querySelector(".go-en-value").textContent = fighter.energy + "/" + go.MAX_ENERGY;
         hud.querySelectorAll(".energy-segment").forEach((segment, slot) => segment.classList.toggle("is-filled", slot < fighter.energy));
-        hud.querySelector(".go-hud-ranks").innerHTML = Object.entries(fighter.stages)
-          .map(([stat, value]) => `<span>${esc(STATS[stat] + (value >= 0 ? "+" : "") + value)}</span>`).join(" ");
+        const ranks = Object.entries(fighter.stages).filter(([, rank]) => rank !== 0);
+        hud.querySelector(".go-hud-rank-line").classList.toggle("is-hidden", ranks.length === 0);
+        hud.querySelector(".go-hud-ranks").innerHTML = ranks
+          .map(([stat, rank]) => `<span>${esc(STATS[stat])}${rank > 0 ? "+" : ""}${rank}</span>`).join(" ");
         hud.querySelector(".go-hud-flags").textContent = activeFlags.join(" / ") || "なし";
         hud.querySelector(".party-pips").innerHTML = team.map((member, i) =>
           `<span class="pip ${member.fainted ? "is-fainted" : "is-alive"} ${index === i ? "is-active" : ""}"></span>`).join("");
@@ -429,6 +434,57 @@ const geneOrderUI = (() => {
       renderCommands();
     }
 
+    function inspectMarkup(battle, side) {
+      const fighter = go.activeFighter(battle, side);
+      const opponent = go.activeFighter(battle, otherSide(side));
+      const conditions = flags(fighter, battle, side);
+      const chips = conditions.length
+        ? conditions.map((label) => `<span class="effect-chip">${esc(label)}</span>`).join("")
+        : '<span class="effect-chip effect-none">なし</span>';
+      const stats = BATTLE_INSPECT_GRAPH_STAT_KEYS.map((stat) => {
+        const value = stat === "speed" ? go.effectiveSpeed(battle, side) : go.statValue(fighter, stat, { opponent });
+        const rank = fighter.stages[stat];
+        return detailStat(STATS[stat], value, stat, {
+          baseValue: fighter.base[stat],
+          displayValue: rank ? `${value} (${rank > 0 ? "+" : ""}${rank})` : value,
+          graphMax: BATTLE_STAT_GRAPH_MAX,
+          showPenalty: true,
+        });
+      });
+      stats.push(detailStat(STAT_LABELS.regen_value, fighter.base.regen_value, "regen_value", {
+        displayValue: fighter.base.regen_value,
+        graphMax: 140,
+      }));
+      const passive = fighter.passive ? renderDexPassiveSection({
+        passive: { ...fighter.passive, text: goStatText(fighter.passive.text) },
+      }) : "";
+      const resistances = [...data.elements.keys()].map((element) => {
+        const multiplier = go.effectivenessFor(element, fighter.base, data.effectiveness);
+        const style = multiplier > 1 ? "is-weak" : multiplier < 1 ? "is-resistant" : "is-neutral";
+        const label = multiplier > 1 ? "弱点" : multiplier < 1 ? "耐性" : "標準";
+        return `<div class="resistance-cell ${style}">${typeBadge(element)}<strong>${Math.round(multiplier * 100)}%</strong><span>${label}</span></div>`;
+      });
+      return `<div class="battle-inspect-header">
+        <div>
+          <div class="detail-title">${side === "player" ? "自分情報" : "相手情報"}</div>
+          <div class="detail-subtitle">${esc(fighter.base.name)}</div>
+        </div>
+        <button class="small-button battle-inspect-back" type="button" data-go-inspect-back>戻る</button>
+      </div>
+      <div class="battle-inspect-body">
+        <div class="dex-data-row battle-inspect-row"><span>状態</span><strong class="battle-info-chips">${chips}</strong></div>
+        <div class="dex-data-row battle-inspect-row"><span>回避率</span><strong>${go.evasionRate(fighter, battle.turn)}%</strong></div>
+        <div class="dex-data-row battle-inspect-row"><span>EN回復</span><strong>${fighter.base.energy_charge} EN / ターン</strong></div>
+        <div class="battle-inspect-stats">
+          <div class="detail-section-title">能力値</div>
+          <div class="detail-stats battle-inspect-stat-list">${stats.join("")}</div>
+        </div>
+        ${passive}
+        <div class="detail-section-title">属性耐性</div>
+        <div class="resistance-grid battle-inspect-resistance-grid">${resistances.join("")}</div>
+      </div>`;
+    }
+
     function renderCommands() {
       const battle = match.battle;
       const candidate = phase === "switch" ? battle.pendingSwitch.side : turnSide;
@@ -443,7 +499,10 @@ const geneOrderUI = (() => {
       $("switchTab").disabled = blocking || forced || match.isAI(candidate);
       $("fightTab").classList.toggle("is-hidden", !switching && !inspecting);
       $("fightTab").disabled = blocking || forced;
-      $("dexButton").disabled = blocking || forced;
+      const dodgeIssue = blocking || match.isAI(candidate) ? "行動選択中のみ使用できます。"
+        : go.checkAction(battle, candidate, { type: "move", moveId: DODGE });
+      $("go-dodge").disabled = Boolean(dodgeIssue);
+      $("go-dodge").title = dodgeIssue || "ENを使わず回避を試みる";
       $("glossaryButton").disabled = blocking || forced;
       if (phase === "finished") {
         const label = battle.winner === "draw" ? "引き分け" : battle.winner === "player" ? "勝利" : "敗北";
@@ -459,16 +518,7 @@ const geneOrderUI = (() => {
         return;
       }
       if (inspecting) {
-        const inspected = go.activeFighter(battle, inspectSide);
-        const opponent = go.activeFighter(battle, otherSide(inspectSide));
-        const rows = Object.keys(inspected.stages).map((stat) => {
-          const { multiplier } = go.effectiveStat(inspected, stat, { opponent });
-          const value = stat === "speed" ? go.effectiveSpeed(battle, inspectSide) : go.statValue(inspected, stat, { opponent });
-          const rank = inspected.stages[stat];
-          return `<div class="dex-data-row"><span>${STATS[stat]}</span><strong>${value}（ランク ${rank >= 0 ? "+" : ""}${rank}${multiplier === 1 ? "" : "、パッシブ ×" + multiplier}）</strong></div>`;
-        }).join("");
-        $("enemyInfoPanel").innerHTML = `<div class="battle-inspect-header"><strong class="detail-title">${esc(inspected.base.name)}<span class="go-card-attributes">${attributes(inspected.base)}</span></strong>
-          <button class="small-button battle-inspect-back" type="button" data-go-inspect-back>戻る</button></div>${rows}`;
+        $("enemyInfoPanel").innerHTML = inspectMarkup(battle, inspectSide);
         return;
       }
       if (switching) {
@@ -488,7 +538,7 @@ const geneOrderUI = (() => {
         $("moveGrid").innerHTML = '<button class="move-button" type="button" data-go-turn>AIのターンを実行</button>';
         return;
       }
-      const buttons = [...new Set([...actor.base.skillIds, DODGE])].map((id) => {
+      const buttons = [...new Set(actor.base.skillIds)].filter((id) => id !== DODGE).map((id) => {
         const move = data.skills.get(id);
         if (!move) return "";
         const issue = go.checkAction(battle, candidate, { type: "move", moveId: id });
@@ -496,16 +546,13 @@ const geneOrderUI = (() => {
         const kind = move.category === "attack" ? attackTypeLabel(move.attack_type) : "変化";
         return `<button class="move-button move-element-${esc(move.element ?? "")}" type="button" data-go-move="${esc(id)}"
           ${issue ? "disabled" : ""} title="${esc(goStatText(issue || move.text))}">
-          <span class="move-name">${id === DODGE ? "共通回避" : esc(move.name)}</span>
+          <span class="move-name">${esc(move.name)}</span>
           <span class="move-cost">${energyBadge(releasing ? 0 : move.cost)}</span>
           <span class="move-element">${moveAttributes(move)}</span><span class="move-kind">${esc(kind)}</span>
           <span class="move-power power-chip">威力 ${move.category === "attack" ? releasing ? actor.pending.power : move.power : "—"}</span>
           <span class="move-text">優先度 ${move.priority} · ${esc(goStatText(move.text))}${issue ? ` · ${esc(goStatText(issue))}` : ""}</span></button>`;
       });
-      const wait = go.checkAction(battle, candidate, { type: "wait" });
-      $("moveGrid").innerHTML = `<div class="command-note">${LABELS[candidate]}の行動を選択</div>${buttons.join("")}
-        <button class="move-button move-save-energy-button" type="button" data-go-wait ${wait ? "disabled" : ""}><span class="move-name">待機</span>
-          <span class="move-text">${esc(wait || "ターン終了時のEN回復を待つ")}</span></button>`;
+      $("moveGrid").innerHTML = `<div class="command-note">${LABELS[candidate]}の行動を選択</div>${buttons.join("")}`;
     }
 
     function start() {
@@ -619,6 +666,7 @@ const geneOrderUI = (() => {
       if (!match.isAI(turnSide)) {
         if (go.checkAction(match.battle, turnSide, action)) return;
         selected[turnSide] = action;
+        inspectSide = null;
         if (settings.mode === "manual" && turnSide === "player") {
           turnSide = "enemy";
           switchOpen = false;
@@ -649,7 +697,7 @@ const geneOrderUI = (() => {
       const control = event.target.closest("button");
       if (!control || control.disabled) return;
       const command = control.dataset;
-      const battleAction = ["goMove", "goSwitch", "goWait", "goTurn", "goReplay"].some((key) => Object.hasOwn(command, key));
+      const battleAction = ["goMove", "goSwitch", "goTurn", "goReplay"].some((key) => Object.hasOwn(command, key));
       if (battleAction && event.detail > 1) return;
       if (command.goPage) return showPage(command.goPage);
       if (Object.hasOwn(command, "goChart")) {
@@ -689,8 +737,6 @@ const geneOrderUI = (() => {
         showPage("setup");
       } else if (control.id === "startButton" || Object.hasOwn(command, "goReplay")) {
         start();
-      } else if (control.id === "dexButton") {
-        showPage("dex");
       } else if (control.id === "glossaryButton") {
         $("glossaryPanel").classList.toggle("is-hidden");
       } else if (control.id === "switchTab" || control.id === "fightTab" || Object.hasOwn(command, "goInspectBack")) {
@@ -704,7 +750,7 @@ const geneOrderUI = (() => {
         else choose({ type: "switch", index });
       } else if (command.goMove) {
         choose({ type: "move", moveId: command.goMove });
-      } else if (Object.hasOwn(command, "goWait") || Object.hasOwn(command, "goTurn")) {
+      } else if (Object.hasOwn(command, "goTurn")) {
         choose({ type: "wait" });
       }
     });

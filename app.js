@@ -4049,7 +4049,8 @@ function mountGeneOrderBattlePreview() {
     for (const { side, select, status } of controls) {
       const active = geneOrderBattle.activeFighter(battle, side);
       status.textContent = `${active.base.name} · HP ${active.hp}/${active.maxHp} · EN ${active.energy}/${geneOrderBattle.MAX_ENERGY}`;
-      const stages = Object.entries(active.stages).map(([stat, stage]) => `${statLabels[stat]} ${stage > 0 ? "+" : ""}${stage}`);
+      const stages = Object.entries(active.stages).filter(([, stage]) => stage !== 0)
+        .map(([stat, stage]) => `${statLabels[stat]} ${stage > 0 ? "+" : ""}${stage}`);
       const defense = [active.dodgeActive ? "回避成功状態" : "", active.halfGuard ? "半減防御" : ""].filter(Boolean);
       const conditions = active.statuses.map(({ definition, turns }) => `${definition.name} 残り${turns}ターン`);
       if (active.passive) {
@@ -4092,7 +4093,8 @@ function mountGeneOrderBattlePreview() {
         ? `${definition.name}（ターン${starts}から${expires - starts}ターン）`
         : `${definition.name} 残り${Math.max(0, expires - battle.turn)}ターン`;
       const timed = [...active.timedEffects.values(), ...battle.fields[side].values()].map(timedLabel);
-      status.textContent += ` · ${stages.join(" / ")} · ${[...defense, ...conditions, ...timed].join(" / ") || "状態変化なし"}`;
+      if (stages.length) status.textContent += ` · ${stages.join(" / ")}`;
+      status.textContent += ` · ${[...defense, ...conditions, ...timed].join(" / ") || "状態変化なし"}`;
       const attributeMarkup = [active.base.element_1, active.base.element_2].filter(Boolean)
         .map((id) => goAttributeIcon(id, state.elements.get(id)?.name ?? "未定義")).join(" ");
       status.innerHTML = attributeMarkup + " " + escapeHtml(goStatText(status.textContent));
@@ -4433,6 +4435,7 @@ function normalizeSkill(raw, elementNames) {
     element: elementNames.get(row.element) ?? null,
     element2: row.element2 === "none" ? null : elementNames.get(row.element2) ?? null,
     attack_type: safeText(row.attack_type, "none"),
+    attack_stat: safeText(row.attack_stat),
     hit_type: safeText(row.hit_type, "normal"),
     effect1: safeText(row.effect1, "none"),
     effect_target1: normalizeEffectTarget(row.effect_target1),
@@ -4487,6 +4490,7 @@ function normalizeEffect(row) {
     turn: Math.max(0, number(row.turn, 1)),
     can_move: parseBoolean(row.can_move),
     target_stat: safeText(row.target_stat, "none"),
+    start_delay: optionalNumber(row.start_delay),
     start_text: csvText(row.start_text),
   };
 }
@@ -9431,7 +9435,8 @@ function describeGeneOrderEvent(event) {
     evaded: (e) => `${e.actor}は${e.move}を回避した`,
     "half-guard": (e) => `${e.actor}は被ダメージ半減状態になった`,
     "defense-expired": (e) => `${e.actor}の${[e.dodge && "回避状態", e.guard && "半減防御"].filter(Boolean).join("・")}が終了した`,
-    stage: (e) => `${e.actor}の${statLabels[e.stat]} ${e.delta >= 0 ? "+" : ""}${e.delta}（現在 ${e.stage}）`,
+    stage: (e) => e.delta === 0 ? `${e.actor}の${statLabels[e.stat]}ランクは変化しなかった`
+      : `${e.actor}の${statLabels[e.stat]} ${e.delta > 0 ? "+" : ""}${e.delta}${e.stage ? `（現在 ${e.stage}）` : ""}`,
     heal: (e) => `${e.actor}のHP +${e.recovered}`,
     "effect-energy": (e) => `${e.actor}のEN +${e.recovered}（技効果）`,
     switch: (e) => `${e.actor}から${e.target}に交代` +

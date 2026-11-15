@@ -95,7 +95,7 @@ function validateGeneOrderData(tables, imageExists) {
   const elementNames = masterIdLookup(tables.elements, "element_id");
   const speciesNames = masterIdLookup(tables.species, "species_id");
   const powerGroups = known(tables.powerRules, "power_rule_group");
-  const supportedPowerGroups = new Set(["bf_hp_exact_1", "target_status", "en_value"]);
+  const supportedPowerGroups = new Set(["bf_hp_exact_1", "target_status", "en_value", "speed_advantage"]);
   const numeric = (table, id, row, fields) => {
     for (const field of fields) {
       if (row[field] !== "" && row[field] !== undefined && !Number.isFinite(Number(row[field]))) {
@@ -183,6 +183,7 @@ function validateGeneOrderData(tables, imageExists) {
     range("skills", id, row, ["priority"], -Infinity, Infinity, true);
     range("skills", id, row, ["power"], row.category === "attack" ? 1 : 0, Infinity);
     range("skills", id, row, ["power_cap"], 1, Infinity);
+    if (!geneOrderBattle.validAttackStat(row)) add("効果未対応", "skills", id, "attack_stat", row.attack_stat);
     range("skills", id, row, ["effect_chance1", "effect_chance2", "effect_chance3",
       "battle_effect_chance1", "battle_effect_chance2"], 0, 100);
     masterReference("skills", id, row, "element", elementNames, true);

@@ -8,7 +8,6 @@ bf_water_super_effective,水属性へ特効,bf_water_super_effective,none,0,1,TR
 sp_protect,特殊ダメージ軽減,guard,none,0,3,TRUE,sp_damage,none,25,,1,,,,,
 water_protect,水属性ダメージ軽減,guard,none,0,4,TRUE,water_damage,none,50,,,,,,,
 追い風,追い風,field_speed,multiplier,1.5,3,TRUE,none,none,0,,,,,,,
-switch_lock,交代封じ,control,none,0,3,TRUE,none,none,0,,,,,,,
 revenge,反撃,trigger,received_damage_rate,150,1,TRUE,none,none,0,,,,,,,
 reflection,反射,reflection,received_damage_rate,150,1,TRUE,sp_damage,none,0,,,,,,,
 charge_attack,溜め,charge,none,0,1,FALSE,none,none,0,,,,,,,

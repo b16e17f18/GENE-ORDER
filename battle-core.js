@@ -81,7 +81,7 @@ const geneOrderBattle = (() => {
     const override = effects.find((effect) => battleEffectKind(effect) === "type-override");
     const powerPassives = modifiers.power == null
       ? geneOrderPassives.matching(attacker, "power", (effect) => effect.element === move.element) : [];
-    const power = modifiers.power ?? resolvePower(move, attacker, defender, modifiers.powerRules, effects, powerPassives);
+    const power = modifiers.power ?? resolvePower(move, attacker, defender, modifiers, effects, powerPassives);
     const immunity = geneOrderPassives.first(defender, "element-immunity",
       (effect) => effect.element === move.element && effect.value > 0);
     if (immunity) return { damage: 0, decoyDamage: 0, power, reason: "passive-immune", powerPassives, immunity };
@@ -90,7 +90,7 @@ const geneOrderBattle = (() => {
     const absorb = activeDefense(defender, "absorb", modifiers.turn ?? 1);
     const reflection = activeDefense(defender, "reflection", modifiers.turn ?? 1);
     const revenge = activeDefense(defender, "revenge", modifiers.turn ?? 1);
-    const attackStat = modifiers.attackStat ?? (move.skill_id === "skill_033" ? "phy_def" : stats[0]);
+    const attackStat = modifiers.attackStat ?? (move.attack_stat || stats[0]);
     const { value: attack, passives: attackPassives } = effectiveStat(attacker, attackStat, { opponent: defender });
     const { value: defense, passives: defensePassives } = effectiveStat(defender, stats[1], { opponent: attacker });
     const guard = activeDefense(defender, "guard", modifiers.turn ?? 1);
@@ -145,18 +145,16 @@ const geneOrderBattle = (() => {
   const HP_ONE_RULE = "bf_hp_exact_1";
 
   const TARGET_STATUS_RULE = "target_status";
-  const BIND_EFFECT = "しめつける";
-  const SWITCH_LOCK = "switch_lock";
+  const validAttackStat = (move) => !move.attack_stat || (move.category === "attack" && STATS.includes(move.attack_stat));
 
   function effectKind(effect) {
     if (!effect || effect.damage_value === "" || !Number.isFinite(Number(effect.damage_value))) return null;
     const value = Number(effect.damage_value);
     if (effect.damage_type === "stat_stage" && STATS.includes(effect.target_stat) && Number.isInteger(value) &&
       ((effect.effect_group === "buff" && value > 0) || (effect.effect_group === "debuff" && value < 0))) return "stage";
-    if (effect.effect_group === "damage" && effect.damage_type === "percent_maxhp" && value > 0 &&
-      Number(effect.turn) > 0) {
-      if (effect.effect_id === "poison") return "status-damage";
-      if (effect.effect_id === BIND_EFFECT) return "bind-damage";
+    if (effect.damage_type === "percent_maxhp" && value > 0 && Number.isInteger(Number(effect.turn)) && Number(effect.turn) > 0) {
+      if (effect.effect_group === "damage") return "status-damage";
+      if (effect.effect_group === "bind") return "bind-damage";
     }
     if (effect.effect_group === "evasion" && effect.damage_type === "multiplier") return "evasion-boost";
     if (effect.effect_group === "clear_field") return "clear-field";
@@ -181,7 +179,6 @@ const geneOrderBattle = (() => {
 
   function battleEffectKind(effect) {
     if (!effect || Number(effect.turn) < 1) return null;
-    if (effect.battle_effect_id === SWITCH_LOCK && effect.battle_effect_group === "control") return "bind-lock";
     if (effect.battle_effect_group === "field_speed") return "field-speed";
     if (effect.battle_effect_group === "guard" && effect.battle_effect_id !== GUARD_ID &&
       (["phy_damage", "sp_damage"].includes(effect.guard_type) || effect.guard_type?.endsWith("_damage")) &&
@@ -208,19 +205,40 @@ const geneOrderBattle = (() => {
     return null;
   }
 
+  const SPEED_ADVANTAGE_RULE = "speed_advantage";
+
+  function hasSpeedPowerRules(powerRules) {
+    const rules = [...(powerRules?.get(SPEED_ADVANTAGE_RULE) ?? [])].sort((a, b) => a.min_ratio - b.min_ratio);
+    let start = 0;
+    return rules.length > 0 && rules.every(({ min_ratio, max_ratio, power_multiplier }, index) => {
+      if (min_ratio !== start || !Number.isFinite(power_multiplier) || power_multiplier <= 0) return false;
+      if (index === rules.length - 1) return max_ratio === null;
+      if (!Number.isFinite(max_ratio) || max_ratio <= start) return false;
+      start = max_ratio;
+      return true;
+    });
+  }
+
   function powerRuleAt(group, powerRules, value) {
-    if (![HP_ONE_RULE, TARGET_STATUS_RULE, "en_value"].includes(group)) return null;
+    if (![HP_ONE_RULE, TARGET_STATUS_RULE, SPEED_ADVANTAGE_RULE, "en_value"].includes(group)) return null;
     return powerRules?.get(group)?.find(({ min_ratio: min, max_ratio: max, power_multiplier: multiplier }) =>
       Number.isFinite(multiplier) && multiplier > 0 && (min === max ? value === min :
         value >= min && (max === null || value < max))) ?? null;
   }
 
-  function resolvePower(move, attacker, defender, powerRules, effects, powerPassives) {
+  function resolvePower(move, attacker, defender, { powerRules, speedFields = {} }, effects, powerPassives) {
     const group = move.power_rule;
     let multiplier = 1;
     if (group && group !== "none") {
-      const value = group === "en_value" ? attacker.energy : group === HP_ONE_RULE
-        ? Number(attacker.hp === 1) : Number(geneOrderPassives.hasStatus(defender));
+      let value;
+      if (group === SPEED_ADVANTAGE_RULE) {
+        const own = statValue(attacker, "speed", { opponent: defender, fieldMultiplier: speedFields.attacker });
+        const other = statValue(defender, "speed", { opponent: attacker, fieldMultiplier: speedFields.defender });
+        value = own / other * 100;
+      } else {
+        value = group === "en_value" ? attacker.energy : group === HP_ONE_RULE
+          ? Number(attacker.hp === 1) : Number(geneOrderPassives.hasStatus(defender));
+      }
       const rule = powerRuleAt(group, powerRules, value);
       if (!rule) throw new Error(`未対応の威力ルール ${group}`);
       multiplier = rule.power_multiplier;
@@ -246,7 +264,7 @@ const geneOrderBattle = (() => {
       })),
       ...[1, 2].map((slot) => ({
         id: move[`battle_effect${slot}`], chance: move[`battle_effect_chance${slot}`],
-        target: move[`battle_effect${slot}`] === SWITCH_LOCK ? "enemy" : "self", table: "battleEffects",
+        target: "self", table: "battleEffects",
       })),
     ].filter(({ id }) => id && id !== "none");
   }
@@ -261,31 +279,28 @@ const geneOrderBattle = (() => {
       move.element2 == null && (!move.target || move.target === "enemy");
     let supportedParts = Number(attack && validAttack);
     if (attack && !validAttack) issues.push("攻撃分類・属性・対象");
+    if (!validAttackStat(move)) issues.push(`攻撃参照能力 ${move.attack_stat}`);
     if (!attack && move.category !== "status") issues.push("技分類");
     if (!normalHit) issues.push(`命中種別 ${move.hit_type}`);
-    if (move.power_rule && move.power_rule !== "none" &&
-      !(move.power_rule === "en_value" ? Array.from({ length: MAX_ENERGY + 1 }, (_, en) => en) : [0, 1])
-        .every((value) => powerRuleAt(move.power_rule, data.powerRules, value))) {
-      issues.push(`威力ルール ${move.power_rule}`);
+    const group = move.power_rule;
+    if (group && group !== "none") {
+      const supported = group === SPEED_ADVANTAGE_RULE ? hasSpeedPowerRules(data.powerRules)
+        : (group === "en_value" ? Array.from({ length: MAX_ENERGY + 1 }, (_, en) => en) : [0, 1])
+          .every((value) => powerRuleAt(group, data.powerRules, value));
+      if (!supported) issues.push(`威力ルール ${group}`);
     }
     const slots = moveEffects(move);
-    for (const { id, table } of slots) {
+    for (const { id, target, table } of slots) {
       const definition = data[table]?.get(id);
       const kind = table === "effects" ? effectKind(definition) : battleEffectKind(definition);
       if (kind) supportedParts++;
       else issues.push(id);
+      if (kind === "bind-damage" && target !== "enemy") issues.push("締め付けの対象は相手のみ");
     }
     for (const slot of slots) {
       const effect = data.battleEffects?.get(slot.id);
       if (slot.table === "battleEffects" && ["type-override", "hit-power", "charge", "position"].includes(battleEffectKind(effect)) &&
           slot.chance !== 100) issues.push(`${slot.id}の発動率`);
-    }
-    const bind = slots.find(({ id }) => id === BIND_EFFECT);
-    const lock = slots.find(({ id }) => id === SWITCH_LOCK);
-    if (bind || lock) {
-      if (!bind || !lock || bind.target !== "enemy") {
-        issues.push("締め付けと交代封じの定義不整合");
-      }
     }
     if (!attack && !supportedParts && !issues.length) issues.push("変化技の効果未設定");
     return { issues, supportedParts };
@@ -344,15 +359,19 @@ const geneOrderBattle = (() => {
     return multiplier;
   }
 
-  function speedDetails(battle, side) {
+  function fieldSpeedMultiplier(battle, side) {
     let fieldMultiplier = 1;
     for (const effect of fieldEffectsForSide(battle, side).values()) {
       if (activeTimed(effect, battle.turn) && effect.definition.battle_effect_group === "field_speed") {
         fieldMultiplier *= effect.definition.damage_value;
       }
     }
+    return fieldMultiplier;
+  }
+
+  function speedDetails(battle, side) {
     return effectiveStat(activeFighter(battle, side), "speed", {
-      opponent: activeFighter(battle, opposingSide(side)), fieldMultiplier,
+      opponent: activeFighter(battle, opposingSide(side)), fieldMultiplier: fieldSpeedMultiplier(battle, side),
     });
   }
 
@@ -386,6 +405,8 @@ const geneOrderBattle = (() => {
     const result = calculateDamage(attacker, target, move, battle.effectiveness, {
       power: pending?.power, powerRules: battle.powerRules, battleEffects: battle.battleEffects,
       targetFields: fieldEffectsForSide(battle, other).values(), turn: battle.turn,
+      speedFields: move.power_rule === SPEED_ADVANTAGE_RULE
+        ? { attacker: fieldSpeedMultiplier(battle, side), defender: fieldSpeedMultiplier(battle, other) } : undefined,
     });
     if (pending || !chargeSlot(move, battle)) return { ...result, hpCosts };
     const { immunity, survival, ...charge } = result;
@@ -472,8 +493,7 @@ const geneOrderBattle = (() => {
     let blockedStatus = false;
     let dodgeAction = false;
     for (const { id, chance, target, table } of slots) {
-      // The CSV pair is one effect instance. The lock slot drives application.
-      if (id === BIND_EFFECT || actor.fainted ||
+      if (actor.fainted ||
         (phase === "charge" && target !== "self") || (phase === "release" && target === "self")) continue;
       const recipient = target === "self" ? actor : defender;
       if (recipient === defender && (defender.fainted || blocked)) continue;
@@ -505,13 +525,6 @@ const geneOrderBattle = (() => {
             setTimedEffect(actor.defenses, effect, battle.turn);
           }
           events.push({ ...event, type: "dodge-attempt", chance, success });
-        } else if (kind === "bind-lock") {
-          const damageSlot = slots.find(({ id }) => id === BIND_EFFECT);
-          if (rollChance(damageSlot.chance, battle.random)) {
-            const damageDefinition = battle.effects.get(BIND_EFFECT);
-            recipient.bind = { source: actor, turns: damageDefinition.turn, definition: damageDefinition };
-            events.push({ ...event, type: "bind", turns: recipient.bind.turns });
-          }
         } else if (["field-guard", "field-speed"].includes(kind)) {
           const timed = setTimedEffect(fieldEffectsForSide(battle, side), effect, battle.turn, Number(effect.start_delay ?? 0));
           events.push({ ...event, type: "field-applied", name: effect.name, starts: timed.starts, expires: timed.expires });
@@ -534,10 +547,13 @@ const geneOrderBattle = (() => {
           const delta = changeStage(recipient, stat, -recipient.stages[stat]);
           events.push({ ...event, type: "stage", stat, delta, stage: recipient.stages[stat] });
         }
+      } else if (kind === "bind-damage") {
+        recipient.bind = { source: actor, turns: effect.turn, definition: effect };
+        events.push({ ...event, type: "bind", turns: effect.turn });
       } else if (kind === "status-damage") {
         applyStatus(recipient, effect, event, events);
       } else if (kind === "evasion-boost") {
-        const timed = setTimedEffect(recipient.timedEffects, effect, battle.turn, 1);
+        const timed = setTimedEffect(recipient.timedEffects, effect, battle.turn, effect.start_delay ?? 1);
         events.push({ ...event, type: "evasion-boost", starts: timed.starts });
       } else if (kind === "clear-field") {
         const fields = fieldEffectsForSide(battle, event.side);
@@ -1061,8 +1077,8 @@ const geneOrderBattle = (() => {
   }
 
   return { START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, stageDelta, statValue, effectiveStat, changeEnergy,
-    calculateDamage, previewDamage, previewRelease, previewSwitch, moveEffects, decoyValues, residualDamage,
-    guardApplies, activeTimed, effectiveSpeed, evasionRate, moveAvailability, unsupportedMoveReason, effectKind, battleEffectKind, createBattle, activeFighter, switchTargets, checkAction, resolveTurn, continueSwitch };
+    calculateDamage, effectivenessFor, previewDamage, previewRelease, previewSwitch, moveEffects, decoyValues, residualDamage,
+    guardApplies, activeTimed, effectiveSpeed, evasionRate, moveAvailability, unsupportedMoveReason, validAttackStat, effectKind, battleEffectKind, createBattle, activeFighter, switchTargets, checkAction, resolveTurn, continueSwitch };
 })();
 
 // Pure battle calculation and battle-state helpers shared by app.js.

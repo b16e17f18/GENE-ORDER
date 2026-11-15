@@ -116,7 +116,8 @@ test("excludes placeholders and never fills absent moves with MHB attacks", () =
 });
 
 test("diagnoses unresolved move references and keeps passive placeholders separate", () => {
-  assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照不一致" && d.value === "burn")'), true);
+  assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照不一致" && ["burn", "speed_advantage"].includes(d.value))'), false);
+  assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照不一致" && d.value === "どろぼう")'), true);
   assert.equal(go.run('state.skills.get("skill_001").effect1'), "bf_pa_down1");
   assert.equal(go.run('[...state.passives.values()].every((p) => p.status === "implemented")'), true);
   assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照先未設定" && d.value === "passive_025")'), true);
@@ -351,7 +352,7 @@ test("diagnoses invalid passive conditions and missing status targets", async ()
 
 test("formal CSV has 24 playable passives and reports actionable numeric bounds", async () => {
   assert.equal(go.run('state.dataDiagnostics.filter(d => ["数値異常", "重複ID", "相性欠落", "相性重複"].includes(d.level)).length'), 0);
-  assert.equal(go.run('state.dataDiagnostics.filter(d => d.level === "参照不一致").length'), 4);
+  assert.equal(go.run('state.dataDiagnostics.filter(d => d.level === "参照不一致").length'), 1);
   assert.equal(go.run('state.dataDiagnostics.filter(d => d.table === "passives" && d.level === "予約行").length'), 40);
   const invalid = runtime({ transforms: {
     "./data/character.csv": (text) => text.replace("獣族,125,81,75", "獣族,0,81.5,75"),
@@ -364,6 +365,31 @@ test("formal CSV has 24 playable passives and reports actionable numeric bounds"
   const detected = JSON.parse(invalid.run('JSON.stringify(state.dataDiagnostics.filter(d => d.level === "数値異常").map(d => [d.id,d.field].join("/")).sort())'));
   assert.deepEqual(detected, ["bf_half_guard/damage_cut", "bf_half_guard/turn", "character_001/hp", "character_001/phy_atk",
     "go_en_value_7/max_ratio", "go_en_value_7/power_multiplier", "skill_001/cost", "skill_001/effect_chance1"]);
+});
+
+test("CSV edits change the speed multiplier and burn damage and duration in a new battle", async () => {
+  const revised = runtime({ transforms: {
+    "./data/power_rule.csv": (csv) => csv.replace("speed_advantage,0,100,0.5", "speed_advantage,0,100,0.6"),
+    "./data/effect.csv": (csv) => csv.replace("burn,火やられ,damage,percent_maxhp,15,5", "burn,火やられ,damage,percent_maxhp,12,3"),
+  } });
+  await revised.boot();
+  const result = revised.run(`
+    (() => {
+      const go = geneOrderBattle;
+      const base = state.characters[0];
+      const match = go.createBattle({
+        player: [{ ...base, passive_id: null, speed: 80, skillIds: ["skill_015", "skill_038"] }],
+        enemy: [{ ...base, passive_id: null, speed: 100, hp: 200, element_1: "earth", element_2: null }],
+        skills: state.skills, effects: state.effects, battleEffects: state.battleEffects,
+        powerRules: state.powerRules, effectiveness: state.effectiveness, random: () => 0,
+      });
+      const preview = go.previewDamage(match, "player", state.skills.get("skill_015"));
+      const turn = go.resolveTurn(match, { player: { type: "move", moveId: "skill_038" }, enemy: { type: "wait" } });
+      return JSON.stringify([preview.power, turn.events.find(e => e.type === "residual").damage,
+        go.activeFighter(match, "enemy").statuses[0].turns]);
+    })()
+  `);
+  assert.deepEqual(JSON.parse(result), [36, 24, 2]);
 });
 
 test("a three-slot fixture from the CSV response works with no new JavaScript handler", async () => {

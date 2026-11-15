@@ -39,7 +39,7 @@ async function verify(browser, width) {
     if (path.startsWith("/assets/") || path.endsWith("/data-inline.js")) legacyRequests.push(path);
   });
   await page.addInitScript(() => {
-    Math.random = () => 0.1;
+    Math.random = () => 0.99;
     window.__storageReads = [];
     for (const name of ["getItem", "setItem", "removeItem", "clear"]) {
       const original = Storage.prototype[name];
@@ -64,7 +64,7 @@ async function verify(browser, width) {
     };
     await ui.getByRole("heading", { name: "GENE ORDER" }).waitFor();
     assert.equal(await page.locator(".go-preview").isHidden(), true);
-    assert.equal(await ui.locator("#titleView").getByText("v0.64", { exact: true }).count(), 1);
+    assert.equal(await ui.locator("#titleView").getByText("v0.66", { exact: true }).count(), 1);
     await shot("title");
     await ui.locator('#titleView [data-go-page="dex"]').click();
     await ui.locator('[data-go-dex="character_047"]').click();
@@ -75,7 +75,7 @@ async function verify(browser, width) {
     assert.ok(await dualEntry.evaluate((button) => {
       const [name, attributes] = button.children;
       const [first, second] = attributes.querySelectorAll(".go-attribute-icon");
-      return name.getBoundingClientRect().right <= first.getBoundingClientRect().left &&
+      return name.getBoundingClientRect().bottom <= first.getBoundingClientRect().top &&
         first.getBoundingClientRect().right <= second.getBoundingClientRect().left &&
         first.getBoundingClientRect().top === second.getBoundingClientRect().top;
     }), "dex dual attributes overlap the name or wrap");
@@ -88,12 +88,12 @@ async function verify(browser, width) {
     }), attributeIds);
     for (const [index, icon] of iconData.entries()) {
       assert.match(icon?.label ?? "", /^(無|火|水|風|地|光|闇)属性$/);
-      assert.match(icon.image, /go-attributes[.]webp/);
+      assert.match(icon.image, /go-attribute-backgrounds[.]webp/);
       assert.ok(Math.abs(parseFloat(icon.position) - index * 100 / 6) < 0.001);
     }
     assert.deepEqual(await page.evaluate(async () => {
       const image = new Image();
-      image.src = "./asset/element/go-attributes.webp";
+      image.src = "./asset/element/go-attribute-backgrounds.webp";
       await image.decode();
       return [image.naturalWidth, image.naturalHeight];
     }), [392, 56]);
@@ -148,7 +148,8 @@ async function verify(browser, width) {
     await byId("detailPanel").locator(".detail-close").click();
     await shot("team");
     await byId("startButton").click();
-    const wait = () => ui.locator("[data-go-wait]").click();
+    const dodge = byId("go-dodge");
+    const pass = () => dodge.click();
     const move = (id) => ui.locator('[data-go-move="' + id + '"]');
     const chooseSwitch = (name) => ui.locator("[data-go-switch]").filter({ hasText: name }).click();
     assert.match(await byId("playerHud").textContent(), /ユーズドマウス.*217\/217/s);
@@ -164,21 +165,37 @@ async function verify(browser, width) {
     assert.ok(await byId("playerHud").locator(".go-attribute-icon").count());
     assert.ok(await byId("playerSprite").locator(".go-attribute-icon").count());
     assert.equal(await byId("playerHud").locator(".hp-line > span").first().textContent(), "体力");
-    assert.ok(await move("skill_000").locator(".go-attribute-none").count());
-    const ranks = byId("playerHud").locator(".go-hud-ranks > span");
-    assert.deepEqual(await ranks.allTextContents(), ["物理攻撃+0", "物理防御+0", "特殊攻撃+0", "特殊防御+0", "敏捷+0"]);
-    assert.ok(await ranks.evaluateAll((items) => items.every((rank) => {
-      const range = document.createRange();
-      range.selectNodeContents(rank);
-      return range.getClientRects().length === 1;
-    })), "battle stat label wraps");
+    assert.deepEqual(await ui.locator(".command-tabs .tab-button:visible").allTextContents(), ["回避", "入替", "用語"]);
+    assert.equal(await byId("moveGrid").locator("[data-go-wait], [data-go-move='skill_000']").count(), 0);
+    assert.equal(await byId("dexButton").count(), 0);
+    assert.ok(await byId("playerHud").locator(".go-hud-rank-line").isHidden());
+    assert.ok(await byId("enemyHud").locator(".go-hud-rank-line").isHidden());
+    const inspect = byId("enemyInfoPanel");
+    const inspectEnemy = () => byId("enemySprite").locator("[data-fighter-side]").click();
+    const closeInspect = () => inspect.getByRole("button", { name: "戻る" }).click();
+    await inspectEnemy();
+    assert.equal(await inspect.locator(".detail-title").textContent(), "相手情報");
+    assert.equal(await inspect.locator(".detail-subtitle").textContent(), "ヒョウカイツムツム");
+    assert.equal(await inspect.locator(".battle-inspect-row .effect-chip").textContent(), "なし");
+    assert.match(await inspect.locator(".battle-inspect-body").textContent(), /回避率\s*30%/);
+    assert.match(await inspect.locator(".battle-inspect-body").textContent(), /EN回復\s*1 EN \/ ターン/);
+    assert.deepEqual(await inspect.locator(".detail-stat-label").allTextContents(),
+      ["物理攻撃", "物理防御", "特殊攻撃", "特殊防御", "敏捷", "回復力"]);
+    assert.equal(await inspect.locator(".detail-stat-phy_def .detail-stat-value").textContent(), "143");
+    assert.match(await inspect.locator(".detail-passive").textContent(), /特性.*氷棚形成/s);
+    const resistances = inspect.locator(".battle-inspect-resistance-grid .resistance-cell");
+    assert.equal(await resistances.count(), 7);
+    assert.equal(await resistances.filter({ has: page.locator(".go-attribute-wind") }).locator("strong").textContent(), "50%");
+    await shot("inspect");
+    await closeInspect();
+    assert.ok(await dodge.isEnabled());
     await shot("battle");
     await byId("go-fast-battle").check();
-    await move("skill_000").click(); await wait();
+    await pass(); await pass();
     assert.match(await byId("go-official-log").textContent(), /回避判定/);
-    await move("skill_041").click(); await wait();
+    await move("skill_041").click(); await pass();
     assert.match(await byId("playerHud").textContent(), /デコイ 体力 72\/72/);
-    await move("skill_042").click(); await wait();
+    await move("skill_042").click(); await pass();
     assert.match(await byId("switchGrid").textContent(), /パワーリレー/);
     assert.equal(await ui.locator("[data-go-switch]").count(), 2);
     assert.equal(await ui.locator("[data-go-switch]").filter({ has: page.locator(".go-attribute-icon") }).count(), 2);
@@ -187,11 +204,14 @@ async function verify(browser, width) {
     assert.match(await byId("playerHud").textContent(), /カブキジャベリン.*デコイ 体力/s);
     assert.match(await byId("go-official-log").textContent(), /羽音/);
     await byId("switchTab").click();
-    await chooseSwitch("アルカトリオ"); await wait();
+    await chooseSwitch("アルカトリオ"); await pass();
     assert.match(await byId("playerHud").textContent(), /アルカトリオ/);
     assert.doesNotMatch(await byId("playerHud").textContent(), /デコイ 体力/);
-    await move("skill_053").click(); await wait();
+    await move("skill_053").click(); await pass();
     assert.match(await byId("enemyHud").textContent(), /毒/);
+    await inspectEnemy();
+    assert.match(await inspect.locator(".battle-inspect-row .effect-chip").textContent(), /毒/);
+    await closeInspect();
     for (let turn = 0; turn < 24 && !await ui.locator("[data-go-replay]").isVisible(); turn++) {
       if (await byId("switchGrid").isVisible()) {
         assert.match(await byId("switchGrid").textContent(), /戦闘不能後の補充/);
@@ -199,13 +219,13 @@ async function verify(browser, width) {
         await chooseSwitch("バグズニードル");
       } else {
         if (await move("skill_053").isEnabled()) await move("skill_053").click();
-        else await wait();
+        else await pass();
         const unfinished = move("skill_020");
         if (await unfinished.count()) {
           assert.ok(await unfinished.isDisabled());
           assert.match(await unfinished.textContent(), /未対応/);
         }
-        await wait();
+        await pass();
       }
     }
     assert.match(await byId("enemyInfoPanel").textContent(), /勝利/);
@@ -214,14 +234,22 @@ async function verify(browser, width) {
     await ui.locator("[data-go-replay]").click();
     assert.match(await byId("playerHud").textContent(), /ユーズドマウス.*217\/217/s);
     assert.doesNotMatch(await byId("go-official-log").textContent(), /勝利/);
+    await byId("go-fast-battle").check();
+    await move("skill_043").click(); await pass();
+    assert.deepEqual(await byId("playerHud").locator(".go-hud-ranks > span").allTextContents(), ["物理攻撃+1"]);
+    await move("skill_002").click(); await pass();
+    assert.deepEqual(await byId("enemyHud").locator(".go-hud-ranks > span").allTextContents(), ["物理防御-1"]);
+    await inspectEnemy();
+    assert.match(await inspect.locator(".detail-stat-phy_def .detail-stat-value").textContent(), / \(-1\)$/);
+    await closeInspect();
     await ui.locator('.go-battle-footer [data-go-page="setup"]').click();
     await byId("go-official-mode").selectOption("enemy");
     await byId("startButton").click();
     await byId("go-fast-battle").uncheck();
-    await ui.locator("[data-go-wait]").dblclick();
-    await page.waitForFunction(() => !document.querySelector("#go-app [data-go-wait]")?.disabled);
+    await dodge.dblclick();
+    await page.waitForFunction(() => !document.querySelector("#go-app #go-dodge")?.disabled);
     const log = byId("go-official-log");
-    assert.equal((await log.textContent()).match(/ユーズドマウスは待機/g)?.length, 1);
+    assert.equal((await log.textContent()).match(/ユーズドマウスの回避（EN/g)?.length, 1);
     assert.equal(await ui.locator("#go-ai-diagnostics").count(), 0);
     await ui.locator('.go-battle-footer [data-go-page="setup"]').click();
     await byId("go-official-mode").selectOption("auto");
@@ -235,10 +263,10 @@ async function verify(browser, width) {
     await pick("020");
     await byId("go-official-mode").selectOption("manual");
     await byId("startButton").click();
-    await wait(); await wait();
-    await move("skill_054").click(); await wait();
+    await pass(); await pass();
+    await move("skill_054").click(); await pass();
     await byId("go-fast-battle").uncheck();
-    await move("skill_054").click(); await wait();
+    await move("skill_054").click(); await pass();
     await byId("battleAnimationLayer").locator(".go-sheet").waitFor();
     assert.equal(bgmRequested, true);
     await ui.locator('.go-battle-footer [data-go-page="title"]').click();

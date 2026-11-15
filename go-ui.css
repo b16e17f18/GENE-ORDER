@@ -87,6 +87,8 @@
 }
 #go-app .battle-view .hp-line { grid-template-columns: max-content minmax(0, 1fr) auto; }
 #go-app .go-hud-ranks > span { white-space: nowrap; }
+#go-app .battle-inspect-stats .detail-stat { grid-template-columns: 5em minmax(0, 1fr) 10ch; }
+#go-app .battle-inspect-stat-list .detail-stat-value { white-space: nowrap; }
 
 /* v0.63: preserve MHB reference card palette in GO. */
 #go-app .detail-stat-hp .detail-stat-fill { background: #9df000; }

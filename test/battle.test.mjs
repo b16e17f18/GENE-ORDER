@@ -891,10 +891,58 @@ test("Phantom hides against ignore_dodge, pierces guards and clears positive ran
   assert.equal(b.stages.sp_def, -1);
 });
 
-test("unconfirmed speed power, fire boost, and burn remain unavailable", () => {
-  for (const id of ["skill_015", "skill_020", "skill_038", "skill_056"]) {
-    assert.match(go.unsupportedMoveReason(skill(id), assets), /未対応/);
+test("MHB speed thresholds apply to both GO techniques in previews and real turns", () => {
+  for (const id of ["skill_015", "skill_056"]) {
+    const move = skill(id);
+    assert.equal(go.unsupportedMoveReason(move, assets), "");
+    for (const [speed, power] of [[99, 30], [100, 60], [150, 72], [200, 78], [300, 90], [450, 90]]) {
+      const match = battle({ ...assets, skills: [move], player: [character({ speed, skillIds: [id] })],
+        enemy: [character({ speed: 100, hp: 1000 })] });
+      assert.equal(go.previewDamage(match, "player", move).power, power);
+      assert.equal(action(match, id).events.find(e => e.type === "move").power, power);
+    }
+    const match = battle({ ...assets, skills: [move], player: [character({ speed: 80, skillIds: [id] })] });
+    go.changeStage(active(match), "speed", 1);
+    match.fields.player.set("tailwind", {
+      definition: { battle_effect_group: "field_speed", damage_value: 1.5 }, starts: 1, expires: 2,
+    });
+    assert.equal(go.previewDamage(match, "player", move).power, 72);
+    const gap = new Map(assets.powerRules);
+    gap.set("speed_advantage", gap.get("speed_advantage").slice(1));
+    assert.match(go.unsupportedMoveReason(move, { ...assets, powerRules: gap }), /speed_advantage/);
   }
+});
+
+test("official burn uses MHB residuals, refreshes once, coexists with poison and pauses on the bench", () => {
+  const move = skill("skill_038");
+  const match = battle({ ...assets, skills: [move], player: [character({ skillIds: [move.skill_id] })],
+    enemy: [character({ hp: 403, sp_def: 1000 }), character()] });
+  const target = active(match, "enemy");
+  const pass = (enemy = wait) => go.resolveTurn(match, { player: wait, enemy });
+  const burn = () => target.statuses.find(({ definition }) => definition.effect_id === "burn");
+  const tick = (turn) => turn.events.filter(e => e.type === "residual" && e.name === "火やられ");
+  assert.equal(go.unsupportedMoveReason(move, assets), "");
+  target.statuses.push({ definition: officialEffects.get("poison"), turns: 2 });
+  const first = action(match, move.skill_id);
+  assert.equal(first.events.filter(e => e.type === "residual").length, 2);
+  assert.equal(tick(first)[0].damage, 60);
+  assert.equal(burn().turns, 4);
+  const hp = target.hp;
+  pass({ type: "switch", index: 1 });
+  assert.equal(target.hp, hp);
+  assert.equal(burn().turns, 4);
+  pass({ type: "switch", index: 0 });
+  assert.equal(burn().turns, 3);
+  target.hp = target.maxHp;
+  assert.equal(tick(action(match, move.skill_id)).length, 1);
+  assert.equal(burn().turns, 4);
+  for (let i = 0; i < 4; i++) assert.equal(tick(pass())[0].damage, 60);
+  assert.equal(burn(), undefined);
+  assert.equal(tick(pass()).length, 0);
+});
+
+test("unconfirmed fire boost remains unavailable", () => {
+  assert.match(go.unsupportedMoveReason(skill("skill_020"), assets), /未対応/);
 });
 
 test("normalization re-reads CSV tuning for status probability, damage, duration and guard", () => {
@@ -2152,7 +2200,7 @@ const aiMove = (id, overrides = {}) => ({ ...strike, skill_id: id, name: id, ...
 
 test("GO AI accepts all six MHB profiles, safely defaults, and honors only usable preferences", () => {
   const moves = [aiMove("main"), aiMove("setup"), aiMove("expensive", { cost: 7 }),
-    { ...skill("skill_015"), skill_id: "unfinished" }];
+    { ...skill("skill_020"), skill_id: "unfinished" }];
   for (const type of ["", "balanced", "aggressive", "patient", "defensive", "disruptor", "tactical", "missing", "constructor"]) {
     const match = passiveBattle({ skills: moves, player: [character({ ai_type: type, ai_main_skill: "main",
       ai_setup_skill: "setup", skillIds: moves.map((move) => move.skill_id) })] });
