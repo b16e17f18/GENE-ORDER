@@ -60,7 +60,7 @@ function masterIdLookup(rows, idColumn) {
 function characterImagePath(imageName) {
   const name = imageName?.trim();
   if (!name || name === "none" || /[\\/]/.test(name) || name === "." || name === "..") return "";
-  return `./asset/${encodeURIComponent(/\.[a-z0-9]+$/i.test(name) ? name : name + ".png")}`;
+  return `./asset/character/${encodeURIComponent(/\.[a-z0-9]+$/i.test(name) ? name : name + ".png")}`;
 }
 
 function geneOrderStatusIds(rows) {

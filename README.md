@@ -21,7 +21,8 @@ py -3 -m http.server 8000 --bind 127.0.0.1
 | `data-validation.js` | ID・データ型・相性組・素材参照の診断 |
 | `data/*.csv` | UTF-8の正式マスタ9表 |
 | `data/reference/` | 旧10属性資料とMHB由来の敵編成 |
-| `asset/` | キャラクター画像、対戦アニメーションとBGM |
+| `asset/character/` | キャラクター画像 |
+| `asset/battle-animation/`, `asset/bgm/`, `asset/element/` | 対戦アニメーション、BGM、属性アイコン |
 | `passive.js`, `battle-core.js`, `battle-ai.js` | GOの基本戦闘コアと移植元の戦闘処理 |
 | `data-inline.js` | MHBの参照用埋め込みデータ |
 | `test/` | データ基盤・戦闘ルールの自動テスト |

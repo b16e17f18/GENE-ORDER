@@ -138,7 +138,7 @@ test("validator catches duplicate IDs, matrix pair gaps and invalid numbers", ()
 });
 
 test("uses the local image path, reports missing files, and renders a placeholder", () => {
-  assert.equal(go.run('state.characters[0].imageSrc'), "./asset/character_001.png");
+  assert.equal(go.run('state.characters[0].imageSrc'), "./asset/character/character_001.png");
   assert.equal(go.run('state.characters.filter((c) => c.imageSrc).length'), 44);
   assert.equal(go.run('state.dataDiagnostics.filter((d) => d.level === "画像欠落").length'), 2);
   assert.match(go.elements.get("#go-roster").innerHTML, /画像未設定/);

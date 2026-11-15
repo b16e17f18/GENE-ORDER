@@ -252,7 +252,7 @@ async function verify(browser, width) {
     assert.deepEqual(legacyRequests, []);
     assert.deepEqual(errors, []);
     assert.equal(new Set(masters).size, 9);
-    assert.ok(images.every((path) => ["/asset/character_047.png", "/asset/character_064.png"].includes(path)));
+    assert.ok(images.every((path) => ["/asset/character/character_047.png", "/asset/character/character_064.png"].includes(path)));
     console.log(`Edge ${width}px: official flow, all modes, replay, double-click, 9 CSVs. Image probes: ${images.join(", ")}`);
   } finally {
     await page.close();
