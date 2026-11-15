@@ -77,3 +77,12 @@
 /* Keep full Japanese stat names readable on the official cards and battle HUD. */
 #go-app .detail-stat { grid-template-columns: max-content minmax(32px, 1fr) 3ch; }
 #go-app .battle-view .hp-line { grid-template-columns: max-content minmax(0, 1fr) auto; }
+
+/* v0.63: preserve MHB reference card palette in GO. */
+#go-app .detail-stat-hp .detail-stat-fill { background: #9df000; }
+#go-app .detail-stat-phy_atk .detail-stat-fill { background: #e53935; }
+#go-app .detail-stat-phy_def .detail-stat-fill { background: #f6d743; }
+#go-app .detail-stat-sp_atk .detail-stat-fill { background: #ff5aa5; }
+#go-app .detail-stat-sp_def .detail-stat-fill { background: #ff9d28; }
+#go-app .detail-stat-speed .detail-stat-fill { background: #009ee8; }
+#go-app .detail-stat-regen_value .detail-stat-fill { background: #3bd17f; }

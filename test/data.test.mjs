@@ -510,9 +510,10 @@ test("official match captures poison and HP0 before resuming a replacement, then
 test("GO character stat card uses Japanese labels and independent graph maxima", () => {
   const stats = ["hp", "phy_atk", "phy_def", "sp_atk", "sp_def", "speed"];
   for (const key of stats) {
-    const markup = go.run(`goCharacterStat("${key}", 255)`);
+    const max = key === "hp" ? 275 : 225;
+    const markup = go.run(`goCharacterStat("${key}", ${max})`);
     assert.match(markup, /--bar-width: 100%/);
-    assert.match(go.run(`goCharacterStat("${key}", 128)`), /--bar-width: 50%/);
+    assert.match(go.run(`goCharacterStat("${key}", ${Math.floor(max / 2)})`), /--bar-width: 50%/);
   }
   assert.match(go.run('goCharacterStat("regen_value", 25)'), /--bar-width: 50%/);
   assert.match(go.run('goCharacterStat("regen_value", 50)'), /--bar-width: 100%/);

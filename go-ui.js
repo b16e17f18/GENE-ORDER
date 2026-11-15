@@ -111,7 +111,7 @@ const geneOrderUI = (() => {
     const dex = clone("#dexOverlay");
     title.querySelector(".title-stage").innerHTML = `
       <div class="team-panel go-title-panel">
-        <h1>GENE ORDER</h1><p>v0.62</p>
+        <h1>GENE ORDER</h1><p>v0.63</p>
         <button class="primary-button" id="battleModeButton" type="button">バトルモード</button>
         <div class="setup-actions">
           <button class="small-button" data-go-page="dex" type="button">図鑑</button>

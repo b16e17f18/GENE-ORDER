@@ -4222,7 +4222,7 @@ function goStatText(text) {
 function goCharacterStat(stat, value) {
   return detailStat(STAT_LABELS[stat], value, stat, {
     displayValue: value,
-    graphMax: stat === "regen_value" ? 50 : 255,
+    graphMax: stat === "regen_value" ? 50 : stat === "hp" ? 275 : 225,
   });
 }
 
