@@ -42,3 +42,6 @@ Node.js 22以降で `node --test` を実行すると自動テストを再現で�
 [v0.42 総合検証・再現方法](docs/battle-validation.md) · [v0.50 AI移植と公開情報](docs/ai-integration.md)
 
 [正式UIの再利用範囲](docs/ui-integration.md) · [Edgeでの再現手順](docs/ui-validation.md)
+
+
+v0.61: 正式UI・デバッグの属性表示を `asset/element/go-attributes.webp` の共通アイコンに統一。

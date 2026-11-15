@@ -4093,11 +4093,14 @@ function mountGeneOrderBattlePreview() {
         : `${definition.name} 残り${Math.max(0, expires - battle.turn)}ターン`;
       const timed = [...active.timedEffects.values(), ...battle.fields[side].values()].map(timedLabel);
       status.textContent += ` · ${stages.join(" / ")} · ${[...defense, ...conditions, ...timed].join(" / ") || "状態変化なし"}`;
+      const attributeMarkup = [active.base.element_1, active.base.element_2].filter(Boolean)
+        .map((id) => goAttributeIcon(id, state.elements.get(id)?.name ?? "未定義")).join(" ");
+      status.innerHTML = attributeMarkup + " " + escapeHtml(status.textContent);
       select.replaceChildren();
       if (battle.pendingSwitch) {
         const choosing = battle.pendingSwitch.side === side;
         if (choosing) {
-          status.textContent += " · 交代先を選択してください";
+          status.append(" · 交代先を選択してください");
           for (const index of battle.pendingSwitch.candidates) {
             select.add(new Option(battle.teams[side][index].base.name, String(index)));
           }
@@ -4209,10 +4212,16 @@ function mountGeneOrderBattlePreview() {
   panel.hidden = false;
 }
 
+// Shared GO attribute artwork. Sprite cells: none, fire, water, wind, earth, light, dark.
+function goAttributeIcon(id, label) {
+  if (!["none", "fire", "water", "wind", "earth", "light", "dark"].includes(id)) return escapeHtml(label ?? "未定義");
+  return `<span class="go-attribute-icon go-attribute-${id}" role="img" aria-label="${escapeHtml(label)}属性" title="${escapeHtml(label)}属性"><span class="go-attribute-label">${escapeHtml(label)}</span></span>`;
+}
+
 function renderGeneOrderData() {
   const roster = document.querySelector("#go-roster");
   const types = (character) => [character.element_1, character.element_2].filter((id) => id !== null)
-    .map((id) => state.elements.get(id)?.name ?? "未定義").join(" / ") || "属性未設定";
+    .map((id) => goAttributeIcon(id, state.elements.get(id)?.name ?? "未定義")).join(" ") || "属性未設定";
   roster.innerHTML = state.characters.map((character) => `
     <li class="go-card">
       ${character.imageSrc
@@ -4220,7 +4229,7 @@ function renderGeneOrderData() {
         : '<span class="go-placeholder">画像未設定</span>'}
       <div>
         <strong>${escapeHtml(character.name)}</strong>
-        <p>${escapeHtml(types(character))} · ${escapeHtml(state.speciesMap.get(character.species_id)?.name ?? "種族未設定")}</p>
+        <p>${types(character)} · ${escapeHtml(state.speciesMap.get(character.species_id)?.name ?? "種族未設定")}</p>
         <p>${escapeHtml(character.passive?.name ?? "パッシブ未設定")}</p>
       </div>
     </li>

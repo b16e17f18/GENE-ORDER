@@ -49,3 +49,27 @@
 @media (prefers-reduced-motion: reduce) {
   #go-app .battle-view .hp-fill { transition: none; }
 }
+
+/* v0.61: shared seven-attribute artwork, 56px cells in a transparent WebP sprite. */
+.go-attribute-icon {
+  display: inline-block;
+  width: 1.65em;
+  height: 1.65em;
+  min-width: 1.65em;
+  flex: 0 0 auto;
+  vertical-align: middle;
+  position: relative;
+  background: url("./asset/element/go-attributes.webp") no-repeat;
+  background-size: 700% 100%;
+  background-position: var(--go-attribute-offset, 0%) center;
+}
+.go-attribute-none { --go-attribute-offset: 0%; }
+.go-attribute-fire { --go-attribute-offset: 16.6666667%; }
+.go-attribute-water { --go-attribute-offset: 33.3333333%; }
+.go-attribute-wind { --go-attribute-offset: 50%; }
+.go-attribute-earth { --go-attribute-offset: 66.6666667%; }
+.go-attribute-light { --go-attribute-offset: 83.3333333%; }
+.go-attribute-dark { --go-attribute-offset: 100%; }
+.go-attribute-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+#go-app .hud-name .go-attribute-icon { font-size: 1rem; }
+#go-app .move-element .go-attribute-icon { font-size: 1rem; }

@@ -19,3 +19,8 @@ GO戦闘状態は `geneOrderBattle` が管理する。 `createMatch()` は `chec
 使用した素材は `asset/battle-animation/` の5画像、`asset/bgm/free-battle.mp3` と既存GO画像。BGMはMHBの `battle_f_1.mp3`、アニメーションはMHBの対応する画像の複製。GO専用タイトル絵、キャラクター047と064の画像、独立した効果音が不足している。画像未設定は代替表示。再生が制限された場合も対戦を続行できる。
 
 [操作確認とテスト](ui-validation.md)
+
+
+## v0.61 属性アイコン
+
+承認済み画像を透過WebPの56px×7セルのスプライトに整形。無・火・水・風・地・光・闇の順。共通 `goAttributeIcon()` と `go-ui.css` で編成、詳細、図鑑、戦闘HUD、立ち絵、技選択、交代候補、デバッグの属性を表示する。属性名はアクセシブルラベルとして保持。戦闘・CSVは変更なし。ネイティブselectの選択肢は文字表示を維持。

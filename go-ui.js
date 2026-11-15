@@ -111,7 +111,7 @@ const geneOrderUI = (() => {
     const dex = clone("#dexOverlay");
     title.querySelector(".title-stage").innerHTML = `
       <div class="team-panel go-title-panel">
-        <h1>GENE ORDER</h1><p>v0.60</p>
+        <h1>GENE ORDER</h1><p>v0.61</p>
         <button class="primary-button" id="battleModeButton" type="button">バトルモード</button>
         <div class="setup-actions">
           <button class="small-button" data-go-page="dex" type="button">図鑑</button>
@@ -187,7 +187,7 @@ const geneOrderUI = (() => {
 
     const typeBadge = (id, hud = false) => {
       const value = data.elements.get(id);
-      return value ? `<span class="element-pill element-${esc(id)}${hud ? " hud-element-badge" : ""}">${esc(value.name)}</span>` : "";
+      return value ? goAttributeIcon(id, value.name) : "";
     };
     const attributes = (base, hud) => [base.element_1, base.element_2].filter(Boolean).map((id) => typeBadge(id, hud)).join(" ") || "属性未設定";
     const picture = (base, className) => base.imageSrc
@@ -412,7 +412,7 @@ const geneOrderUI = (() => {
           const rank = inspected.stages[stat];
           return `<div class="dex-data-row"><span>${STATS[stat]}</span><strong>${value}（ランク ${rank >= 0 ? "+" : ""}${rank}${multiplier === 1 ? "" : "、パッシブ ×" + multiplier}）</strong></div>`;
         }).join("");
-        $("enemyInfoPanel").innerHTML = `<div class="battle-inspect-header"><strong class="detail-title">${esc(inspected.base.name)}</strong>
+        $("enemyInfoPanel").innerHTML = `<div class="battle-inspect-header"><strong class="detail-title">${esc(inspected.base.name)} ${attributes(inspected.base)}</strong>
           <button class="small-button battle-inspect-back" type="button" data-go-inspect-back>戻る</button></div>${rows}`;
         return;
       }
@@ -424,7 +424,7 @@ const geneOrderUI = (() => {
             const member = battle.teams[candidate][index];
             const reason = forced ? "" : go.checkAction(battle, candidate, { type: "switch", index });
             return `<button class="switch-button" type="button" data-go-switch="${index}" ${reason ? "disabled" : ""}>
-              <span class="switch-name">${esc(member.base.name)}</span>
+              <span class="switch-name">${esc(member.base.name)} ${attributes(member.base)}</span>
               <span class="switch-meta">HP ${member.hp}/${member.maxHp} / ${energyBadge(member.energy)} ${esc(reason)}</span></button>`;
           }).join("") || '<div class="command-note">交代可能な控えがいません。</div>');
         return;
