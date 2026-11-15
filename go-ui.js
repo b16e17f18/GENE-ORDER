@@ -185,37 +185,56 @@ const geneOrderUI = (() => {
       if (next === "setup") renderSetup();
     }
 
-    const typeBadge = (id, hud = false) => {
+    const typeBadge = (id) => {
       const value = data.elements.get(id);
       return value ? goAttributeIcon(id, value.name) : "";
     };
-    const attributes = (base, hud) => [base.element_1, base.element_2].filter(Boolean).map((id) => typeBadge(id, hud)).join(" ") || "属性未設定";
+    const attributeIcons = (...ids) => ids.filter(Boolean).map(typeBadge).filter(Boolean).join(" ") || "属性未設定";
+    const attributes = (base) => attributeIcons(base.element_1, base.element_2);
+    const moveAttributes = (move) => attributeIcons(move.element, move.element2);
     const picture = (base, className) => base.imageSrc
       ? `<img class="${className}" src="${esc(base.imageSrc)}" alt="${esc(base.name)}">` : '<span class="go-missing-image">画像未設定</span>';
 
-    function profile(base) {
+    function profileSubtitle(base) {
+      const species = data.speciesMap.get(base.species_id)?.name || "種族未設定";
+      return `${attributes(base)}　${esc(species)}`;
+    }
+
+    function profileSummary(base) {
+      const evasion = base.evasion_percent == null ? "未設定" : `${base.evasion_percent}%`;
+      return `<div class="detail-summary">
+        <div class="dex-data-row"><span>スロット</span><strong>${esc(base.slot)}</strong></div>
+        <div class="dex-data-row"><span>EN回復</span><strong>${energyBadge(base.energy_charge)}</strong></div>
+        <div class="dex-data-row"><span>回避率</span><strong>${evasion}</strong></div>
+      </div>`;
+    }
+
+    function profileStats(base) {
+      return `<div class="detail-stats">${Object.keys(STATS).concat("regen_value").map((stat) => goCharacterStat(stat, base[stat])).join("")}</div>`;
+    }
+
+    function profileSections(base) {
       const skills = base.skillIds.map((id) => {
         const move = data.skills.get(id);
-        if (!move) return `<p>${esc(id)}（未設定）</p>`;
-        const issue = go.moveAvailability(move, data).issues.join("、");
-        return `<div class="detail-skill"><strong>${esc(move.name)} ${typeBadge(move.element)}</strong>
-          <p>${esc(goStatText(move.text))}${issue ? `（未対応 ${esc(issue)}）` : ""}</p></div>`;
+        if (!move) return `<article class="detail-skill-card">${esc(id)}（未設定）</article>`;
+        return renderSkillDetail(move, {
+          attributeMarkup: moveAttributes(move),
+          description: goStatText(move.text),
+          issue: goStatText(go.moveAvailability(move, data).issues.join("、")),
+        });
       });
       const passive = data.passives.get(base.passive_id);
-      const details = passive ? `${esc(passive.name)}${passive.status === "implemented" ? "" : "（未対応）"}　${esc(goStatText(passive.text))}` : "未設定";
-      const species = data.speciesMap.get(base.species_id)?.name || "種族未設定";
-      const evasion = base.evasion_percent == null ? "未設定" : `${base.evasion_percent}%`;
-      return `<div class="dex-profile">
-        <div class="detail-image-frame dex-image-frame">${picture(base, "detail-image")}</div>
-        <div class="dex-summary"><div class="detail-title">${esc(base.name)}</div>
-          <div class="detail-subtitle">${attributes(base)}　${esc(species)}</div>
-          <div class="dex-data-row"><span>スロット</span><strong>${esc(base.slot)}</strong></div>
-          <div class="dex-data-row"><span>EN回復</span><strong>${energyBadge(base.energy_charge)}</strong></div>
-          <div class="dex-data-row"><span>回避率</span><strong>${evasion}</strong></div></div>
-      </div>
-      <div class="detail-stats dex-stats">${Object.keys(STATS).concat("regen_value").map((stat) => goCharacterStat(stat, base[stat])).join("")}</div>
-      <div class="detail-section-title">パッシブ</div><p>${details}</p>
-      <div class="detail-section-title">習得技</div>${skills.join("") || "<p>未設定</p>"}`;
+      return `<section class="detail-passive">
+        <div class="detail-section-title">パッシブ</div>
+        <article class="detail-passive-card">
+          <strong class="detail-passive-name">${esc(passive?.name ?? "未設定")}${passive && passive.status !== "implemented" ? "（未対応）" : ""}</strong>
+          ${passive?.text ? `<div class="detail-passive-text">${esc(goStatText(passive.text))}</div>` : ""}
+        </article>
+      </section>
+      <section class="detail-skills">
+        <div class="detail-section-title">習得技</div>
+        ${skills.join("") || '<article class="detail-skill-card">未設定</article>'}
+      </section>`;
     }
 
     function showDex(id) {
@@ -225,8 +244,20 @@ const geneOrderUI = (() => {
         <button class="small-button dex-close" type="button" data-go-close="dex">閉じる</button></div>
         <div class="dex-layout"><aside class="dex-list" aria-label="キャラクター一覧">
         ${data.characters.map((entry) => `<button type="button" class="dex-list-button ${entry === base ? "is-selected" : ""}"
-          data-go-dex="${esc(entry.character_id)}"><span>${esc(entry.name)}</span>${attributes(entry)}</button>`).join("")}
-        </aside><section class="dex-content">${profile(base)}</section></div>`;
+          data-go-dex="${esc(entry.character_id)}"><span>${esc(entry.name)}</span><span class="go-dex-attributes">${attributes(entry)}</span></button>`).join("")}
+        </aside><section class="dex-content">
+          <div class="dex-profile">
+            <div class="detail-image-frame dex-image-frame">${picture(base, "detail-image")}</div>
+            <div class="dex-summary">
+              <div class="detail-title">${esc(base.name)}</div>
+              <div class="detail-subtitle">${profileSubtitle(base)}</div>
+              ${profileSummary(base)}
+            </div>
+          </div>
+          <div class="detail-section-title">パラメータ</div>
+          ${profileStats(base)}
+          ${profileSections(base)}
+        </section></div>`;
       dex.classList.remove("is-hidden");
       $("dexPanel").querySelector(".dex-close").focus();
     }
@@ -264,7 +295,7 @@ const geneOrderUI = (() => {
           <button class="card-select-button" type="button" data-go-pick="${esc(id)}" aria-pressed="${chosen}" ${issue || full ? "disabled" : ""}>
             <div class="card-topline"><span class="card-name">${esc(base.name)}</span><span>${attributes(base)}</span></div>
             <div class="card-image-frame">${picture(base, "card-image")}</div>
-            <div class="card-slot-meta">スロット ${esc(base.slot)}${issue ? ` · ${esc(issue)}` : ""}</div>
+            <div class="card-slot-meta">スロット ${esc(base.slot)}${issue ? ` · ${esc(goStatText(issue))}` : ""}</div>
           </button>
           <button class="detail-button" type="button" data-go-detail="${esc(id)}">詳細</button>
         </article>`;
@@ -283,8 +314,23 @@ const geneOrderUI = (() => {
     function renderDetail(id) {
       const base = data.characterMap.get(id);
       if (!base) return;
-      $("detailPanel").innerHTML = `<div class="detail-header"><div class="detail-title">キャラクター詳細</div>
-        <button class="small-button detail-close" type="button" data-go-close="detail">閉じる</button></div>${profile(base)}`;
+      $("detailPanel").innerHTML = `
+        <div class="detail-header">
+          <div>
+            <div class="detail-title">${esc(base.name)}</div>
+            <div class="detail-subtitle">${profileSubtitle(base)}</div>
+          </div>
+          <button class="small-button detail-close" type="button" data-go-close="detail">閉じる</button>
+        </div>
+        <div class="detail-body">
+          <div class="detail-profile-column">
+            <div class="detail-image-frame">${picture(base, "detail-image")}</div>
+            ${profileSummary(base)}
+          </div>
+          ${profileStats(base)}
+          ${profileSections(base)}
+        </div>`;
+      $("detailPanel").scrollTop = 0;
       $("detailOverlay").classList.remove("is-hidden");
       $("detailPanel").querySelector(".detail-close").focus();
     }
@@ -318,7 +364,7 @@ const geneOrderUI = (() => {
         const key = fighter.base.character_id + "/" + index;
         if (hud.dataset.renderedFighterKey !== key) {
           hud.dataset.renderedFighterKey = key;
-          hud.innerHTML = `<div class="hud-row"><div class="hud-name">${attributes(fighter.base, true)}
+          hud.innerHTML = `<div class="hud-row"><div class="hud-name">${attributes(fighter.base)}
           <span class="hud-character-name">${esc(fighter.base.name)}</span></div></div>
           <div class="hp-line"><span>体力</span><div class="meter"><div class="meter-fill hp-fill ${meterWidth <= 28 ? "is-low" : ""}"
             style="width:${meterWidth}%"></div></div><span class="hud-value hp-value"></span></div>
@@ -336,8 +382,8 @@ const geneOrderUI = (() => {
         hud.querySelector(".hp-value").textContent = fighter.hp + "/" + fighter.maxHp;
         hud.querySelector(".go-en-value").textContent = fighter.energy + "/" + go.MAX_ENERGY;
         hud.querySelectorAll(".energy-segment").forEach((segment, slot) => segment.classList.toggle("is-filled", slot < fighter.energy));
-        hud.querySelector(".go-hud-ranks").textContent = Object.entries(fighter.stages)
-          .map(([stat, value]) => STATS[stat] + (value >= 0 ? "+" : "") + value).join(" ");
+        hud.querySelector(".go-hud-ranks").innerHTML = Object.entries(fighter.stages)
+          .map(([stat, value]) => `<span>${esc(STATS[stat] + (value >= 0 ? "+" : "") + value)}</span>`).join(" ");
         hud.querySelector(".go-hud-flags").textContent = activeFlags.join(" / ") || "なし";
         hud.querySelector(".party-pips").innerHTML = team.map((member, i) =>
           `<span class="pip ${member.fainted ? "is-fainted" : "is-alive"} ${index === i ? "is-active" : ""}"></span>`).join("");
@@ -443,9 +489,9 @@ const geneOrderUI = (() => {
           ${issue ? "disabled" : ""} title="${esc(goStatText(issue || move.text))}">
           <span class="move-name">${id === DODGE ? "共通回避" : esc(move.name)}</span>
           <span class="move-cost">${energyBadge(releasing ? 0 : move.cost)}</span>
-          <span class="move-element">${typeBadge(move.element)}</span><span class="move-kind">${esc(kind)}</span>
+          <span class="move-element">${moveAttributes(move)}</span><span class="move-kind">${esc(kind)}</span>
           <span class="move-power power-chip">威力 ${move.category === "attack" ? releasing ? actor.pending.power : move.power : "—"}</span>
-          <span class="move-text">優先度 ${move.priority} · ${esc(goStatText(move.text))}${issue ? ` · ${esc(issue)}` : ""}</span></button>`;
+          <span class="move-text">優先度 ${move.priority} · ${esc(goStatText(move.text))}${issue ? ` · ${esc(goStatText(issue))}` : ""}</span></button>`;
       });
       const wait = go.checkAction(battle, candidate, { type: "wait" });
       $("moveGrid").innerHTML = `<div class="command-note">${LABELS[candidate]}の行動を選択</div>${buttons.join("")}

@@ -8,7 +8,7 @@ const assert = require("node:assert/strict");
 const root = resolve(__dirname, "..");
 const artifacts = resolve(root, ".cache", "v0.60-edge");
 const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8", ".csv": "text/csv; charset=utf-8", ".png": "image/png", ".mp3": "audio/mpeg" };
+  ".css": "text/css; charset=utf-8", ".csv": "text/csv; charset=utf-8", ".png": "image/png", ".webp": "image/webp", ".mp3": "audio/mpeg" };
 const server = createServer(async (request, response) => {
   try {
     const name = decodeURIComponent(new URL(request.url, "http://127.0.0.1").pathname);
@@ -64,12 +64,63 @@ async function verify(browser, width) {
     };
     await ui.getByRole("heading", { name: "GENE ORDER" }).waitFor();
     assert.equal(await page.locator(".go-preview").isHidden(), true);
+    assert.equal(await ui.locator("#titleView").getByText("v0.63", { exact: true }).count(), 1);
     await shot("title");
     await ui.locator('#titleView [data-go-page="dex"]').click();
     await ui.locator('[data-go-dex="character_047"]').click();
     assert.match(await ui.locator(".dex-content").textContent(), /画像未設定.*習得技.*未設定/s);
     await ui.locator('[data-go-dex="character_019"]').click();
     assert.match(await ui.locator(".dex-content").textContent(), /異常代謝.*毒牙/s);
+    const dualEntry = ui.locator('[data-go-dex="character_003"]');
+    assert.ok(await dualEntry.evaluate((button) => {
+      const [name, attributes] = button.children;
+      const [first, second] = attributes.querySelectorAll(".go-attribute-icon");
+      return name.getBoundingClientRect().right <= first.getBoundingClientRect().left &&
+        first.getBoundingClientRect().right <= second.getBoundingClientRect().left &&
+        first.getBoundingClientRect().top === second.getBoundingClientRect().top;
+    }), "dex dual attributes overlap the name or wrap");
+    const attributeIds = ["none", "fire", "water", "wind", "earth", "light", "dark"];
+    const iconData = await ui.locator(".dex-list").evaluate((list, ids) => ids.map((id) => {
+      const icon = list.querySelector(".go-attribute-" + id);
+      if (!icon) return null;
+      const css = getComputedStyle(icon);
+      return { label: icon.getAttribute("aria-label"), image: css.backgroundImage, position: css.backgroundPositionX };
+    }), attributeIds);
+    for (const [index, icon] of iconData.entries()) {
+      assert.match(icon?.label ?? "", /^(無|火|水|風|地|光|闇)属性$/);
+      assert.match(icon.image, /go-attributes[.]webp/);
+      assert.ok(Math.abs(parseFloat(icon.position) - index * 100 / 6) < 0.001);
+    }
+    assert.deepEqual(await page.evaluate(async () => {
+      const image = new Image();
+      image.src = "./asset/element/go-attributes.webp";
+      await image.decode();
+      return [image.naturalWidth, image.naturalHeight];
+    }), [392, 56]);
+    const verifyCard = async (card) => {
+      const stats = await card.locator(".detail-stat").evaluateAll((rows) => rows.map((row) => [
+        row.querySelector(".detail-stat-label").textContent,
+        parseInt(row.querySelector("strong").textContent, 10),
+        parseInt(row.style.getPropertyValue("--bar-width"), 10),
+        getComputedStyle(row.querySelector(".detail-stat-fill")).backgroundColor,
+      ]));
+      const expected = [
+        ["体力", 275, "rgb(157, 240, 0)"], ["物理攻撃", 225, "rgb(229, 57, 53)"],
+        ["物理防御", 225, "rgb(246, 215, 67)"], ["特殊攻撃", 225, "rgb(255, 90, 165)"],
+        ["特殊防御", 225, "rgb(255, 157, 40)"], ["敏捷", 225, "rgb(0, 158, 232)"],
+        ["回復力", 50, "rgb(59, 209, 127)"],
+      ];
+      assert.equal(stats.length, expected.length);
+      for (const [index, [label, value, bar, color]] of stats.entries()) {
+        const [name, max, rgb] = expected[index];
+        assert.equal(label, name);
+        assert.ok(Number.isFinite(value));
+        assert.equal(bar, Math.round(Math.min(value / max, 1) * 100), name);
+        assert.equal(color, rgb, name);
+      }
+      assert.ok(await card.locator(".detail-skill-card .go-attribute-icon").count());
+    };
+    await verifyCard(ui.locator(".dex-content"));
     await shot("dex", true);
     await ui.locator(".dex-close").click();
     await byId("battleModeButton").click();
@@ -81,6 +132,12 @@ async function verify(browser, width) {
     await byId("setupEnemyModeButton").click();
     await pick("009"); await pick("005");
     await byId("go-official-mode").selectOption("manual");
+    assert.ok(await ui.locator('[data-go-pick="character_019"] .go-attribute-icon').count());
+    await ui.locator('[data-go-detail="character_019"]').click();
+    assert.ok(await byId("detailPanel").locator(".detail-subtitle .go-attribute-icon").count());
+    await verifyCard(byId("detailPanel"));
+    await shot("detail", true);
+    await byId("detailPanel").locator(".detail-close").click();
     await shot("team");
     await byId("startButton").click();
     const wait = () => ui.locator("[data-go-wait]").click();
@@ -96,23 +153,35 @@ async function verify(browser, width) {
       const box = await portrait.boundingBox();
       assert.ok(box.y >= board.y && box.y + box.height <= board.y + board.height, id + " image is clipped");
     }
+    assert.ok(await byId("playerHud").locator(".go-attribute-icon").count());
+    assert.ok(await byId("playerSprite").locator(".go-attribute-icon").count());
+    assert.equal(await byId("playerHud").locator(".hp-line > span").first().textContent(), "体力");
+    assert.ok(await move("skill_000").locator(".go-attribute-none").count());
+    const ranks = byId("playerHud").locator(".go-hud-ranks > span");
+    assert.deepEqual(await ranks.allTextContents(), ["物理攻撃+0", "物理防御+0", "特殊攻撃+0", "特殊防御+0", "敏捷+0"]);
+    assert.ok(await ranks.evaluateAll((items) => items.every((rank) => {
+      const range = document.createRange();
+      range.selectNodeContents(rank);
+      return range.getClientRects().length === 1;
+    })), "battle stat label wraps");
     await shot("battle");
     await byId("go-fast-battle").check();
     await move("skill_000").click(); await wait();
     assert.match(await byId("go-official-log").textContent(), /回避判定/);
     await move("skill_041").click(); await wait();
-    assert.match(await byId("playerHud").textContent(), /デコイ HP 72\/72/);
+    assert.match(await byId("playerHud").textContent(), /デコイ 体力 72\/72/);
     await move("skill_042").click(); await wait();
     assert.match(await byId("switchGrid").textContent(), /パワーリレー/);
     assert.equal(await ui.locator("[data-go-switch]").count(), 2);
+    assert.equal(await ui.locator("[data-go-switch]").filter({ has: page.locator(".go-attribute-icon") }).count(), 2);
     await shot("switch");
     await chooseSwitch("カブキジャベリン");
-    assert.match(await byId("playerHud").textContent(), /カブキジャベリン.*デコイ HP/s);
+    assert.match(await byId("playerHud").textContent(), /カブキジャベリン.*デコイ 体力/s);
     assert.match(await byId("go-official-log").textContent(), /羽音/);
     await byId("switchTab").click();
     await chooseSwitch("アルカトリオ"); await wait();
     assert.match(await byId("playerHud").textContent(), /アルカトリオ/);
-    assert.doesNotMatch(await byId("playerHud").textContent(), /デコイ HP/);
+    assert.doesNotMatch(await byId("playerHud").textContent(), /デコイ 体力/);
     await move("skill_053").click(); await wait();
     assert.match(await byId("enemyHud").textContent(), /毒/);
     for (let turn = 0; turn < 24 && !await ui.locator("[data-go-replay]").isVisible(); turn++) {
@@ -170,6 +239,7 @@ async function verify(browser, width) {
     assert.equal(await page.evaluate(() => bgmRuntime.currentBgmId), "");
     await ui.locator('#titleView [data-go-page="debug"]').click();
     assert.equal(await page.locator(".go-preview").isVisible(), true);
+    assert.ok(await page.locator(".go-preview .go-attribute-icon").count());
     assert.deepEqual(await page.evaluate(() => window.__storageReads), []);
     assert.deepEqual(legacyRequests, []);
     assert.deepEqual(errors, []);

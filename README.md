@@ -44,4 +44,8 @@ Node.js 22以降で `node --test` を実行すると自動テストを再現で�
 [正式UIの再利用範囲](docs/ui-integration.md) · [Edgeでの再現手順](docs/ui-validation.md)
 
 
-v0.61: 正式UI・デバッグの属性表示を `asset/element/go-attributes.webp` の共通アイコンに統一。
+v0.61〜v0.63の正式表示は7属性の共通アイコン、日本語の能力名、回復力を含むMHB配色のグラフ。グラフ上限は体力275、物理攻撃・物理防御・特殊攻撃・特殊防御・敏捷225、回復力50。
+
+## 開発を始める前に
+
+ローカルとGitHubの双方で開発するため、作業開始前に `git status --short --branch` で未コミット変更を確認し、`git fetch origin main` と `git rev-list --left-right --count HEAD...origin/main` で差分を確認します。ローカルのコミットが先行しておらず早送りできる場合は、未コミット変更を保護したうえで `git pull --ff-only origin main` を実行します。履歴が分岐している場合は双方の変更を確認してから統合します。

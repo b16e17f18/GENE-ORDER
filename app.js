@@ -4960,10 +4960,9 @@ function moveColorPresentation(move) {
   return { classes: moveDualElementClasses(move), style: "" };
 }
 
-function renderSkillDetail(move) {
+function renderSkillDetail(move, { attributeMarkup = null, description = move.text, issue = "" } = {}) {
   const powerText = move.category === "attack" ? move.power : "-";
   const kindText = skillKindLabel(move);
-  const elementText = moveElementText(move);
   const colorPresentation = moveColorPresentation(move);
   return `
     <article class="detail-skill-card">
@@ -4973,10 +4972,13 @@ function renderSkillDetail(move) {
           <span class="detail-skill-chip detail-skill-power">威力 ${escapeHtml(powerText)}</span>
           <span class="detail-skill-cost">${energyBadge(move.cost)}</span>
           <span class="detail-skill-chip detail-skill-kind detail-skill-kind-${escapeHtml(skillKindClass(move))}">${escapeHtml(kindText)}</span>
-          <span class="detail-skill-chip detail-skill-element element-${escapeHtml(elementClass(move.element))}${colorPresentation.classes}"${colorPresentation.style}>${escapeHtml(elementText)}</span>
+          ${attributeMarkup === null
+            ? `<span class="detail-skill-chip detail-skill-element element-${escapeHtml(elementClass(move.element))}${colorPresentation.classes}"${colorPresentation.style}>${escapeHtml(moveElementText(move))}</span>`
+            : `<span class="detail-skill-element">${attributeMarkup}</span>`}
         </div>
       </div>
-      ${move.text ? `<div class="detail-skill-text">${escapeHtml(move.text)}</div>` : ""}
+      ${description ? `<div class="detail-skill-text">${escapeHtml(description)}</div>` : ""}
+      ${issue ? `<div class="detail-skill-text">未対応（${escapeHtml(issue)}）</div>` : ""}
     </article>
   `;
 }

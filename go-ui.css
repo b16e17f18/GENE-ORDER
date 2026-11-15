@@ -73,10 +73,13 @@
 .go-attribute-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 #go-app .hud-name .go-attribute-icon { font-size: 1rem; }
 #go-app .move-element .go-attribute-icon { font-size: 1rem; }
+#go-app .dex-list-button { grid-template-columns: minmax(0, 1fr) auto; }
+#go-app .go-dex-attributes { display: inline-flex; align-items: center; gap: 4px; }
 
 /* Keep full Japanese stat names readable on the official cards and battle HUD. */
 #go-app .detail-stat { grid-template-columns: max-content minmax(32px, 1fr) 3ch; }
 #go-app .battle-view .hp-line { grid-template-columns: max-content minmax(0, 1fr) auto; }
+#go-app .go-hud-ranks > span { white-space: nowrap; }
 
 /* v0.63: preserve MHB reference card palette in GO. */
 #go-app .detail-stat-hp .detail-stat-fill { background: #9df000; }
@@ -86,3 +89,8 @@
 #go-app .detail-stat-sp_def .detail-stat-fill { background: #ff9d28; }
 #go-app .detail-stat-speed .detail-stat-fill { background: #009ee8; }
 #go-app .detail-stat-regen_value .detail-stat-fill { background: #3bd17f; }
+
+@media (max-width: 580px) {
+  #go-app .detail-skill-top { align-items: flex-start; flex-direction: column; gap: 6px; }
+  #go-app .detail-skill-meta { justify-content: flex-start; }
+}
