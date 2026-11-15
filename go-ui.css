@@ -77,7 +77,14 @@
 #go-app .go-dex-attributes { display: inline-flex; align-items: center; gap: 4px; }
 
 /* Keep full Japanese stat names readable on the official cards and battle HUD. */
-#go-app .detail-stat { grid-template-columns: max-content minmax(32px, 1fr) 3ch; }
+/* A fixed label column aligns both edges of every stat track, even for shorter labels. */
+#go-app .detail-stat {
+  grid-template-columns: 5em minmax(0, 1fr) 4ch;
+}
+#go-app .detail-stat-value { font-variant-numeric: tabular-nums; }
+@media (max-width: 580px) {
+  #go-app .detail-stat { grid-template-columns: 4.5em minmax(0, 1fr) 4ch; gap: 6px; }
+}
 #go-app .battle-view .hp-line { grid-template-columns: max-content minmax(0, 1fr) auto; }
 #go-app .go-hud-ranks > span { white-space: nowrap; }
 

@@ -64,7 +64,7 @@ async function verify(browser, width) {
     };
     await ui.getByRole("heading", { name: "GENE ORDER" }).waitFor();
     assert.equal(await page.locator(".go-preview").isHidden(), true);
-    assert.equal(await ui.locator("#titleView").getByText("v0.63", { exact: true }).count(), 1);
+    assert.equal(await ui.locator("#titleView").getByText("v0.64", { exact: true }).count(), 1);
     await shot("title");
     await ui.locator('#titleView [data-go-page="dex"]').click();
     await ui.locator('[data-go-dex="character_047"]').click();
@@ -111,6 +111,14 @@ async function verify(browser, width) {
         ["回復力", 50, "rgb(59, 209, 127)"],
       ];
       assert.equal(stats.length, expected.length);
+      const tracks = await card.locator(".detail-stat-track").evaluateAll((bars) => bars.map((bar) => {
+        const { left, right, width } = bar.getBoundingClientRect();
+        return { left, right, width };
+      }));
+      assert.equal(tracks.length, expected.length);
+      const [first] = tracks;
+      assert.ok(first.width > 0 && tracks.every(({ left, right }) =>
+        Math.abs(left - first.left) < 1 && Math.abs(right - first.right) < 1), "character stat tracks are misaligned");
       for (const [index, [label, value, bar, color]] of stats.entries()) {
         const [name, max, rgb] = expected[index];
         assert.equal(label, name);
