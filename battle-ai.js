@@ -278,7 +278,7 @@ function isEnemyAiScoredMove(move, battleEffects) {
 
 function enemyAiTypeFor(enemy) {
   const aiType = safeText(enemy?.base?.ai_type, "balanced").toLowerCase();
-  return ENEMY_AI_TYPE_CONFIGS[aiType] ? aiType : "balanced";
+  return Object.hasOwn(ENEMY_AI_TYPE_CONFIGS, aiType) ? aiType : "balanced";
 }
 
 function enemyAiConfigFor(enemy) {
@@ -858,7 +858,7 @@ function pickLegacyEnemyMove(usableMoves) {
   return candidates[Math.floor(Math.random() * candidates.length)] ?? null;
 }
 
-function pickEnemyAiCandidate(candidates, aiConfig = ENEMY_AI_CONFIG) {
+function pickEnemyAiCandidate(candidates, aiConfig = ENEMY_AI_CONFIG, random = Math.random) {
   const sorted = [...candidates].sort((a, b) => b.score - a.score);
   const best = sorted[0];
   const nearBestRange = Math.max(
@@ -876,7 +876,7 @@ function pickEnemyAiCandidate(candidates, aiConfig = ENEMY_AI_CONFIG) {
     ),
     0,
   );
-  let roll = Math.random() * totalWeight;
+  let roll = random() * totalWeight;
   for (const candidate of nearBest) {
     roll -= Math.max(
       aiConfig.CANDIDATE_MIN_WEIGHT,
@@ -1159,3 +1159,362 @@ function enemyAiDebuffStatWeight(stat) {
     speed: 1.6,
   }[stat] ?? 1;
 }
+
+/* GO evaluates a projected board. The MHB evaluation settings and ranking are shared. */
+const geneOrderAI = (() => {
+  const CONFIG = {
+    UNKNOWN_PRESSURE: 0.18, SURVIVAL_LOSS: 220, BODY_WEIGHT: 1, DECOY_WEIGHT: 0.58,
+    RESPONSE_WEIGHT: 1.15, ENTRY_WEIGHT: 10, STAGE_WEIGHT: 13, EN_WEIGHT: 10,
+    WAIT_BASE: 9, SWITCH_COST: 28, SWITCH_GAIN_WEIGHT: 0.65, SWITCH_RECENT_COST: 24,
+    SUPPORT_RISK: 0.7, PROTECT_USE_WEIGHT: 0.52, KNOWN_PRESSURE_FLOOR: 0.4,
+    FIELD_VALUE: 10, STATUS_HORIZON: 3, CAST_RISK: 0.65, PUBLIC_ATTACK_WEIGHT: 0.65,
+    KO_THRESHOLD: 0.6, SWITCH_THREAT_WEIGHT: 0.65, REVIVE_VALUE: 13,
+    UNKNOWN_EVASION_COVERAGE: 0.75, UNKNOWN_GUARD_COVERAGE: 0.35, UNKNOWN_GUARD_FLOOR: 0.2,
+  };
+  const COMMON_DODGE = "skill_000";
+  const STATS = ["phy_atk", "phy_def", "sp_atk", "sp_def", "speed"];
+  const otherSide = (side) => side === "player" ? "enemy" : "player";
+  const identity = (fighter) => fighter.base.character_id || fighter.base.name;
+  const fraction = (value) => Math.min(1, Math.max(0, value));
+  const average = (values) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+
+  function knownType(type) {
+    return Object.hasOwn(ENEMY_AI_TYPE_CONFIGS, safeText(type, "balanced").toLowerCase());
+  }
+
+  function record(history, events) {
+    for (const event of events) {
+      if (!event.moveId || !["move", "charge"].includes(event.type)) continue;
+      const side = history[event.side];
+      const key = event.characterId || event.actor;
+      if (!side.has(key)) side.set(key, new Set());
+      side.get(key).add(event.moveId);
+    }
+  }
+
+  function publicFighter(fighter, skillIds, own) {
+    const { base } = fighter;
+    const publicBase = Object.fromEntries(["character_id", "name", "element_1", "element_2", "energy_charge",
+      "evasion_percent", ...STATS].map((key) => [key, base[key]]));
+    if (own) Object.assign(publicBase, { ai_type: base.ai_type, ai_setup_skill: base.ai_setup_skill, ai_main_skill: base.ai_main_skill });
+    publicBase.skillIds = skillIds;
+    const { hp, maxHp, energy, fainted, dodgeActive, halfGuard, tookDirectDamage, pending, decoy } = fighter;
+    const passiveEffects = fighter.passiveEffects.map((effect) => ({ ...effect, condition: effect.condition && { ...effect.condition } }));
+    return { base: publicBase, hp, maxHp, energy, fainted, dodgeActive, halfGuard, tookDirectDamage,
+      stages: { ...fighter.stages }, pending: pending && { ...pending }, decoy: decoy && { ...decoy },
+      statuses: fighter.statuses.map((status) => ({ ...status })), timedEffects: new Map(fighter.timedEffects),
+      defenses: new Map(fighter.defenses), bind: null, passiveEffects,
+      passiveState: { uses: new Map(fighter.passiveState.uses) }, moveUses: own ? new Map(fighter.moveUses) : new Map() };
+  }
+
+  function observe(battle, side, { history, revealFixedMoves = false, previousSwitch = null } = {}) {
+    const go = geneOrderBattle;
+    const other = otherSide(side);
+    const target = go.activeFighter(battle, other);
+    const known = revealFixedMoves ? target.base.skillIds : history?.[other].get(identity(target));
+    const seenMoves = [...new Set([...(known ?? []), target.pending?.moveId].filter(Boolean))];
+    const own = battle.teams[side];
+    const team = own.map((fighter) => publicFighter(fighter, [...fighter.base.skillIds], true));
+    const opponent = publicFighter(target, seenMoves, false);
+    const copyBind = (original, snapshot) => {
+      if (!original.bind) return;
+      const { turns, definition, source } = original.bind;
+      snapshot.bind = { turns, definition, source: source === target ? opponent : team[own.indexOf(source)] };
+    };
+    own.forEach((fighter, index) => copyBind(fighter, team[index]));
+    copyBind(target, opponent);
+    const moveIds = new Set([COMMON_DODGE, ...seenMoves, ...team.flatMap((fighter) => fighter.base.skillIds),
+      ...team.map((fighter) => fighter.pending?.moveId)]);
+    const skills = new Map();
+    for (const id of moveIds) if (battle.skills.has(id)) skills.set(id, battle.skills.get(id));
+    const ownSelection = battle.pendingSwitch?.side === side;
+    return { side, opponentMovesComplete: revealFixedMoves, previousSwitch, turn: battle.turn, winner: battle.winner,
+      active: { [side]: battle.active[side], [other]: 0 }, teams: { [side]: team, [other]: [opponent] },
+      fields: { [side]: new Map(battle.fields[side]), [other]: new Map(battle.fields[other]) }, skills,
+      effects: battle.effects, battleEffects: battle.battleEffects, powerRules: battle.powerRules, effectiveness: battle.effectiveness,
+      pendingSwitch: ownSelection ? { side, reason: battle.pendingSwitch.reason, candidates: [...battle.pendingSwitch.candidates] } : null,
+      awaitingOther: Boolean(battle.pendingSwitch && !ownSelection),
+    };
+  }
+
+  function availableMoves(board, side, { future = false } = {}) {
+    const go = geneOrderBattle;
+    const fighter = go.activeFighter(board, side);
+    if (fighter.fainted) return [];
+    const ids = fighter.pending ? [fighter.pending.moveId] : [...new Set([...fighter.base.skillIds, COMMON_DODGE])];
+    return ids.map((id) => board.skills.get(id)).filter((move) => move &&
+      (future ? !go.moveAvailability(move, board).issues.length :
+        !go.checkAction(board, side, { type: "move", moveId: move.skill_id })));
+  }
+
+  function attackPressure(board, side) {
+    const go = geneOrderBattle;
+    const other = otherSide(side);
+    const actor = go.activeFighter(board, side);
+    if (actor.fainted) return [];
+    return availableMoves(board, side).filter((move) => move.category === "attack").map((move) => ({
+      move, preview: go.previewDamage(board, side, move),
+    }));
+  }
+
+  function matchup(board, side, config) {
+    const go = geneOrderBattle;
+    const other = otherSide(side);
+    const fighter = go.activeFighter(board, side);
+    const target = go.activeFighter(board, other);
+    const outgoing = attackPressure(board, side);
+    const incoming = attackPressure(board, other);
+    const estimate = ({ preview }) => preview.actualDamage + (preview.decoyDamage ?? 0) * config.DECOY_WEIGHT;
+    const best = Math.max(0, ...outgoing.map(estimate));
+    const predictedIncoming = Math.max(0, ...incoming.map(estimate));
+    const unknown = !target.fainted && (!board.opponentMovesComplete && !target.pending)
+      ? fighter.maxHp * config.UNKNOWN_PRESSURE * (incoming.length ? config.KNOWN_PRESSURE_FLOOR : 1) : 0;
+    const danger = Math.max(predictedIncoming, unknown);
+    const rankValue = STATS.reduce((sum, stat) => sum + fighter.stages[stat], 0) * config.STAGE_WEIGHT / 3;
+    const residual = [...fighter.statuses, fighter.bind].filter(Boolean).reduce((sum, status) =>
+      sum + Math.min(config.STATUS_HORIZON, status.turns) * go.residualDamage(fighter, status.definition), 0);
+    const revive = geneOrderPassives.survive(fighter, fighter.hp) ? config.REVIVE_VALUE : 0;
+    const speed = go.effectiveSpeed(board, side);
+    const otherSpeed = go.effectiveSpeed(board, other);
+    const score = best * config.SWITCH_OFFENSE_WEIGHT - danger * config.SWITCH_INCOMING_DAMAGE_WEIGHT
+      - danger / Math.max(1, fighter.hp) * config.SWITCH_INCOMING_HP_RATIO_WEIGHT
+      + fighter.hp / fighter.maxHp * config.SWITCH_HP_RATIO_WEIGHT + fighter.energy * config.EN_WEIGHT / 4
+      + go.evasionRate(fighter, board.turn) / 100 * config.FIELD_VALUE + rankValue + revive
+      - residual * config.SWITCH_THREAT_WEIGHT + (fighter.decoy?.hp ?? 0) * config.DECOY_WEIGHT
+      + (speed > otherSpeed ? config.FIELD_VALUE : 0);
+    return { best, incoming, danger, score, speed, otherSpeed,
+      attacks: new Map(outgoing.map(({ move, preview }) => [move.skill_id, preview])) };
+  }
+
+  function moveRisk(context, move) {
+    const { actor, target, position, config, board } = context;
+    const sooner = (priority) => move.priority > priority ? 0 : move.priority < priority ? 1 :
+      position.speed > position.otherSpeed ? 0 : position.speed < position.otherSpeed ? 1 : 0.5;
+    const known = position.incoming.map(({ move: incoming, preview }) =>
+      sooner(incoming.priority) * (preview.targetHp === 0 ? 1 : fraction(preview.actualDamage / actor.hp) * config.SUPPORT_RISK));
+    const unknown = board.opponentMovesComplete || target.pending ? 0 : sooner(0) * fraction(position.danger / actor.hp);
+    return fraction(Math.max(average(known) * config.PUBLIC_ATTACK_WEIGHT, unknown));
+  }
+
+  function supportScore(context, move, result, release) {
+    const { board, side, actor, target, position, config } = context;
+    const go = geneOrderBattle;
+    const other = otherSide(side);
+    const statusBlock = geneOrderPassives.statusMoveBlock(target, actor, move);
+    const positionBlock = target.pending?.definition.battle_effect_group === "position" &&
+      move.hit_type !== target.pending.definition.weak_hit_type;
+    const already = (map, id) => {
+      const timed = map.get(id);
+      return timed && (go.activeTimed(timed, board.turn) || timed.starts > board.turn);
+    };
+    const stageValue = (fighter, stat, delta) => go.stageDelta(fighter, stat, delta) * config.STAGE_WEIGHT;
+    const protection = (effect, kind) => {
+      const incoming = position.incoming;
+      const matches = ({ move: enemyMove }) => kind === "guard" || kind === "revenge" ||
+        (kind === "absorb" && effect.element === enemyMove.element) || go.guardApplies(effect, enemyMove);
+      const applicable = incoming.length ? average(incoming.map((entry) => Number(matches(entry)))) :
+        board.opponentMovesComplete ? 0 : kind === "guard" || kind === "revenge" ? 1 : config.UNKNOWN_GUARD_COVERAGE;
+      const mix = board.opponentMovesComplete ? applicable : Math.max(config.UNKNOWN_GUARD_FLOOR, applicable);
+      const cut = kind === "reflection" || kind === "absorb" ? 1 :
+        kind === "revenge" ? effect.damage_value / 100 * config.SUPPORT_RISK : effect.damage_cut / 100;
+      const urgency = config.PROTECT_BASE_WEIGHT + (1 - actor.hp / actor.maxHp) * config.PROTECT_MISSING_HP_WEIGHT;
+      return position.danger * cut * mix * urgency * config.PROTECT_USE_WEIGHT *
+        enemyAiTypeMultiplier(config, "PROTECT_SCORE_MULTIPLIER");
+    };
+
+    let score = 0;
+    for (const { id, chance, target: destination, table } of go.moveEffects(move)) {
+      if (!(chance > 0)) continue;
+      const self = destination === "self";
+      if (self && actor.pending) continue;
+      if (!self && (target.fainted || (move.category === "attack" && (release ?? result).reason !== "hit"))) continue;
+      const recipient = self ? actor : target;
+      const effect = board[table].get(id);
+      const kind = table === "effects" ? go.effectKind(effect) : go.battleEffectKind(effect);
+      if (!self && move.category === "status" && (positionBlock || (statusBlock && kind !== "clear-field"))) continue;
+      let value = 0;
+      if (kind === "stage") {
+        if (self || !geneOrderPassives.blocksStage(recipient, effect.target_stat, effect.damage_value, actor)) {
+          value = stageValue(recipient, effect.target_stat, effect.damage_value) * (self ?
+            enemyAiSelfBuffTypeMultiplier(effect.target_stat, config) : -enemyAiTypeMultiplier(config, "DEBUFF_SCORE_MULTIPLIER"));
+        }
+      } else if (kind === "recover-en") {
+        const payment = actor.pending ? 0 : move.cost;
+        const gap = go.MAX_ENERGY - recipient.energy + (self ? payment - actor.base.energy_charge : 0);
+        value = Math.min(effect.damage_value, Math.max(0, gap)) * config.EN_WEIGHT * (self ? 1 : -1);
+      } else if (kind === "status-damage" || kind === "bind-damage") {
+        const current = kind === "bind-damage" ? target.bind : target.statuses.find((status) => status.definition.effect_id === id);
+        const turns = Math.max(0, Math.min(effect.turn - (current?.turns ?? 0), config.STATUS_HORIZON));
+        const metabolism = geneOrderPassives.matching(target, "stat-multiplier", (entry) => entry.condition.kind === "status").length;
+        const damage = Math.min(target.hp, go.residualDamage(target, effect) * turns);
+        value = (damage * config.STATUS_DAMAGE_WEIGHT + (kind === "bind-damage" && !current ? config.FIELD_VALUE : 0)
+          - (kind === "status-damage" && !current ? metabolism * config.FIELD_VALUE / 2 : 0)) *
+          enemyAiTypeMultiplier(config, "STATUS_SCORE_MULTIPLIER");
+      } else if (["guard", "absorb", "reflection", "revenge", "field-guard"].includes(kind)) {
+        if (kind === "revenge" && go.moveEffects(move).some((slot) => go.battleEffectKind(board.battleEffects.get(slot.id)) === "reflection")) continue;
+        if (!already(kind === "field-guard" ? board.fields[side] : actor.defenses, id)) value = protection(effect, kind);
+      } else if (kind === "dodge") {
+        if (!actor.dodgeActive) {
+          const known = position.incoming;
+          const evadable = known.length ? average(known.map(({ move: incoming }) => Number(incoming.hit_type !== "ignore_dodge"))) : config.UNKNOWN_EVASION_COVERAGE;
+          const success = go.evasionRate(actor, board.turn) / 100;
+          value = position.danger * evadable * success * config.PROTECT_USE_WEIGHT *
+            enemyAiTypeMultiplier(config, "PROTECT_SCORE_MULTIPLIER");
+          value += geneOrderPassives.matching(actor, "dodge-action").reduce((sum, entry) =>
+            sum + stageValue(actor, entry.stat, entry.value), 0);
+          value += geneOrderPassives.matching(actor, "evaded").reduce((sum, entry) =>
+            sum + stageValue(actor, entry.stat, entry.value), 0) * success * evadable * config.SUPPORT_RISK;
+        }
+      } else if (kind === "evasion-boost" && !already(actor.timedEffects, id)) {
+        value = go.evasionRate(actor, board.turn) / 100 * (effect.damage_value - 1) * config.FIELD_VALUE;
+      } else if (kind === "clear-field") {
+        value = board.fields[other].size * config.FIELD_VALUE;
+      } else if (kind === "field-speed" && !already(board.fields[side], id)) {
+        value = (position.speed <= position.otherSpeed ? config.FIELD_VALUE : config.FIELD_VALUE / 3) * effect.damage_value;
+      } else if (kind === "clear-buff") {
+        value = STATS.reduce((sum, stat) => sum + Math.max(0, target.stages[stat]) * config.STAGE_WEIGHT / 2, 0);
+      } else if (kind === "decoy" || kind === "tail-purge") {
+        const decoy = go.decoyValues(actor, effect);
+        value = Math.min(decoy.maxHp, position.danger * config.STATUS_HORIZON) * config.DECOY_WEIGHT - decoy.cost * config.SUPPORT_RISK;
+      }
+      score += value * chance / 100;
+    }
+
+    if (!actor.pending) for (const effect of geneOrderPassives.matching(actor, "after-use", (entry) => entry.element === move.element)) {
+      score += stageValue(actor, effect.stat, effect.value);
+    }
+    return score;
+  }
+
+  function rankSwitches(context, reason, indices, decoy) {
+    const { board, side, actor, position, config } = context;
+    const go = geneOrderBattle;
+    return indices.map((index) => {
+      const projected = go.previewSwitch(board, side, index, reason, decoy);
+      const incoming = go.activeFighter(projected, side);
+      const next = matchup(projected, side, config);
+      const opponent = go.activeFighter(board, otherSide(side));
+      const projectedOpponent = go.activeFighter(projected, otherSide(side));
+      const entry = STATS.reduce((sum, stat) => sum + opponent.stages[stat] - projectedOpponent.stages[stat], 0)
+        * config.ENTRY_WEIGHT;
+      const recent = board.previousSwitch?.turn === board.turn - 1 ? config.SWITCH_RECENT_COST : 0;
+      const risk = reason === "normal" ? next.danger * config.SWITCH_THREAT_WEIGHT : 0;
+      const score = (next.score + entry - position.score) * config.SWITCH_GAIN_WEIGHT *
+        enemyAiTypeMultiplier(config, "SWITCH_MATCHUP_ADVANTAGE_MULTIPLIER") - risk - recent -
+        (reason === "normal" ? config.SWITCH_COST : 0);
+      return { action: { type: "switch", index }, score, label: incoming.base.name,
+        reason: reason + "：交代後の攻守・HP/EN・登場効果" };
+    }).sort((a, b) => b.score - a.score);
+  }
+
+  function scoreMove(context, move) {
+    const { board, side, actor, target, config, position } = context;
+    const go = geneOrderBattle;
+    const action = { type: "move", moveId: move.skill_id };
+    const result = position.attacks.get(move.skill_id) ?? go.previewDamage(board, side, move);
+    const release = go.previewRelease(board, side, move, result);
+    const forecast = release ?? result;
+    const risk = moveRisk(context, move);
+    const cost = actor.pending ? 0 : move.cost;
+    const damage = forecast.actualDamage * config.BODY_WEIGHT + (forecast.decoyDamage ?? 0) * config.DECOY_WEIGHT;
+    const targetHp = forecast.targetHp;
+    const endsKo = move.category === "attack" && !release && target.hp > 0 && targetHp === 0 && forecast.actorHp > 0;
+    const koConfidence = endsKo ? (1 - risk) * (target.pending ? 1 : config.PUBLIC_ATTACK_WEIGHT) : 0;
+    const healing = result.hpEffects.reduce((sum, effect) => sum +
+      (effect.target === "self" ? 1 : -1) * effect.delta * effect.chance / 100, 0);
+    const healWeight = config.HEAL_BASE_WEIGHT + (1 - actor.hp / actor.maxHp) * config.HEAL_MISSING_HP_WEIGHT;
+    const toxic = result.actualDamage > 0 && result.targetHp > 0
+      ? geneOrderPassives.matching(target, "body-hit-status", (effect) => effect.condition.attackType === move.attack_type)
+        .reduce((sum, effect) => {
+          const status = board.effects.get(effect.statusId);
+          const existing = actor.statuses.find(({ definition }) => definition.effect_id === effect.statusId);
+          const added = status ? Math.max(0, Math.min(status.turn - (existing?.turns ?? 0), config.STATUS_HORIZON)) : 0;
+          return added ? sum + go.residualDamage(actor, status) * added * effect.value : sum;
+        }, 0) : 0;
+    const response = result.responseDamage + result.actualHeal;
+    let score = damage * enemyAiTypeMultiplier(config, "ATTACK_SCORE_MULTIPLIER") * (1 - risk)
+      + (result.survival ? config.REVIVE_VALUE : 0) + koConfidence * config.KO_BONUS
+      + healing * (healing > 0 ? healWeight * enemyAiTypeMultiplier(config, "HEAL_SCORE_MULTIPLIER") : config.RESPONSE_WEIGHT)
+      - response * config.RESPONSE_WEIGHT - result.hpCost - toxic * config.STATUS_DAMAGE_WEIGHT
+      - cost * config.ENERGY_COST_PENALTY;
+    if (cost > 0 && actor.energy - cost <= 0) score -= config.EMPTY_ENERGY_PENALTY;
+    score += supportScore(context, move, result, release) * (1 - risk);
+    if (release) {
+      const positionMove = go.moveEffects(move).some(({ id }) => go.battleEffectKind(board.battleEffects.get(id)) === "position");
+      const safe = positionMove && !position.incoming.some(({ move: enemyMove }) => enemyMove.hit_type === "sure_hit");
+      score = score * config.TWO_TURN_DAMAGE_MULTIPLIER - (safe ? 0 : position.danger * config.CAST_RISK);
+    }
+    for (const { id, chance, table } of go.moveEffects(move)) {
+      if (table !== "battleEffects" || chance <= 0 || result.actorHp <= 0) continue;
+      const effect = board.battleEffects.get(id);
+      const kind = go.battleEffectKind(effect);
+      if (!["tail-purge", "relay", "post-attack"].includes(kind)) continue;
+      if (kind === "post-attack" && result.actualDamage + (result.decoyDamage ?? 0) <= 0) continue;
+      const indices = go.switchTargets(board, side);
+      if (!indices.length) continue;
+      const decoy = kind === "tail-purge" ? go.decoyValues(actor, effect) : null;
+      const ranked = rankSwitches(context, kind, indices, decoy && { hp: decoy.maxHp, maxHp: decoy.maxHp });
+      score += ranked[0].score * chance / 100;
+    }
+    const fatal = result.actorHp <= 0;
+    if (fatal) score -= config.SURVIVAL_LOSS;
+    return { action, move, score, fatal, koConfidence, damage: result.actualDamage, decoyDamage: result.decoyDamage ?? 0,
+      label: move.name, reason: release ? "予約威力・次の攻撃" : result.reason, forecast: {
+        targetHp, actorHp: result.actorHp, hpCost: result.hpCost, response: result.responseDamage, power: result.power,
+      } };
+  }
+
+  function evaluate(board) {
+    if (board.winner || board.awaitingOther) return [];
+    const go = geneOrderBattle;
+    const side = board.side;
+    const actor = go.activeFighter(board, side);
+    const target = go.activeFighter(board, otherSide(side));
+    const config = { ...enemyAiConfigFor(actor), ...CONFIG };
+    const position = matchup(board.pendingSwitch ? { ...board, pendingSwitch: null } : board, side, config);
+    const ctx = { board, side, actor, target, config, position };
+    if (board.pendingSwitch) return rankSwitches(ctx, board.pendingSwitch.reason, board.pendingSwitch.candidates);
+    const moves = availableMoves(board, side);
+    const allMoves = availableMoves(board, side, { future: true });
+    const validPreference = (id) => moves.some((move) => move.skill_id === id) ? id : "";
+    const preferences = { turn: board.turn, allMoves,
+      aiSetupSkill: validPreference(actor.base.ai_setup_skill), aiMainSkill: validPreference(actor.base.ai_main_skill) };
+    const candidates = moves.map((move) => applyEnemySkillPreference(scoreMove(ctx, move), preferences, actor, config));
+    if (actor.pending) return candidates;
+    const indices = go.switchTargets(board, side).filter((index) => !go.checkAction(board, side, { type: "switch", index }));
+    candidates.push(...rankSwitches(ctx, "normal", indices));
+    if (!go.checkAction(board, side, { type: "wait" })) {
+      const nextEN = Math.min(go.MAX_ENERGY, actor.energy + actor.base.energy_charge);
+      const index = board.active[side];
+      const team = board.teams[side].slice();
+      team[index] = { ...actor, energy: nextEN };
+      const next = { ...board, teams: { ...board.teams, [side]: team } };
+      const future = allMoves.filter((move) => move.category === "attack" && move.cost > actor.energy && move.cost <= nextEN)
+        .map((move) => go.previewDamage(next, side, move)).filter((result) => result.actorHp > 0);
+      const gain = Math.max(0, ...future.map((result) => result.actualDamage)) - position.best;
+      const upkeep = geneOrderPassives.matching(actor, "turn-end").reduce((sum, effect) =>
+        sum + go.stageDelta(actor, effect.stat, effect.value), 0);
+      const score = (nextEN > actor.energy ? config.WAIT_BASE : -config.WAITING_PENALTY) +
+        (gain >= config.MIN_FUTURE_GAIN ? Math.max(0, gain - config.WAITING_PENALTY) : 0) +
+        upkeep * config.STAGE_WEIGHT / 3 - position.danger * config.SUPPORT_RISK;
+      candidates.push({ action: { type: "wait" }, score, label: "待機", reason: gain > 0 ? "EN温存" : "行動保留" });
+    }
+    return candidates;
+  }
+
+  function choose(board, { random = Math.random } = {}) {
+    const candidates = evaluate(board);
+    if (!candidates.length) return { action: null, candidates, type: enemyAiTypeFor(geneOrderBattle.activeFighter(board, board.side)) };
+    const actor = geneOrderBattle.activeFighter(board, board.side);
+    const safe = candidates.filter((candidate) => !candidate.fatal);
+    const pool = safe.length ? safe : candidates;
+    const knockout = pool.filter((candidate) => candidate.koConfidence >= CONFIG.KO_THRESHOLD);
+    const selected = knockout.length
+      ? [...knockout].sort((a, b) => b.koConfidence - a.koConfidence || compareEnemyKnockoutMoves(
+        { ...a, estimatedDamage: a.damage }, { ...b, estimatedDamage: b.damage }) || b.score - a.score)[0]
+      : pickEnemyAiCandidate(pool, enemyAiConfigFor(actor), random);
+    return { action: selected.action, selected, type: enemyAiTypeFor(actor), candidates };
+  }
+
+  return { observe, evaluate, choose, record, knownType };
+})();

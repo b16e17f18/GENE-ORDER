@@ -1,6 +1,6 @@
 # GENE ORDER
 
-GENE ORDER（GO）は、MHBの戦闘コードを基盤に開発中のキャラクター対戦ゲームです。v0.42では正式データでパッシブ24種、実戦と予測の整合、シード付き多数対戦を検証できます。
+GENE ORDER（GO）は、MHBの戦闘コードを基盤に開発中のキャラクター対戦ゲームです。v0.50では正式データと固定編成で、手動対手動・手動対AI・AI対AIを確認できます。
 
 ## 起動
 
@@ -38,4 +38,4 @@ Node.js 22以降で `node --test` を実行すると自動テストを再現で�
 
 [デコイと特殊交代の仕様・CSV調整](docs/switch-and-decoy.md)
 
-[v0.42 総合検証・再現方法](docs/battle-validation.md) · [v0.50 AI移植計画](docs/ai-integration.md)
+[v0.42 総合検証・再現方法](docs/battle-validation.md) · [v0.50 AI移植と公開情報](docs/ai-integration.md)

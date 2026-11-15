@@ -4003,6 +4003,13 @@ function mountGeneOrderBattlePreview() {
   const panel = document.querySelector("#go-battle");
   const form = panel.querySelector("form");
   const log = panel.querySelector("#go-battle-log");
+  const diagnostics = panel.querySelector("#go-ai-diagnostics");
+  const mode = form.querySelector('[name="battle-mode"]');
+  const aiRandom = () => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32;
+  const isAi = (side) => mode.value === "auto" || (mode.value === "enemy" && side === "enemy");
+  let history;
+  let lastSwitch;
+  let decisions;
   const controls = ["player", "enemy"].map((side) => ({
     side,
     select: form.querySelector(`[name="${side}"]`),
@@ -4010,6 +4017,10 @@ function mountGeneOrderBattlePreview() {
   }));
 
   function newBattle() {
+    history = { player: new Map(), enemy: new Map() };
+    lastSwitch = {};
+    decisions = [];
+    diagnostics.textContent = "";
     const team = (...ids) => ids.map((id) => state.characterMap.get(id));
     return geneOrderBattle.createBattle({
       manualSwitches: true,
@@ -4089,7 +4100,7 @@ function mountGeneOrderBattlePreview() {
             select.add(new Option(battle.teams[side][index].base.name, String(index)));
           }
         }
-        select.disabled = !choosing;
+        select.disabled = !choosing || isAi(side);
         continue;
       }
       const addOption = (label, value, action) => {
@@ -4117,25 +4128,53 @@ function mountGeneOrderBattlePreview() {
       });
       addOption("待機", "wait", { type: "wait" });
       select.selectedIndex = [...select.options].findIndex((option) => !option.disabled);
-      select.disabled = Boolean(battle.winner);
+      select.disabled = Boolean(battle.winner) || isAi(side);
+      if (isAi(side)) status.textContent += " · AI";
     }
     const submit = form.querySelector('[type="submit"]');
     submit.disabled = Boolean(battle.winner);
-    submit.textContent = battle.pendingSwitch ? "交代先を確定" : "ターンを実行";
+    submit.textContent = battle.pendingSwitch ? "交代先を確定" : mode.value === "auto" ? "AIのターンを実行" : "ターンを実行";
   }
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    const selected = Object.fromEntries(controls.map(({ side, select }) => {
-      const [type, value] = select.value.split(":");
-      const action = type === "move" ? { type, moveId: value } : type === "switch" ? { type, index: Number(value) } : { type };
-      return [side, action];
-    }));
     const pending = battle.pendingSwitch;
+    if (!pending) decisions = [];
+    function decide(side) {
+      const board = geneOrderAI.observe(battle, side, { history, previousSwitch: lastSwitch[side] });
+      const decision = geneOrderAI.choose(board, { random: aiRandom });
+      if (!decision.action) throw new Error("AIの実行可能な行動がありません。");
+      decisions.push({ side, ...decision });
+      return decision.action;
+    }
+    function collect(result, events) {
+      events.push(...result.events);
+      geneOrderAI.record(history, result.events);
+      for (const entry of result.events) {
+        if (entry.type === "switch" || entry.type === "replacement") lastSwitch[entry.side] = { turn: result.turn };
+      }
+    }
     try {
-      const result = pending
-        ? geneOrderBattle.continueSwitch(battle, pending.side, Number(controls.find((control) => control.side === pending.side).select.value))
-        : geneOrderBattle.resolveTurn(battle, selected);
+      let result;
+      if (pending) {
+        const select = controls.find((control) => control.side === pending.side).select;
+        result = geneOrderBattle.continueSwitch(battle, pending.side, Number(select.value));
+      } else {
+        const selected = Object.fromEntries(controls.map(({ side, select }) => {
+          if (isAi(side)) return [side, decide(side)];
+          const [type, value] = select.value.split(":");
+          const action = type === "move" ? { type, moveId: value } : type === "switch" ? { type, index: Number(value) } : { type };
+          return [side, action];
+        }));
+        result = geneOrderBattle.resolveTurn(battle, selected);
+      }
+      const events = [];
+      collect(result, events);
+      while (result.pendingSwitch && isAi(result.pendingSwitch.side)) {
+        const side = result.pendingSwitch.side;
+        result = geneOrderBattle.continueSwitch(battle, side, decide(side).index);
+        collect(result, events);
+      }
       const sideName = (side) => side === "player" ? "自分側" : "相手側";
       const describe = {
         passive: describePassive,
@@ -4178,20 +4217,30 @@ function mountGeneOrderBattlePreview() {
         "field-expired": (e) => `${sideName(e.side)}の${e.name}が終了した`,
       };
       const lines = pending ? log.textContent.split("\n").slice(0, -1) : [startLog(), `ターン ${result.turn}`].filter(Boolean);
-      lines.push(...result.events.map((entry) => describe[entry.type](entry)));
+      lines.push(...events.map((entry) => describe[entry.type](entry)));
       if (result.pendingSwitch) lines.push(`${sideName(result.pendingSwitch.side)}の交代先を選択`);
       log.textContent = lines.join("\n");
+      if (!result.pendingSwitch && decisions.length) diagnostics.textContent = decisions.map(({ side, type, selected, candidates }) =>
+        [`${sideName(side)} [${type}] ${selected.label}（${selected.reason}）`,
+          ...[...candidates].sort((a, b) => b.score - a.score).map((candidate) => {
+            const damage = candidate.damage === undefined ? "" : ` / 本体HP −${candidate.damage} / デコイ −${candidate.decoyDamage}`;
+            return `  ${candidate.label} ${candidate.score.toFixed(1)}${damage}（${candidate.reason}）`;
+          })].join("\n")).join("\n\n");
       render();
     } catch (error) {
       log.textContent = error.message;
     }
   });
 
-  form.querySelector('[type="reset"]').addEventListener("click", (event) => {
-    event.preventDefault();
+  function resetBattle() {
     battle = newBattle();
     log.textContent = startLog();
     render();
+  }
+  mode.addEventListener("change", resetBattle);
+  form.querySelector('[type="reset"]').addEventListener("click", (event) => {
+    event.preventDefault();
+    resetBattle();
   });
   log.textContent = startLog();
   render();

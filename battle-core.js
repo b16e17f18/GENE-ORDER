@@ -1,4 +1,4 @@
-// GENE ORDER v0.42. The inherited MHB entry points below remain separate.
+// GENE ORDER v0.50. The inherited MHB entry points below remain separate.
 const geneOrderBattle = (() => {
   const START_ENERGY = 1;
   const MAX_ENERGY = 7;
@@ -19,16 +19,21 @@ const geneOrderBattle = (() => {
     fighter.stages = Object.fromEntries(STATS.map((stat) => [stat, 0]));
   }
 
-  function changeStage(fighter, stat, delta, { source, side, events } = {}) {
+  function stageDelta(fighter, stat, delta) {
     if (!STATS.includes(stat) || !Number.isInteger(delta)) throw new Error("無効な能力ランク変更です。");
+    const before = fighter.stages[stat];
+    return Math.max(MIN_STAGE, Math.min(MAX_STAGE, before + delta)) - before;
+  }
+
+  function changeStage(fighter, stat, delta, { source, side, events } = {}) {
+    const applied = stageDelta(fighter, stat, delta);
     const blocked = geneOrderPassives.blocksStage(fighter, stat, delta, source);
     if (blocked) {
       if (events) geneOrderPassives.activate(fighter, side, blocked, events, { stat, blockedDelta: delta });
       return 0;
     }
-    const before = fighter.stages[stat];
-    fighter.stages[stat] = Math.max(MIN_STAGE, Math.min(MAX_STAGE, before + delta));
-    return fighter.stages[stat] - before;
+    fighter.stages[stat] += applied;
+    return applied;
   }
 
   function effectiveStat(fighter, stat, { opponent, fieldMultiplier = 1 } = {}) {
@@ -433,6 +438,27 @@ const geneOrderBattle = (() => {
     return { ...result, hpCost, actualDamage, actualHeal, responseDamage, hpEffects, actorHp, targetHp };
   }
 
+  function previewRelease(battle, side, move, start) {
+    if (start.reason !== "charging") return null;
+    const index = battle.active[side];
+    const actor = activeFighter(battle, side);
+    const team = battle.teams[side].slice();
+    const charging = { ...actor, hp: start.actorHp, stages: { ...actor.stages }, pending: {
+      moveId: move.skill_id, power: start.power, definition: battle.battleEffects.get(chargeSlot(move, battle).id),
+    } };
+    for (const { id, chance, target, table } of moveEffects(move)) {
+      const effect = battle.effects.get(id);
+      if (table === "effects" && target === "self" && chance === 100 && effectKind(effect) === "stage") {
+        changeStage(charging, effect.target_stat, effect.damage_value);
+      }
+    }
+    for (const effect of geneOrderPassives.matching(charging, "after-use", (effect) => effect.element === move.element)) {
+      changeStage(charging, effect.stat, effect.value);
+    }
+    team[index] = charging;
+    return previewDamage({ ...battle, teams: { ...battle.teams, [side]: team } }, side, move);
+  }
+
   function applyStatus(recipient, definition, event, events) {
     const existing = recipient.statuses.find((status) => status.definition.effect_id === definition.effect_id);
     if (existing) existing.turns = Math.max(existing.turns, definition.turn);
@@ -713,6 +739,34 @@ const geneOrderBattle = (() => {
     notify("after-switch");
   }
 
+  function previewSwitch(battle, side, index, reason, decoy = null) {
+    const clone = (fighter) => ({ ...fighter, timedEffects: new Map(fighter.timedEffects),
+      defenses: new Map(fighter.defenses), stages: { ...fighter.stages },
+      passiveState: { uses: new Map(fighter.passiveState.uses) } });
+    const other = opposingSide(side);
+    const team = battle.teams[side].slice();
+    team[battle.active[side]] = clone(activeFighter(battle, side));
+    team[index] = clone(team[index]);
+    const opponents = battle.teams[other].slice();
+    opponents[battle.active[other]] = clone(activeFighter(battle, other));
+    const projected = { ...battle, onSwitch: null, pendingSwitch: null, active: { ...battle.active },
+      teams: { [side]: team, [other]: opponents } };
+    if (decoy) activeFighter(projected, side).decoy = decoy;
+    const mapSource = (original, copy) => {
+      if (!original.bind) return;
+      const source = original.bind.source;
+      const outgoing = activeFighter(battle, side);
+      const target = activeFighter(battle, other);
+      copy.bind = { ...original.bind, source: source === outgoing ? activeFighter(projected, side) :
+        source === target ? activeFighter(projected, other) : source };
+    };
+    mapSource(activeFighter(battle, side), activeFighter(projected, side));
+    mapSource(activeFighter(battle, other), activeFighter(projected, other));
+    switchFighter(projected, side, index, reason, []);
+    applyEntryPassive(projected, side, []);
+    return projected;
+  }
+
   function* selectSwitch(battle, side, reason, index) {
     const candidates = switchTargets(battle, side);
     if (!candidates.length) return null;
@@ -767,6 +821,10 @@ const geneOrderBattle = (() => {
     events.push(alive.length ? { type: "win", side: battle.winner } : { type: "draw" });
   }
 
+  function residualDamage(fighter, definition) {
+    return Math.max(1, Math.round(fighter.maxHp * definition.damage_value / 100));
+  }
+
   function finishResiduals(battle, events) {
     const defeated = [];
     // Defer faint cleanup until both active fighters have resolved residual damage.
@@ -776,7 +834,7 @@ const geneOrderBattle = (() => {
       for (const effect of [...fighter.statuses, fighter.bind].filter(Boolean)) {
         if (fighter.fainted) break;
         const { definition } = effect;
-        const amount = Math.max(1, Math.round(fighter.maxHp * definition.damage_value / 100));
+        const amount = residualDamage(fighter, definition);
         const actualDamage = applyHPDamage(fighter, amount);
         events.push({ type: "residual", side, actor: fighter.base.name, name: definition.name, damage: actualDamage });
         effect.turns--;
@@ -893,7 +951,7 @@ const geneOrderBattle = (() => {
       }
       if (result.reason === "charging") {
         actor.pending = { moveId: move.skill_id, power: result.power, definition: battle.battleEffects.get(chargeSlot(move, battle).id) };
-        events.push({ type: "charge", side, actor: actor.base.name, move: move.name, cost, power: result.power });
+        events.push({ type: "charge", side, actor: actor.base.name, characterId: actor.base.character_id, move: move.name, moveId: move.skill_id, cost, power: result.power });
         applyMoveEffects(battle, side, actor, defender, move, 0, false, events, "charge");
         if (!actor.fainted) applyPassiveStages(actor, side, "after-use", events, { move });
         continue;
@@ -920,7 +978,7 @@ const geneOrderBattle = (() => {
         }
       }
       if (actualDamage > 0) defender.tookDirectDamage = true;
-      events.push({ type: "move", side, actor: actor.base.name, target: defender.base.name, move: move.name,
+      events.push({ type: "move", side, actor: actor.base.name, target: defender.base.name, move: move.name, characterId: actor.base.character_id, moveId: move.skill_id,
         category: move.category, cost, power: result.power, damage: result.damage, actualDamage, decoyDamage, reason: result.reason });
       if (result.reason === "evaded") {
         events.push({ type: "evaded", side: other, actor: defender.base.name, move: move.name });
@@ -993,8 +1051,9 @@ const geneOrderBattle = (() => {
     }
   }
 
-  return { START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, statValue, effectiveStat, changeEnergy,
-    calculateDamage, previewDamage, effectiveSpeed, evasionRate, moveAvailability, unsupportedMoveReason, effectKind, battleEffectKind, createBattle, activeFighter, switchTargets, checkAction, resolveTurn, continueSwitch };
+  return { START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, stageDelta, statValue, effectiveStat, changeEnergy,
+    calculateDamage, previewDamage, previewRelease, previewSwitch, moveEffects, decoyValues, residualDamage,
+    guardApplies, activeTimed, effectiveSpeed, evasionRate, moveAvailability, unsupportedMoveReason, effectKind, battleEffectKind, createBattle, activeFighter, switchTargets, checkAction, resolveTurn, continueSwitch };
 })();
 
 // Pure battle calculation and battle-state helpers shared by app.js.

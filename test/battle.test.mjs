@@ -2145,3 +2145,247 @@ test("forecast lists optional recoil without rolling it or subtracting it from g
     assert.equal(rolls, 1);
   }
 });
+
+const ai = vn("geneOrderAI");
+const visibleHistory = () => ({ player: new Map(), enemy: new Map() });
+const aiMove = (id, overrides = {}) => ({ ...strike, skill_id: id, name: id, ...overrides });
+
+test("GO AI accepts all six MHB profiles, safely defaults, and honors only usable preferences", () => {
+  const moves = [aiMove("main"), aiMove("setup"), aiMove("expensive", { cost: 7 }),
+    { ...skill("skill_015"), skill_id: "unfinished" }];
+  for (const type of ["", "balanced", "aggressive", "patient", "defensive", "disruptor", "tactical", "missing", "constructor"]) {
+    const match = passiveBattle({ skills: moves, player: [character({ ai_type: type, ai_main_skill: "main",
+      ai_setup_skill: "setup", skillIds: moves.map((move) => move.skill_id) })] });
+    const result = ai.choose(ai.observe(match, "player"), { random: () => 0 });
+    assert.equal(result.type, ai.knownType(type) && type ? type : "balanced");
+    assert.deepEqual(Array.from(result.candidates.filter((c) => c.move), (c) => c.move.skill_id), ["main", "setup"]);
+    assert.ok(result.candidates.find((c) => c.move?.skill_id === "main").preferenceMultiplier > 1);
+    assert.ok(result.candidates.find((c) => c.move?.skill_id === "setup").preferenceMultiplier > 1);
+    match.teams.player[0].base.ai_main_skill = "expensive";
+    assert.ok(!ai.evaluate(ai.observe(match, "player")).some((c) => c.move?.skill_id === "main" && c.preferenceMultiplier));
+  }
+});
+
+test("AI uses the same HP projection for KO, immunity, Revive, decoy, reflection and recoil", () => {
+  const light = aiMove("light", { attack_type: "special", element: "light", power: 500, cost: 0 });
+  const water = aiMove("water", { attack_type: "special", element: "water", power: 500, cost: 0 });
+  const recoil = { ...light, skill_id: "recoil", effect1: "反動ダメージ1/4", effect_target1: "self", effect_chance1: 100 };
+  for (const mode of ["ko", "revive", "immune", "decoy", "reflection", "revenge", "recoil", "hp-cost"]) {
+    const moves = mode === "hp-cost" ? [{ ...light, priority: 1 }, water] : [light, water, recoil];
+    const match = passiveBattle({ skills: moves, player: [withPassive(mode === "hp-cost" ? "020" : "",
+      { skillIds: moves.map((move) => move.skill_id) })], enemy: [withPassive(mode === "revive" ? "001" : mode === "immune" ? "002" : "",
+      { hp: mode === "revenge" ? 200 : 50, element_1: "light" })] });
+    const [actor, target] = fighters(match);
+    if (mode === "decoy") target.decoy = { hp: 10, maxHp: 10 };
+    if (mode === "reflection" || mode === "revenge") {
+      target.defenses.set(mode, { id: mode, definition: officialDefense.get(mode), starts: 1, expires: 2 });
+      if (mode === "revenge") actor.hp = 40;
+    }
+    if (mode === "recoil" || mode === "hp-cost") actor.hp = 1;
+    const result = ai.choose(ai.observe(match, "player"), { random: () => 0 });
+    const byId = (id) => result.candidates.find((candidate) => candidate.move?.skill_id === id);
+    if (mode === "ko") assert.ok(result.selected.koConfidence > 0);
+    if (mode === "revive") assert.deepEqual([byId("light").forecast.targetHp, byId("light").koConfidence], [1, 0]);
+    if (mode === "immune") assert.ok(byId("water").score < byId("light").score);
+    if (mode === "decoy") assert.deepEqual([byId("light").damage, byId("light").decoyDamage, byId("light").koConfidence], [0, 10, 0]);
+    if (mode === "reflection") assert.ok(byId("light").forecast.response > 0);
+    if (mode === "revenge") assert.ok(byId("light").forecast.response > 0 || byId("water").forecast.response > 0);
+    if (mode === "recoil" || mode === "hp-cost") assert.ok(byId(mode === "recoil" ? "recoil" : "light").fatal);
+    if (mode === "hp-cost") assert.notEqual(result.action.moveId, "light");
+    assert.equal(go.checkAction(match, "player", result.action), "");
+  }
+});
+
+test("support scoring distinguishes effective healing, capped ranks, enemy immunity and evasion actions", () => {
+  const heal = skill("skill_024"), focus = skill("skill_060"), song = skill("skill_001"), dodge = skill("skill_000");
+  const match = passiveBattle({ skills: [heal, focus, song, dodge], player: [withPassive("021", { skillIds: [heal.skill_id, focus.skill_id, song.skill_id] })],
+    enemy: [withPassive("020")] });
+  const [actor] = fighters(match);
+  full(actor);
+  const score = (id) => ai.evaluate(ai.observe(match, "player")).find((candidate) => candidate.move?.skill_id === id).score;
+  const fullHealth = score(heal.skill_id);
+  actor.hp = 85;
+  assert.ok(score(heal.skill_id) > fullHealth);
+  const canFocus = score(focus.skill_id);
+  go.changeStage(actor, "sp_atk", 6);
+  assert.ok(canFocus > score(focus.skill_id));
+  assert.ok(score(song.skill_id) < 0);
+  assert.ok(score(dodge.skill_id) > score(song.skill_id));
+});
+
+test("AI uses the reservation without paying twice and chooses valid special or forced switch targets", () => {
+  const charge = skill("skill_054"), relay = skill("skill_042"), tail = skill("skill_006");
+  const match = passiveBattle({ skills: [charge, relay, tail], manualSwitches: true,
+    player: [character({ skillIds: [charge.skill_id, relay.skill_id, tail.skill_id] }), withPassive("016"), withPassive("001")],
+    enemy: [character({ hp: 1000 })] });
+  full(active(match));
+  const initial = ai.evaluate(ai.observe(match, "player")).find((entry) => entry.move?.skill_id === charge.skill_id);
+  assert.equal(initial.koConfidence, 0);
+  action(match, charge.skill_id);
+  const forced = ai.choose(ai.observe(match, "player")).action;
+  assert.equal(forced.moveId, charge.skill_id);
+  action(match, charge.skill_id);
+  active(match).bind = { turns: 2, definition: officialEffects.get("しめつける"), source: active(match, "enemy") };
+  assert.ok(!ai.evaluate(ai.observe(match, "player")).some((entry) => entry.action.type === "switch"));
+  const pause = action(match, relay.skill_id);
+  const incoming = ai.choose(ai.observe(match, "player")).action;
+  assert.ok(pause.pendingSwitch.candidates.includes(incoming.index));
+  go.continueSwitch(match, "player", incoming.index);
+  const fighter = active(match);
+  fighter.hp = 1;
+  fighter.statuses.push({ turns: 1, definition: officialEffects.get("poison") });
+  assert.equal(idle(match).pendingSwitch.reason, "replacement");
+  const replacement = ai.choose(ai.observe(match, "player")).action;
+  assert.ok(match.pendingSwitch.candidates.includes(replacement.index));
+  go.continueSwitch(match, "player", replacement.index);
+});
+
+test("public observation excludes hidden opponents and queued actions, and evaluation uses no battle RNG", () => {
+  let rolls = 0;
+  const main = aiMove("main");
+  const secret = aiMove("secret", { power: 900 });
+  const match = passiveBattle({ skills: [main, secret, skill("skill_000")],
+    player: [character({ skillIds: ["main"] }), character({ name: "Own bench" })],
+    enemy: [character({ skillIds: ["secret"] }), character({ name: "Hidden bench" })],
+    random: () => { rolls++; throw Error("battle RNG consumed"); } });
+  const stringify = (item) => JSON.stringify(item, (_, value) => Object.prototype.toString.call(value) === "[object Map]"
+    ? [...value] : value);
+  const board = ai.observe(match, "player");
+  assert.equal(board.teams.player.length, 2);
+  assert.equal(board.teams.enemy.length, 1);
+  assert.equal(board.skills.has("secret"), false);
+  assert.equal(board.random, undefined);
+  assert.equal(board.turnContinuation, undefined);
+  const fixed = ai.observe(match, "player", { revealFixedMoves: true });
+  assert.equal(fixed.skills.has("secret"), true);
+  const history = visibleHistory();
+  ai.record(history, [{ type: "move", side: "enemy", actor: active(match, "enemy").base.name, moveId: "secret" }]);
+  assert.equal(ai.observe(match, "player", { history }).skills.has("secret"), true);
+  const snapshot = stringify(match);
+  const before = stringify(ai.choose(board, { random: seededBattleRandom(1) }));
+  assert.equal(stringify(match), snapshot);
+  active(match, "enemy").base.skillIds = ["hidden-alternative"];
+  match.teams.enemy[1].hp = 1;
+  match.turnContinuation = { hidden: { player: { moveId: "secret" } } };
+  match.selected = { enemy: { type: "switch", index: 1 } };
+  assert.equal(stringify(ai.choose(ai.observe(match, "player"), { random: seededBattleRandom(1) })), before);
+  assert.equal(rolls, 0);
+});
+
+const CAP_SEEDS_042 = [42190, 42196, 42238, 42240, 42249, 42250, 42262, 42284, 42582];
+const AI_TYPES = ["balanced", "aggressive", "patient", "defensive", "disruptor", "tactical"];
+
+test("GO AI seeded tournaments and v0.42 long-match replay", (t) => {
+  const roster = [...officialCharacters.values()].filter((base) => base.skillIds.some((id) =>
+    skill(id)?.category === "attack" && !go.unsupportedMoveReason(skill(id), assets)));
+  const sides = ["player", "enemy"];
+  const groups = [
+    { name: "AI vs AI", seeds: Array.from({ length: 1024 }, (_, i) => 50000 + i) },
+    { name: "AI vs Random", seeds: Array.from({ length: 256 }, (_, i) => 51024 + i), randomEnemy: true },
+    { name: "v0.42 replay", seeds: CAP_SEEDS_042 },
+    { name: "Profiles", scenarios: AI_TYPES.flatMap((profile) => Array.from({ length: 32 }, (_, index) => ({ seed: 52000 + index, profile }))) },
+  ];
+  const empty = () => ({ attack: 0, status: 0, dodge: 0, wait: 0, switch: 0 });
+  for (const group of groups) {
+    const scenarios = group.scenarios ?? group.seeds.map((seed) => ({ seed, profile: "balanced" }));
+    const summary = { name: group.name, games: scenarios.length, finished: 0, errors: 0, illegal: 0, capped: 0, turns: 0,
+      longest: 0, playerWins: 0, enemyWins: 0, draws: 0, continuations: 0, switchStreakGames: 0, healingStreakGames: 0,
+      actions: { player: empty(), enemy: empty() }, profiles: {}, failures: [], cappedSeeds: [], noDamageGames: 0 };
+    for (const { seed, profile } of scenarios) {
+      const random = seededBattleRandom(seed);
+      const pick = (list) => list[Math.floor(random() * list.length)];
+      const team = (side) => {
+        const options = [...roster];
+        return Array.from({ length: [1, 2, 3, 4][seed % 4] }, () => {
+          const base = options.splice(Math.floor(random() * options.length), 1)[0];
+          return group.scenarios && side === "player" ? { ...base, ai_type: profile } : base;
+        });
+      };
+      const randomAi = { player: seededBattleRandom(seed ^ 0xaabbc1), enemy: seededBattleRandom(seed ^ 0xaabbc2) };
+      const match = passiveBattle({ skills: officialSkills, player: team("player"), enemy: team("enemy"), random, manualSwitches: true });
+      const history = visibleHistory();
+      const previous = {};
+      const switches = { player: 0, enemy: 0 };
+      const heals = { player: 0, enemy: 0 };
+      let switchLoop = false, healingLoop = false, noDamageRun = 0, noDamage = false, turnCount = 0;
+      try {
+        while (!match.winner && turnCount < 200) {
+          const choose = (side) => {
+            if (side === "enemy" && group.randomEnemy) {
+              const actor = active(match, side);
+              const options = [...new Set([...actor.base.skillIds, "skill_000"])].map(select)
+                .concat(Array.from(go.switchTargets(match, side), voluntary), wait).filter((action) => !go.checkAction(match, side, action));
+              const attacks = options.filter((action) => action.type === "move" && skill(action.moveId).category === "attack");
+              return pick(attacks.length && random() < 0.7 ? attacks : options);
+            }
+            const result = ai.choose(ai.observe(match, side, { history, previousSwitch: previous[side] }), { random: randomAi[side] });
+            assert.ok(result.candidates.every((entry) => Number.isFinite(entry.score)));
+            return result.action;
+          };
+          const actions = Object.fromEntries(sides.map((side) => [side, choose(side)]));
+          for (const side of sides) {
+            const action = actions[side];
+            if (go.checkAction(match, side, action)) {
+              summary.illegal++;
+              assert.fail("illegal " + side + " " + JSON.stringify(action));
+            }
+            const kind = action.type !== "move" ? action.type : action.moveId === "skill_000" ? "dodge" : skill(action.moveId).category;
+            summary.actions[side][kind]++;
+            if (group.scenarios && side === "player") {
+              summary.profiles[profile] ??= empty();
+              summary.profiles[profile][kind]++;
+            }
+            switches[side] = kind === "switch" ? switches[side] + 1 : 0;
+            if (switches[side] >= 4) switchLoop = true;
+          }
+          let result = go.resolveTurn(match, actions);
+          const events = [...result.events];
+          ai.record(history, result.events);
+          let attempts = 0;
+          while (result.pendingSwitch) {
+            const { side, candidates } = result.pendingSwitch;
+            const index = group.randomEnemy && side === "enemy" ? pick(candidates) :
+              ai.choose(ai.observe(match, side, { history, previousSwitch: previous[side] }), { random: randomAi[side] }).action.index;
+            assert.ok(candidates.includes(index) && ++attempts <= 4);
+            result = go.continueSwitch(match, side, index);
+            events.push(...result.events);
+            ai.record(history, result.events);
+            summary.continuations++;
+          }
+          for (const side of sides) {
+            if (events.some((e) => e.side === side && ["switch", "replacement"].includes(e.type))) previous[side] = { turn: result.turn };
+            heals[side] = events.some((e) => e.side === side && e.type === "heal" && e.recovered > 0) ? heals[side] + 1 : 0;
+            if (heals[side] >= 4) healingLoop = true;
+            for (const fighter of match.teams[side]) {
+              assert.ok(Number.isFinite(fighter.hp) && fighter.hp >= 0 && fighter.hp <= fighter.maxHp);
+              assert.ok(Number.isFinite(fighter.energy) && fighter.energy >= 0 && fighter.energy <= go.MAX_ENERGY);
+            }
+          }
+          noDamageRun = events.some((e) => e.type === "residual" || e.type === "decoy-hit" || e.actualDamage > 0) ? 0 : noDamageRun + 1;
+          if (noDamageRun >= 12) noDamage = true;
+          turnCount++;
+        }
+        summary.longest = Math.max(summary.longest, turnCount);
+        summary.turns += turnCount;
+        if (switchLoop) summary.switchStreakGames++;
+        if (healingLoop) summary.healingStreakGames++;
+        if (noDamage) summary.noDamageGames++;
+        if (match.winner) {
+          summary.finished++;
+          if (match.winner === "draw") summary.draws++;
+          else summary[match.winner + "Wins"]++;
+        } else {
+          summary.capped++;
+          summary.cappedSeeds.push(group.scenarios ? [profile, seed] : seed);
+        }
+      } catch (error) {
+        summary.errors++;
+        if (summary.failures.length < 6) summary.failures.push({ seed, turn: match.turn, message: error.message, at: error.stack.split("\n")[1] });
+      }
+    }
+    t.diagnostic(JSON.stringify(summary));
+    assert.equal(summary.errors, 0, JSON.stringify(summary.failures));
+    assert.equal(summary.illegal, 0);
+    assert.equal(summary.finished + summary.capped, summary.games);
+  }
+});

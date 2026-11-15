@@ -11,7 +11,7 @@
     <main class="go-preview">
       <header class="go-header">
         <h1>GENE ORDER</h1>
-        <span>v0.42</span>
+        <span>v0.50</span>
       </header>
       <p id="go-status" role="status">データを読み込んでいます…</p>
       <details class="go-report">
@@ -22,6 +22,13 @@
         <summary>基本戦闘テスト</summary>
         <p>固定編成で両チームの行動を選択します。効果・命中種別が未対応の技は選べません。</p>
         <form class="go-battle-form">
+          <label>対戦モード
+            <select name="battle-mode">
+              <option value="manual">手動対手動</option>
+              <option value="enemy">手動対AI</option>
+              <option value="auto">AI対AI</option>
+            </select>
+          </label>
           <label>自分側 <span data-fighter="player"></span><select name="player"></select></label>
           <label>相手側 <span data-fighter="enemy"></span><select name="enemy"></select></label>
           <div>
@@ -30,6 +37,7 @@
           </div>
         </form>
         <pre id="go-battle-log" aria-live="polite"></pre>
+        <details class="go-report"><summary>AIの判断（実行後）</summary><pre id="go-ai-diagnostics"></pre></details>
       </details>
       <section aria-labelledby="go-roster-heading">
         <h2 id="go-roster-heading">キャラクター</h2>
@@ -370,12 +378,12 @@
 
     </template>
 
-    <script src="./data-validation.js?v=0.41"></script>
+    <script src="./data-validation.js?v=0.50"></script>
     <script src="./passive.js?v=0.41"></script>
-    <script src="./battle-core.js?v=0.41"></script>
-    <script src="./battle-ai.js?v=20260906-battle-ai"></script>
+    <script src="./battle-core.js?v=0.50"></script>
+    <script src="./battle-ai.js?v=0.50"></script>
     <script src="./bgm.js?v=20261004-final-story"></script>
     <script src="./dialogue-manager.js?v=20260906-dialogue-manager"></script>
-    <script src="./app.js?v=0.41"></script>
+    <script src="./app.js?v=0.50"></script>
   </body>
 </html>

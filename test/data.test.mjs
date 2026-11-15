@@ -400,3 +400,13 @@ test("a three-slot fixture from the CSV response works with no new JavaScript ha
     assert.equal(boosted, Math.round(base * multiplier));
   }
 });
+
+test("AI CSV preferences diagnose unknown profiles and unlearned skills without changing fallback", async () => {
+  const synthetic = runtime({ transforms: {
+    "./data/character.csv": (csv) => csv.replace("1,,,,passive_001,", "1,unknown,skill_013,skill_001,passive_001,"),
+  } });
+  await synthetic.boot();
+  assert.equal(synthetic.run('state.dataDiagnostics.some(d => d.level === "AIタイプ未対応" && d.id === "character_001")'), true);
+  assert.equal(synthetic.run('state.dataDiagnostics.some(d => d.level === "AI指定技未習得" && d.field === "ai_setup_skill")'), true);
+  assert.equal(synthetic.run('enemyAiTypeFor({base: state.characterMap.get("character_001")})'), "balanced");
+});

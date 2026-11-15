@@ -146,6 +146,13 @@ function validateGeneOrderData(tables, imageExists) {
     for (const field of ["skill_1", "skill_2", "skill_3", "skill_4", "skill_5", "ai_setup_skill", "ai_main_skill"]) {
       reference("characters", id, row, field, "skills");
     }
+    if (row.ai_type && !geneOrderAI.knownType(row.ai_type)) add("AIタイプ未対応", "characters", id, "ai_type", row.ai_type);
+    const learned = [1, 2, 3, 4, 5].map((slot) => row[`skill_${slot}`]);
+    for (const field of ["ai_setup_skill", "ai_main_skill"]) {
+      if (isSet(row[field]) && ids.skills.has(row[field]) && !learned.includes(row[field])) {
+        add("AI指定技未習得", "characters", id, field, row[field]);
+      }
+    }
     if (![1, 2, 3, 4, 5].some((slot) => isSet(row[`skill_${slot}`]))) add("項目未設定", "characters", id, "skills");
     reference("characters", id, row, "passive_id", "passives");
     if (!row.evasion_percent) add("項目未設定", "characters", id, "evasion_percent");
