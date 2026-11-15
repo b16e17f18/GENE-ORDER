@@ -101,3 +101,28 @@
   #go-app .detail-skill-top { align-items: flex-start; flex-direction: column; gap: 6px; }
   #go-app .detail-skill-meta { justify-content: flex-start; }
 }
+
+/* v0.65: refinements to the approved illustrated icons, without changing their glyphs. */
+.go-attribute-icon { border-radius: 50%; clip-path: circle(48.5% at 50% 50%); filter: saturate(1.13) contrast(1.08); }
+.go-attribute-icon::after { content: ""; position: absolute; inset: 5%; border: 1px solid rgba(255,239,193,.64); border-radius: 50%; box-shadow: inset 0 1px 1px rgba(255,255,255,.48), inset 0 -1px 2px rgba(0,0,0,.55); pointer-events: none; }
+#go-app .card-topline { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 3px; }
+#go-app .go-card-attributes { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+#go-app .dex-list-button { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+#go-app .go-chart-panel { width: min(850px, calc(100vw - 28px)); }
+#go-app .go-chart h2 { font-size: 1.3rem; margin: 8px 0 14px; }
+#go-app .go-chart-scroll { overflow-x: auto; max-width: 100%; }
+#go-app .go-chart-table { width: 100%; table-layout: fixed; border-collapse: collapse; color: #111; text-align: center; }
+#go-app .go-chart-table th, #go-app .go-chart-table td { border: 2px solid #111; padding: 6px 2px; }
+#go-app .go-chart-table th { background: #f1f1f1; font-size: .86rem; }
+#go-app .go-chart-heading { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+#go-app .go-chart-heading .go-attribute-icon { font-size: 1.2rem; }
+#go-app .go-chart-table td { font-size: clamp(1rem, 3vw, 1.8rem); font-weight: 900; }
+#go-app .go-match-strong { background: #ffd9dc; color: #c71824; }
+#go-app .go-match-normal { background: #f4f6f8; color: #26333e; }
+#go-app .go-match-resist { background: #d1e9fa; color: #0757a8; }
+#go-app .go-match-immune { background: #e0d8f1; color: #63349b; }
+#go-app .go-match-unknown { background: #fff; color: #555; }
+#go-app .go-chart-legend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+#go-app .go-chart-legend span { padding: 4px 7px; border: 1px solid #111; font-weight: 700; }
+#go-app .go-chart p { font-size: .85rem; }
+@media (max-width: 480px) { #go-app .go-chart-table th { font-size: .72rem; } #go-app .go-chart-heading .go-attribute-icon { font-size: .9rem; } #go-app .go-chart-table th, #go-app .go-chart-table td { padding: 5px 0; } }

@@ -4226,6 +4226,27 @@ function goCharacterStat(stat, value) {
   });
 }
 
+// Render the official CSV matchup matrix; never duplicate battle multipliers in UI.
+function goAttributeChart(data) {
+  const order = ["fire", "water", "wind", "earth", "light", "dark", "none"];
+  const heading = (id) => {
+    const name = data.elements.get(id)?.name ?? id;
+    return `<span class="go-chart-heading">${goAttributeIcon(id, name)}<span>${escapeHtml(name)}</span></span>`;
+  };
+  const symbols = new Map([[2, ["○", "strong"]], [1, ["－", "normal"]], [0.5, ["△", "resist"]], [0, ["×", "immune"]]]);
+  const rows = order.map((attack) => `<tr><th scope="row">${heading(attack)}</th>${order.map((defense) => {
+    const value = data.effectiveness.get(attack)?.get(defense);
+    const [symbol, kind] = symbols.get(value) ?? ["?", "unknown"];
+    return `<td class="go-match-${kind}" data-attack="${attack}" data-defense="${defense}" aria-label="${value == null ? "未設定" : value + "倍"}">${symbol}</td>`;
+  }).join("")}</tr>`).join("");
+  return `<section class="go-chart"><h2>属性相性一覧表</h2><div class="go-chart-scroll"><table class="go-chart-table">
+    <caption class="go-attribute-label">縦は攻撃属性、横は防御属性</caption>
+    <thead><tr><th scope="col">攻撃↓<br>防御→</th>${order.map(id => `<th scope="col">${heading(id)}</th>`).join("")}</tr></thead>
+    <tbody>${rows}</tbody></table></div>
+    <div class="go-chart-legend"><span class="go-match-strong">○ 2倍</span><span class="go-match-normal">－ 等倍</span><span class="go-match-resist">△ 0.5倍</span><span class="go-match-immune">× 0倍（無効）</span></div>
+    <p>縦：攻撃側（技の属性）／横：防御側（相手の属性）。複合属性は2つの倍率を掛け合わせます。</p></section>`;
+}
+
 function goAttributeIcon(id, label) {
   if (!["none", "fire", "water", "wind", "earth", "light", "dark"].includes(id)) return escapeHtml(label ?? "未定義");
   return `<span class="go-attribute-icon go-attribute-${id}" role="img" aria-label="${escapeHtml(label)}属性" title="${escapeHtml(label)}属性"><span class="go-attribute-label">${escapeHtml(label)}</span></span>`;

@@ -522,3 +522,13 @@ test("GO character stat card uses Japanese labels and independent graph maxima",
   assert.equal(go.run('goStatText("HPとPA・PD・SA・SD・SP")'), "体力と物理攻撃・物理防御・特殊攻撃・特殊防御・敏捷");
   assert.equal(go.run('state.characterMap.get("character_001").regen_value'), 25);
 });
+
+
+test("GO matchup chart renders all official CSV multipliers and shared attribute icons", () => {
+  const html = go.run("goAttributeChart(state)");
+  assert.equal((html.match(/data-attack=/g) || []).length, 49);
+  assert.equal((html.match(/class="go-attribute-icon /g) || []).length, 14);
+  assert.match(html, /data-attack="earth" data-defense="wind" aria-label="0倍">×/);
+  assert.match(html, /data-attack="fire" data-defense="none" aria-label="2倍">○/);
+  assert.match(html, /data-attack="water" data-defense="dark" aria-label="0.5倍">△/);
+});
