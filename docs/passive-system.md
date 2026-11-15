@@ -94,3 +94,34 @@ MHBの `lowHpDamageMultiplierFromPassive()` は33%の閾値で最終ダメージ
 - 無鉄砲は優先度+1以上の技を対象にし、共通回避を含む。技のENを払い、最大HPに割合を掛けて切り捨てた分を一度だけ失う。HPを使い切ると技は不発。同時に必要な交代先の選択は支払い前に行う。変化技無効は相手からの個体対象効果に限り、自己効果・陣営効果・場解除・攻撃技の追加効果は通る。
 - 知覚過敏と毒汗は本体HPが実際に減り、受け手が生存した場合に発動する。変化技、デコイ、継続ダメージ、反射などの派生ダメージは対象外。毒汗は既存の毒再付与を使用する。
 - 羽音は初回・同時補充で両者の登場後、自分側→相手側。通常交代が両側で選択された場合は既存の行動順に従い、各時点の相手を対象とする。軌道修正は相手の攻撃を実際に回避することが条件。
+
+## v0.42 パッシブ総合検証
+
+IDは `data/passive.csv` の `passive_NNN`。各効果の対象・量・条件は `target_idN`、`valueN`、`conditionN`、技との相互作用は `test/battle.test.mjs` の対応テストで照合した。暫定事項は上の一覧と [未確定仕様](pending-decisions.md) に記載。
+
+| ID | 発動条件と時点 | 効果対象と量 | 回数管理 | 相互作用 | 対応テスト名の一部 |
+|---|---|---|---|---|---|
+| 001 | 最大HP・直接致死｜本体HP直前 | 自分 HP1、値1は上限 | 枠別1回、交代保持 | 反撃・毒汗・デコイ・テールパージ | Revive survives / Tail Purge and Revive |
+| 002 | 水攻撃｜無効判定 | 敵技を無効、1 | 枠別記録 | 貯水・反射・回避 | elemental immunity |
+| 003 | 戦闘開始・場で生存｜初期化・終了 | 自分 EN4、SA+1 | 初期化1回、SAは終了ごと | 控えEN・通常交代 | starting EN |
+| 004 | 風技使用｜通常効果後 | 自分 SP+1 | 使用ごと、溜め1回 | 回避・リレー | all elemental use-stage / special switch suspension |
+| 005 | 場で生存｜終了 | 自分 PA+1 | 終了ごと | 通常交代後・補充前 | official GO teams replay |
+| 006 | 無攻撃の威力評価・無技使用後 | 威力×1.2、自分 PA−1 | 各枠、技使用ごと | 窮鼠猫噛・溜め・無効 | Full Commitment / neutral power |
+| 007 | 無攻撃｜無効判定 | 敵技を無効、1 | 枠別記録 | 複合属性・デコイ | elemental immunity |
+| 008 | 戦闘開始・場で生存｜初期化・終了 | 自分 EN5、SA−1 | 初期化1回、SAは終了ごと | 交代再登場 | starting EN |
+| 009 | 水技使用｜通常効果後 | 自分 PD+1 | 使用ごと | 属性無効、自己変化技 | all elemental use-stage |
+| 010 | 敵由来PD低下｜ランク適用前 | 自分の低下を無効、1 | 阻止ごと | 外部デバフ・自己低下・強化解除 | stage immunity |
+| 011 | 光技使用｜通常効果後 | 自分 PA+1 | 使用ごと | 光の変化技 | all elemental use-stage |
+| 012 | 火技使用｜通常効果後 | 自分 SD+1 | 使用ごと | 火の攻撃 | all elemental use-stage |
+| 013 | 戦闘開始・火技使用後 | 自分 EN2、PA−1 | 初期化1回、低下は使用ごと | 控えEN・火技 | starting EN / all elemental use-stage |
+| 014 | 場で生存｜終了 | 自分 PD+1・SD−1 | 各枠、終了ごと | 毒・締め付け・補充 | poison and binding precede |
+| 015 | 光攻撃で本体HP減・生存｜被弾後 | 自分 PA+1・SP+1 | 各枠、被弾ごと | 回避・反射・デコイ・光変化 | perception reacts |
+| 016 | 登場｜入場後 | 相手 SP−1 | 登場ごと | 通常・特殊交代・同時補充 | entry debuffs / both manual replacements |
+| 017 | 自身HP≤1/2｜ダメージ評価 | 自分 PA・SA×1.2 | 使用箇所を記録、常時計算 | HP消費・吸収・シェルハード | drain and HP cost / conditional attack stats |
+| 018 | 相手HP≤1/3｜実効SP評価 | 自分 SP×1.5 | 使用箇所を記録、常時計算 | 追い風・速度ランク・同速 | hunter speed |
+| 019 | 状態異常中｜実効防御評価 | 自分 PD・SD×1.5 | 使用箇所を記録、異常数で累積なし | 毒汗・追い討ち・締め付け | Toxic Sweat and Pursuit / metabolism |
+| 020 | 優先度≥1・相手の変化効果｜技前・効果前 | 自分 最大HP10%損失・敵個体効果を無効（1） | 使用時1回、無効は技ごと | 回避・溜め・フィールド・攻撃追加効果 | priority cost / hostile status immunity |
+| 021 | 回避行動｜成否判定前 | 自分 PD+1 | 行動1回 | 共通回避・刃研ぎ・回避失敗 | dodge action and actual evade |
+| 022 | 物理で本体HP減・生存｜被弾後 | 相手へ毒。確率1、毒の量・期間はeffect.csv | 被弾ごと | 毒再付与・デコイ・反撃 | Revive survives / toxic sweat |
+| 023 | 実際の攻撃回避｜evaded | 自分 SA+1 | 回避ごと | 回避不可・回避状態取得 | dodge action and actual evade |
+| 024 | 火攻撃｜無効判定 | 敵技を無効、1 | 枠別記録 | 反射・回避・デコイ | elemental immunity |

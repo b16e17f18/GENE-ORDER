@@ -1859,3 +1859,289 @@ test("official teams replay prioritised cost, reactive poison, normal entry and 
   assert.equal(last.events.find((e) => e.type === "move").damage, expected.damage);
   assert.equal(match.turn, 7);
 });
+
+function seededBattleRandom(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 2 ** 32;
+  };
+}
+
+test("1,024 seeded battles on the formal CSV finish with valid state and resumable switches", (t) => {
+  const firstSeed = 42000;
+  const count = 1024;
+  const turnLimit = 200;
+  const roster = [...officialCharacters.values()].filter((base) => base.skillIds.some((id) =>
+    skill(id)?.category === "attack" && !go.unsupportedMoveReason(skill(id), assets)));
+  const summary = { firstSeed, lastSeed: firstSeed + count - 1, count, turnLimit, roster: roster.length,
+    finished: 0, errors: 0, capped: 0, longest: 0, turns: 0, selections: 0, draws: 0, cappedSeeds: [], exceptions: [] };
+  const sides = ["player", "enemy"];
+  for (let seed = firstSeed; seed < firstSeed + count; seed++) {
+    const random = seededBattleRandom(seed);
+    const pick = (items) => items[Math.floor(random() * items.length)];
+    const team = () => {
+      const options = [...roster];
+      return Array.from({ length: [1, 2, 3, 4][seed % 4] }, () =>
+        options.splice(Math.floor(random() * options.length), 1)[0]);
+    };
+
+    let match;
+    function choose(side) {
+      const fighter = active(match, side);
+      const candidates = [...new Set([...fighter.base.skillIds, "skill_000"])].map(select)
+        .concat(Array.from(go.switchTargets(match, side), voluntary), wait)
+        .filter((action) => !go.checkAction(match, side, action));
+      assert.ok(candidates.length);
+      const attacks = candidates.filter((action) => action.type === "move" && skill(action.moveId).category === "attack");
+      return pick(attacks.length && random() < 0.7 ? attacks : candidates);
+    }
+    let completed = 0;
+    try {
+      match = passiveBattle({ skills: officialSkills, player: team(), enemy: team(), manualSwitches: true, random });
+      while (!match.winner && completed < turnLimit) {
+        const actions = Object.fromEntries(sides.map((side) => [side, choose(side)]));
+        const fainted = new Set(sides.flatMap((side) => match.teams[side].filter((f) => f.fainted)
+          .map((fighter) => side + "/" + fighter.base.name)));
+        const energySides = new Set();
+        const phaseSlots = new Set();
+        let terminalEvent = false;
+        const note = (events) => {
+          for (const event of events) {
+            const key = event.side + "/" + event.actor;
+            if (terminalEvent) assert.ok(["effect-expired", "defense-expired", "field-expired"].includes(event.type),
+              "action or upkeep after victory: " + event.type);
+            if (event.type === "win" || event.type === "draw") terminalEvent = true;
+            if (event.type === "energy") {
+              assert.ok(!energySides.has(event.side), "duplicate EN upkeep");
+              energySides.add(event.side);
+            }
+            if (event.type === "passive" && ["turn-end", "before-hp-damage", "after-use", "dodge-action", "move-cost"].includes(event.phase)) {
+              const slot = key + "/" + event.phase + "/" + event.slot;
+              assert.ok(!phaseSlots.has(slot), "duplicate passive " + slot);
+              phaseSlots.add(slot);
+            }
+            if (event.type === "faint") {
+              assert.ok(!fainted.has(key), "duplicate faint " + key);
+              fainted.add(key);
+            }
+            if (["move", "charge", "passive"].includes(event.type)) assert.ok(!fainted.has(key), "post-KO event " + key);
+            for (const value of Object.values(event)) {
+              if (typeof value === "number") assert.ok(Number.isFinite(value), "non-finite event");
+            }
+          }
+        };
+        const turn = match.turn;
+        let result = go.resolveTurn(match, actions);
+        note(result.events);
+        let selections = 0;
+        while (result.pendingSwitch) {
+          const { side, candidates } = result.pendingSwitch;
+          assert.ok(++selections <= 4, "switch continuation failed to complete");
+          assert.ok(candidates.length);
+          assert.deepEqual(Array.from(candidates), Array.from(go.switchTargets(match, side)));
+          result = go.continueSwitch(match, side, pick(candidates));
+          note(result.events);
+          summary.selections++;
+        }
+        completed++;
+        assert.equal(match.turn, match.winner ? turn : turn + 1);
+        assert.equal(match.turnContinuation, null);
+        for (const side of sides) {
+          if (!match.winner) assert.equal(active(match, side).fainted, false);
+          for (const fighter of match.teams[side]) {
+            assert.ok(Number.isInteger(fighter.hp) && fighter.hp >= 0 && fighter.hp <= fighter.maxHp);
+            assert.equal(fighter.hp === 0, fighter.fainted);
+            assert.ok(Number.isInteger(fighter.energy) && fighter.energy >= 0 && fighter.energy <= go.MAX_ENERGY);
+            assert.ok(Object.values(fighter.stages).every((n) => Number.isInteger(n) && n >= -6 && n <= 6));
+            assert.ok(fighter.statuses.every(({ turns }) => Number.isInteger(turns) && turns > 0));
+            assert.equal(new Set(fighter.statuses.map((status) => status.definition.effect_id)).size, fighter.statuses.length);
+            if (fighter.decoy) assert.ok(fighter.decoy.hp > 0 && fighter.decoy.hp <= fighter.decoy.maxHp);
+            if (fighter.pending) assert.ok(Number.isFinite(fighter.pending.power) && fighter.pending.power > 0);
+          }
+        }
+      }
+      if (match.winner) {
+        const alive = sides.filter((side) => match.teams[side].some((fighter) => !fighter.fainted));
+        assert.equal(match.winner, alive[0] ?? "draw");
+        assert.ok(alive.length <= 1);
+        summary.finished++;
+        if (match.winner === "draw") summary.draws++;
+      } else {
+        summary.capped++;
+        summary.cappedSeeds.push(seed);
+      }
+      summary.longest = Math.max(summary.longest, completed);
+      summary.turns += completed;
+    } catch (error) {
+      summary.errors++;
+      if (summary.exceptions.length < 8) summary.exceptions.push({ seed, turn: match?.turn, message: error.message });
+    }
+  }
+  t.diagnostic(JSON.stringify(summary));
+  assert.equal(summary.errors, 0, JSON.stringify(summary.exceptions));
+  assert.equal(summary.finished + summary.capped, count);
+});
+
+test("Revive survives for Toxic Sweat and retaliation; a decoy consumes neither", () => {
+  const survival = officialPassives.get("passive_001").effects[0];
+  const toxin = { ...officialPassives.get("passive_022").effects[0], slot: 2 };
+  const passives = new Map([["passive_001", { effects: [survival, toxin] }]]);
+  const move = { ...strike, power: 130, cost: 0 };
+  for (const decoy of [false, true]) {
+    const match = passiveBattle({ skills: [move], enemy: [withPassive("001", { hp: 50 })], passives });
+    const target = active(match, "enemy");
+    target.defenses.set("revenge", { id: "revenge", definition: officialDefense.get("revenge"), starts: 1, expires: 2 });
+    if (decoy) target.decoy = { hp: 10, maxHp: 10 };
+    const preview = go.previewDamage(match, "player", move);
+    const result = action(match);
+    assert.equal(preview.targetHp, target.hp);
+    assert.equal(preview.actualDamage, decoy ? 0 : 49);
+    assert.equal(preview.decoyDamage, decoy ? 10 : 0);
+    assert.equal(preview.responseDamage, result.events.find((event) => event.type === "revenge")?.damage ?? 0);
+    assert.equal(passivesIn(result, "before-hp-damage").length, Number(!decoy));
+    assert.equal(passivesIn(result, "body-hit-status").length, Number(!decoy));
+    if (!decoy) assert.ok(result.events.findIndex((event) => event.type === "status-applied") <
+      result.events.findIndex((event) => event.type === "revenge"));
+  }
+});
+
+test("Full Commitment composes with exact 1 HP power and the existing move cap", () => {
+  const move = skill("skill_005");
+  const match = passiveBattle({ skills: [move], player: [withPassive("006", { skillIds: [move.skill_id] })] });
+  const actor = active(match);
+  full(actor);
+  actor.hp = 2;
+  assert.equal(go.previewDamage(match, "player", move).power, 84);
+  actor.hp = 1;
+  assert.equal(go.previewDamage(match, "player", move).power, 160);
+  const turn = action(match, move.skill_id);
+  assert.equal(turn.events.find((event) => event.type === "move").power, 160);
+  assert.equal(actor.stages.phy_atk, -1);
+});
+
+test("drain and HP cost re-evaluate Adrenaline against live HP and match the forecast", () => {
+  const cost = { ...officialPassives.get("passive_020").effects[0], slot: 3 };
+  const adrenaline = officialPassives.get("passive_017");
+  const passives = new Map([["passive_017", { ...adrenaline, effects: [...adrenaline.effects, cost] }]]);
+  const drain = { ...strike, priority: 1, power: 80,
+    effect1: "bf_drain_50", effect_target1: "self", effect_chance1: 100 };
+  const match = passiveBattle({ skills: [drain], player: [withPassive("017")], passives });
+  const actor = active(match);
+  actor.hp = 110;
+  const preview = go.previewDamage(match, "player", drain);
+  assert.equal(preview.hpCost, 20);
+  assert.equal(preview.attack, Math.floor(actor.base.phy_atk * 1.2));
+  assert.ok(preview.actorHp > actor.maxHp / 2);
+  assert.equal(actor.hp, 110);
+  const result = action(match);
+  assert.equal(preview.hpEffects[0].delta, result.events.find((event) => event.type === "heal").recovered);
+  assert.equal(actor.hp, preview.actorHp);
+  assert.equal(go.statValue(actor, "phy_atk"), actor.base.phy_atk);
+});
+
+test("Toxic Sweat and Pursuit both use the status that triggers Metabolism", () => {
+  const pursuit = skill("skill_061");
+  const toxin = { ...officialPassives.get("passive_022").effects[0], slot: 3 };
+  const metabolism = officialPassives.get("passive_019");
+  const match = passiveBattle({ skills: [strike, pursuit],
+    player: [withPassive("019", { skillIds: ["strike", pursuit.skill_id] })],
+    enemy: [withPassive("019", { element_1: "light" })],
+    passives: new Map([["passive_019", { ...metabolism, effects: [...metabolism.effects, toxin] }]]) });
+  assert.equal(go.previewDamage(match, "player", pursuit).power, 70);
+  go.resolveTurn(match, { player: select(), enemy: select() });
+  assert.ok(fighters(match).every((fighter) => fighter.statuses.length === 1));
+  const preview = go.previewDamage(match, "player", pursuit);
+  assert.equal(preview.power, 100);
+  assert.equal(preview.defense, 165);
+  const turn = action(match, pursuit.skill_id);
+  assert.equal(turn.events.find((event) => event.type === "move").damage, preview.damage);
+});
+
+test("Tail Purge and Revive track independent per-fighter limits across a return", () => {
+  const tail = skill("skill_006"), lethal = { ...strike, power: 1000, cost: 0 };
+  const match = passiveBattle({ skills: [tail, lethal], player: [...official("character_001"), character()] });
+  const actor = active(match);
+  full(actor);
+  specialWait(match, tail.skill_id, 1);
+  assert.equal(actor.moveUses.get("bf_shed_tail"), 1);
+  assert.equal(actor.passiveState.uses.size, 0);
+  go.resolveTurn(match, { player: voluntary(0), enemy: wait });
+  actor.hp = actor.maxHp;
+  const hit = go.resolveTurn(match, { player: wait, enemy: select() });
+  assert.equal(passivesIn(hit, "before-hp-damage").length, 1);
+  assert.equal(actor.moveUses.get("bf_shed_tail"), 1);
+  assert.equal(actor.passiveState.uses.get(1), 1);
+  assert.match(go.checkAction(match, "player", select(tail.skill_id)), /使用済み/);
+});
+
+test("AI HP forecast is read-only and matches mitigation, absorb, reflect, decoy recoil and charge", () => {
+  const recoil = { ...skill("skill_046"), element: "water", attack_type: "special" };
+  for (const mode of ["hit", "absorb", "reflect", "decoy", "charge"]) {
+    const move = mode === "charge" ? skill("skill_054") : recoil;
+    let rolls = 0;
+    const match = passiveBattle({ skills: [move], player: [withPassive("020", { skillIds: [move.skill_id] })],
+      enemy: [withPassive("001", { element_1: "light" })], random: () => { rolls++; return 0; } });
+    const [actor, target] = fighters(match);
+    target.hp -= 10;
+    full(actor);
+    if (["absorb", "reflect"].includes(mode)) {
+      const id = mode === "absorb" ? "bf_water_absorb_guard" : "reflection";
+      target.defenses.set(id, { id, definition: officialDefense.get(id), starts: 1, expires: 2 });
+    }
+    if (mode === "decoy") target.decoy = { hp: 13, maxHp: 13 };
+    const snapshot = () => JSON.stringify(match, (_, value) =>
+      Object.prototype.toString.call(value) === "[object Map]" ? [...value.entries()] : value);
+    const before = snapshot();
+    const guess = go.previewDamage(match, "player", move);
+    assert.deepEqual(go.previewDamage(match, "player", move), guess);
+    assert.equal(snapshot(), before);
+    assert.equal(rolls, 0);
+    const turn = action(match, move.skill_id);
+    assert.deepEqual([actor.hp, target.hp], [guess.actorHp, guess.targetHp], mode);
+    assert.equal(turn.events.find((event) => event.type === "recoil")?.damage ?? 0,
+      Math.abs(guess.hpEffects.find((entry) => entry.kind === "recoil")?.delta ?? 0), mode);
+    assert.equal(turn.events.find((event) => event.type === "absorbed")?.recovered ?? 0, guess.actualHeal);
+    assert.equal(turn.events.find((event) => event.type === "reflected")?.damage ?? 0, guess.responseDamage);
+    if (mode === "charge") {
+      const release = go.previewDamage(match, "player", move);
+      assert.equal(release.hpCost, 0);
+      assert.equal(release.power, actor.pending.power);
+      const final = action(match, move.skill_id);
+      assert.equal(final.events.find((event) => event.type === "move").actualDamage, release.actualDamage);
+    }
+  }
+});
+
+test("decisive recoil and HP-cost defeats stop the queued opponent action", () => {
+  const move = { ...skill("skill_046"), element: "fire", priority: 1, cost: 0 };
+  for (const selfCost of [false, true]) {
+    const player = withPassive(selfCost ? "020" : "", { skillIds: [move.skill_id] });
+    const match = passiveBattle({ skills: [move, strike], player: [player], enemy: [character({ element_1: "light" })] });
+    active(match).hp = 1;
+    const turn = action(match, move.skill_id, select());
+    assert.equal(turn.winner, "enemy");
+    assert.equal(turn.events.filter((event) => event.type === "move" && event.side === "enemy").length, 0);
+    assert.equal(turn.events.at(-1).type, "win");
+    assert.equal(active(match, "enemy").energy, 1);
+  }
+});
+
+test("forecast lists optional recoil without rolling it or subtracting it from guaranteed HP", () => {
+  const move = { ...skill("skill_046"), element: "fire", effect_chance1: 50 };
+  for (const roll of [0.49, 0.5]) {
+    let rolls = 0;
+    const match = passiveBattle({ skills: [move], player: [character({ skillIds: [move.skill_id] })],
+      random: () => { rolls++; return roll; } });
+    const actor = active(match);
+    full(actor);
+    const guess = go.previewDamage(match, "player", move);
+    assert.equal(rolls, 0);
+    assert.equal(guess.actorHp, actor.hp);
+    assert.equal(guess.hpEffects[0].chance, 50);
+    const turn = action(match, move.skill_id);
+    assert.equal(turn.events.find((event) => event.type === "recoil")?.damage ?? 0,
+      roll < 0.5 ? Math.abs(guess.hpEffects[0].delta) : 0);
+    assert.equal(rolls, 1);
+  }
+});

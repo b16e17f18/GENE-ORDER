@@ -1,4 +1,4 @@
-// GENE ORDER v0.41. The inherited MHB entry points below remain separate.
+// GENE ORDER v0.42. The inherited MHB entry points below remain separate.
 const geneOrderBattle = (() => {
   const START_ENERGY = 1;
   const MAX_ENERGY = 7;
@@ -369,7 +369,7 @@ const geneOrderBattle = (() => {
     return { hpCosts, hpAfterCost };
   }
 
-  function previewDamage(battle, side, move) {
+  function evaluateMoveDamage(battle, side, move) {
     const other = opposingSide(side);
     const actor = activeFighter(battle, side);
     const pending = actor.pending?.moveId === move.skill_id ? actor.pending : null;
@@ -385,6 +385,52 @@ const geneOrderBattle = (() => {
     if (pending || !chargeSlot(move, battle)) return { ...result, hpCosts };
     const { immunity, survival, ...charge } = result;
     return { ...charge, hpCosts, damage: 0, decoyDamage: 0, response: null, heal: 0, reason: "charging" };
+  }
+
+  function hpEffectAmount(kind, recipient, damage, percent) {
+    const base = kind === "heal" ? recipient.maxHp : damage;
+    return Math.floor(base * percent / 100);
+  }
+
+  // Forecast this move against the current field. Other actions and upkeep are separate.
+  function previewDamage(battle, side, move) {
+    const result = evaluateMoveDamage(battle, side, move);
+    const actor = activeFighter(battle, side);
+    const defender = activeFighter(battle, opposingSide(side));
+    const hpCost = Math.min(actor.hp, result.hpCosts.reduce((sum, entry) => sum + entry.damage, 0));
+    const actualDamage = Math.min(defender.hp, result.damage);
+    const actualHeal = Math.min(defender.maxHp - defender.hp, result.heal ?? 0);
+    const responseDamage = Math.min(actor.hp - hpCost, result.response?.damage ?? 0);
+    let actorHp = actor.hp - hpCost - responseDamage;
+    let targetHp = defender.hp - actualDamage + actualHeal;
+    const hpEffects = [];
+    if (!["hp-cost-faint", "no-target"].includes(result.reason)) {
+      const statusBlock = geneOrderPassives.statusMoveBlock(defender, actor, move);
+      const hidden = defender.pending?.definition.battle_effect_group === "position" &&
+        move.hit_type !== defender.pending.definition.weak_hit_type;
+      const releasing = actor.pending?.moveId === move.skill_id;
+      for (const { id, chance, target, table } of moveEffects(move)) {
+        if (table !== "effects" || !(chance > 0) || !actorHp) continue;
+        const self = target === "self";
+        if (self && releasing) continue;
+        if (!self && (!targetHp || result.reason === "charging" ||
+          (move.category === "attack" && result.reason !== "hit") || (move.category === "status" && (hidden || statusBlock)))) continue;
+        const definition = battle.effects.get(id);
+        const kind = effectKind(definition);
+        if (!["heal", "drain", "recoil"].includes(kind)) continue;
+        const recipient = self ? actor : defender;
+        const hp = self ? actorHp : targetHp;
+        const amount = hpEffectAmount(kind, recipient, actualDamage + (result.decoyDamage ?? 0), definition.damage_value);
+        const delta = kind === "recoil" ? -Math.min(hp, amount) : Math.min(recipient.maxHp - hp, amount);
+        if (!delta) continue;
+        hpEffects.push({ id, kind, target: self ? "self" : "enemy", chance, delta });
+        if (chance >= 100) {
+          if (self) actorHp += delta;
+          else targetHp += delta;
+        }
+      }
+    }
+    return { ...result, hpCost, actualDamage, actualHeal, responseDamage, hpEffects, actorHp, targetHp };
   }
 
   function applyStatus(recipient, definition, event, events) {
@@ -454,7 +500,7 @@ const geneOrderBattle = (() => {
       }
       const value = effect.damage_value;
       if (kind === "recoil") {
-        const damage = Math.floor(actualDamage * value / 100);
+        const damage = hpEffectAmount(kind, recipient, actualDamage, value);
         if (damage > 0) events.push({ ...event, type: "recoil", damage: applyHPDamage(recipient, damage) });
       } else if (kind === "clear-buff") {
         for (const stat of STATS) {
@@ -480,10 +526,9 @@ const geneOrderBattle = (() => {
         changeEnergy(recipient, value);
         events.push({ ...event, type: "effect-energy", recovered: recipient.energy - before });
       } else {
-        const base = kind === "drain" ? actualDamage : recipient.maxHp;
-        if (kind === "drain" && base === 0) continue;
+        if (kind === "drain" && actualDamage === 0) continue;
         const before = recipient.hp;
-        recipient.hp = Math.min(recipient.maxHp, before + Math.floor(base * value / 100));
+        recipient.hp = Math.min(recipient.maxHp, before + hpEffectAmount(kind, recipient, actualDamage, value));
         events.push({ ...event, type: "heal", recovered: recipient.hp - before });
       }
     }
@@ -791,6 +836,7 @@ const geneOrderBattle = (() => {
 
   function* runTurn(battle, actions, events) {
     for (const { side, action, actor, move } of actions) {
+      if (battle.winner) break;
       if (actor.fainted) {
         events.push({ type: "skipped", side, actor: actor.base.name });
         continue;
@@ -823,7 +869,7 @@ const geneOrderBattle = (() => {
           switchIndex = yield* selectSwitch(battle, side, kind, action.switchIndex);
         }
       }
-      const result = previewDamage(battle, side, move);
+      const result = evaluateMoveDamage(battle, side, move);
       const cost = pending ? 0 : move.cost;
       changeEnergy(actor, -cost);
       for (const { effect, damage } of result.hpCosts) {

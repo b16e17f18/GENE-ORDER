@@ -348,3 +348,55 @@ test("diagnoses invalid passive conditions and missing status targets", async ()
   assert.equal(invalid.run('state.dataDiagnostics.some(d => d.id === "passive_018" && d.field === "condition1" && d.level === "効果未対応")'), true);
   assert.equal(invalid.run('state.dataDiagnostics.some(d => d.id === "passive_022" && d.field === "target_id1" && d.level === "効果未対応")'), true);
 });
+
+test("formal CSV has 24 playable passives and reports actionable numeric bounds", async () => {
+  assert.equal(go.run('state.dataDiagnostics.filter(d => ["数値異常", "重複ID", "相性欠落", "相性重複"].includes(d.level)).length'), 0);
+  assert.equal(go.run('state.dataDiagnostics.filter(d => d.level === "参照不一致").length'), 4);
+  assert.equal(go.run('state.dataDiagnostics.filter(d => d.table === "passives" && d.level === "予約行").length'), 40);
+  const invalid = runtime({ transforms: {
+    "./data/character.csv": (text) => text.replace("獣族,125,81,75", "獣族,0,81.5,75"),
+    "./data/skill.csv": (text) => text.replace("pa_down1,enemy,100", "pa_down1,enemy,101")
+      .replace(",0,1,相手のPAを", ",0,8,相手のPAを"),
+    "./data/battle_effect.csv": (text) => text.replace("none,0,1,TRUE,none,none,50", "none,0,0,TRUE,none,none,101"),
+    "./data/power_rule.csv": (text) => text.replace("go_en_value_7,en_value,7,7,1.5", "go_en_value_7,en_value,7,6,0"),
+  } });
+  await invalid.boot();
+  const detected = JSON.parse(invalid.run('JSON.stringify(state.dataDiagnostics.filter(d => d.level === "数値異常").map(d => [d.id,d.field].join("/")).sort())'));
+  assert.deepEqual(detected, ["bf_half_guard/damage_cut", "bf_half_guard/turn", "character_001/hp", "character_001/phy_atk",
+    "go_en_value_7/max_ratio", "go_en_value_7/power_multiplier", "skill_001/cost", "skill_001/effect_chance1"]);
+});
+
+test("a three-slot fixture from the CSV response works with no new JavaScript handler", async () => {
+  const run = async (boost) => {
+    const fixture = runtime({ transforms: {
+      "./data/character.csv": (text) => text.replace("passive_003,", "passive_test,"),
+      "./data/passive.csv": (text) => text.trimEnd() + "\n" + [
+        "passive_test", "検証用", "starting_en", "none", "3", "turn_end_stat_stage", "pd", "1",
+        "element_power_multiplier", "fire", boost, "3効果の検証", "none", "none", "none", "", "", "",
+      ].join(",") + "\n",
+    } });
+    await fixture.boot();
+    return JSON.parse(fixture.run(`
+      (() => {
+        const battle = geneOrderBattle.createBattle({ player: [state.characterMap.get("character_003")],
+          enemy: [state.characterMap.get("character_001")], skills: state.skills, passives: state.passives,
+          effects: state.effects, battleEffects: state.battleEffects, powerRules: state.powerRules, effectiveness: state.effectiveness });
+        const active = geneOrderBattle.activeFighter(battle, "player");
+        const valid = geneOrderBattle.checkAction(battle, "player", { type: "move", moveId: "skill_009" });
+        const move = [...state.skills.values()].find((entry) => entry.category === "attack" && entry.element === "fire" &&
+          geneOrderBattle.moveAvailability(entry, battle).issues.length === 0);
+        const target = geneOrderBattle.activeFighter(battle, "enemy");
+        const live = geneOrderBattle.calculateDamage(active, target, move, battle.effectiveness);
+        const base = geneOrderBattle.calculateDamage({ ...active, passiveEffects: [] }, target, move, battle.effectiveness);
+        const result = geneOrderBattle.resolveTurn(battle, { player: { type: "wait" }, enemy: { type: "wait" } });
+        return JSON.stringify([battle.startEvents[0].energy, active.stages.phy_def, active.passive.status, valid,
+          live.power, base.power, result.events.some(event => event.phase === "turn-end")]);
+      })()
+    `));
+  };
+  for (const multiplier of [1.2, 1.3]) {
+    const [energy, stage, implementation, legal, boosted, base, logged] = await run(multiplier);
+    assert.deepEqual([energy, stage, implementation, legal, logged], [3, 1, "implemented", "", true]);
+    assert.equal(boosted, Math.round(base * multiplier));
+  }
+});

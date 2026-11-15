@@ -103,6 +103,16 @@ function validateGeneOrderData(tables, imageExists) {
       }
     }
   };
+  const range = (table, id, row, fields, min, max, integer = false) => {
+    for (const field of fields) {
+      const raw = row[field];
+      if (!String(raw ?? "").trim()) continue;
+      const value = Number(raw);
+      if (Number.isFinite(value) && (value < min || value > max || (integer && !Number.isSafeInteger(value)))) {
+        add("数値異常", table, id, field, raw);
+      }
+    }
+  };
   const reference = (table, id, row, field, target) => {
     const value = row[field];
     if (!isSet(value)) return;
@@ -125,6 +135,11 @@ function validateGeneOrderData(tables, imageExists) {
       add("予約行", "characters", id, "name");
       continue;
     }
+    for (const field of ["hp", "phy_atk", "phy_def", "sp_atk", "sp_def", "speed", "cost_charge"]) {
+      if (!String(row[field] ?? "").trim()) add("項目未設定", "characters", id, field);
+    }
+    range("characters", id, row, ["hp", "phy_atk", "phy_def", "sp_atk", "sp_def", "speed"], 1, Infinity, true);
+    range("characters", id, row, ["regen_value", "cost_charge"], 0, Infinity, true);
     masterReference("characters", id, row, "element_1", elementNames, true);
     masterReference("characters", id, row, "element_2", elementNames);
     masterReference("characters", id, row, "species_id", speciesNames, true);
@@ -154,6 +169,15 @@ function validateGeneOrderData(tables, imageExists) {
     for (const field of ["name", "category"]) {
       if (!row[field]) add("項目未設定", "skills", id, field);
     }
+    for (const field of ["cost", "priority", "power"]) {
+      if (!String(row[field] ?? "").trim()) add("項目未設定", "skills", id, field);
+    }
+    range("skills", id, row, ["cost"], 0, geneOrderBattle.MAX_ENERGY, true);
+    range("skills", id, row, ["priority"], -Infinity, Infinity, true);
+    range("skills", id, row, ["power"], row.category === "attack" ? 1 : 0, Infinity);
+    range("skills", id, row, ["power_cap"], 1, Infinity);
+    range("skills", id, row, ["effect_chance1", "effect_chance2", "effect_chance3",
+      "battle_effect_chance1", "battle_effect_chance2"], 0, 100);
     masterReference("skills", id, row, "element", elementNames, true);
     masterReference("skills", id, row, "element2", elementNames);
     for (const field of ["effect1", "effect2", "effect3"]) reference("skills", id, row, field, "effects");
@@ -184,6 +208,20 @@ function validateGeneOrderData(tables, imageExists) {
     for (const row of tables[table]) {
       const id = row[GO_DATA_IDS[table]];
       numeric(table, id, row, fields);
+      if (table === "powerRules") {
+        range(table, id, row, ["min_ratio", "max_ratio"], 0, Infinity);
+        if (row.power_multiplier === "" || Number(row.power_multiplier) <= 0) {
+          add("数値異常", table, id, "power_multiplier", row.power_multiplier);
+        }
+        if (row.max_ratio && Number(row.max_ratio) < Number(row.min_ratio)) {
+          add("数値異常", table, id, "max_ratio", row.max_ratio);
+        }
+      } else {
+        range(table, id, row, ["turn"], table === "battleEffects" ? 1 : 0, Infinity, true);
+        range(table, id, row, ["damage_cut"], 0, 100);
+        range(table, id, row, ["start_delay"], 0, Infinity, true);
+        range(table, id, row, ["max_uses"], 1, Infinity, true);
+      }
       if (table === "effects" && !geneOrderBattle.effectKind(row)) {
         add("効果未対応", table, id, "damage_type", row.damage_type);
       }
