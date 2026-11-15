@@ -1,15 +1,21 @@
-# MHB既存UIとGO戦闘エンジンの接続調査
+# v0.60 MHB画面の接続
 
-v0.60では現行のMHB由来マークアップとCSSを正式画面に活用する。v0.30は固定編成のデバッグ画面だけを変更した。旧画面は index.html の legacy-screens テンプレート内に保管されている。
+| 画面 | MHBから利用 | GO側の接続 |
+|---|---|---|
+| タイトル | `#titleView`、`.title-stage`、既存ボタンとパネル | ゲーム名・版・対戦・図鑑・デバッグを文字で表示 |
+| 編成・詳細 | `#setupView`、左右のチーム枠・キャラクターカード・詳細、`detailStat()` | 正式CSV、先発選択、習得技・パッシブ・参加不可理由 |
+| 戦闘・行動・交代・勝敗 | `#battleView`、HUD・ゲージ・背景・グリッド・状態パネル、`renderSprite()`、`renderEnergySegments()` | GOの戦闘状態・ランク・7属性、正式な入力と交代再開、勝敗・再戦 |
+| 図鑑 | `#dexOverlay`、一覧・プロフィール・能力グラフ | 名称設定済み46体。技・画像・パッシブの未設定を表示 |
+| 音響とモーション | `playBgm()` / `stopBgm()`、既存モーションレイヤーとフレーム計算 | 対戦開始操作でBGMを再生。GO技が指定する5画像を移植。素材のないイベントはゲージとメッセージ、明滅で表示 |
 
-| 既存資産 | 接続時の変更点 |
-|---|---|
-| index.html の旧戦闘・編成画面と styles.css | 対戦に必要なテンプレートを有効化し、旧ストーリー等から独立させる。配色、文字、ボタン、レイアウト、モーションは現行の指定を維持する。 |
-| app.js の renderHud、renderBattleSprite、renderBattleStatusPanel | GOの activeFighter、teams、active を表示用に変換する。HP・ENゲージと画像は既存レンダラーを活用し、属性は element_1 / element_2、ランクは stages、防御状態はGOイベントから表示する。 |
-| renderMoveGrid、playerChooseMove | 技の可否を geneOrderBattle.checkAction に委ねる。共通回避を技枠から独立して表示する。詳細の予測値は純粋な calculateDamage を利用する。 |
-| renderSwitchGrid、playerChooseSwitch | GOの編成と生存状態から候補を表示し、交代アクションを送る。強制交代の入力フローは仕様確定後に接続する。 |
-| resolveTurn、renderBattle、pushLog、既存アニメーション | 旧処理へのコマンド接続を切り替え、geneOrderBattle.resolveTurn のイベントを順に再生する。同期処理後の個体状態から描画し、旧 executeAction、旧効果ハンドラー、旧ターン終了処理を経由させない。 |
-| renderSetup、startBattle、TEAM_SLOT_LIMIT | GOのデータからチームを生成する。MHBの上限5、初期編成、敵編成、対戦開始時の物語・装備・交換処理はGO仕様確定後に個別判断する。 |
-| 起動・保存・素材 | 既存 initializeLegacyScreens を丸ごと実行する経路は採用しない。GOのUTF-8マスタと保存名前空間を維持し、旧埋め込みMHBデータを読み込まない。旧 assets/ を指す素材はGOで利用するものの所在を確認する。 |
+`initializeGeneOrder()` は正式9 CSVを読み込み、固定編成デバッグと正式画面の両方を準備する。 `go-ui.js` がMHBテンプレートから必要な画面だけを挿入する。 `styles.css` はMHB由来の元データ。少量の `go-ui.css` でGO画像の寸法、4属性の補助色、狭い画面と数値の表示を調整する。正式なゲーム進行、ショップ、所持・育成、交換・持ち物、セーブ、チュートリアルは未接続。
 
-受入確認は、既存の見た目、編成→技選択→交代→勝敗、ゲージ・演出とエンジンのイベントの一致、旧データ・旧保存・旧進行の非使用を含む。
+正式な編成上限は仕様確認待ち。対戦確認用の暫定設定は各側1～4体、同一チーム内で同じキャラクターは1体まで。両側で同じキャラクターを選ぶことはできる。CSVのスロットは詳細に表示し、合計による制限は設定しない。先発を並べ替えて `createBattle()` に渡す。属性・基礎能力と少なくとも1件の使用可能な習得技があるキャラクターを編成できる。
+
+GO戦闘状態は `geneOrderBattle` が管理する。 `createMatch()` は `checkAction()` と `resolveTurn()` / `continueSwitch()` に行動を渡し、イベントを公開履歴に記録する。AIは `geneOrderAI.observe()` が切り出した情報で判断する。手動対手動では両側の行動を選び終えてからターンを解決する。AI対AIは1操作で1ターン進む。デバッグのAI採点はデバッグ画面で確認できる。
+
+イベントごとに記録した描画用のフレームを順に使い、ターンまたは交代選択待ちの状態で最終状態に同期する。入力は行動選択・解決・AI処理・演出・交代選択・勝敗に分かれる。対戦を離れるか再戦すると以前の演出を破棄する。スキップとOSのモーション軽減設定に対応する。
+
+使用した素材は `asset/battle-animation/` の5画像、`asset/bgm/free-battle.mp3` と既存GO画像。BGMはMHBの `battle_f_1.mp3`、アニメーションはMHBの対応する画像の複製。GO専用タイトル絵、キャラクター047と064の画像、独立した効果音が不足している。画像未設定は代替表示。再生が制限された場合も対戦を続行できる。
+
+[操作確認とテスト](ui-validation.md)

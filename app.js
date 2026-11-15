@@ -3927,6 +3927,8 @@ async function initializeGeneOrder() {
     renderGeneOrderData();
     if (document.querySelector("#go-battle")) mountGeneOrderBattlePreview();
     status.textContent = `キャラクター ${state.characters.length}体 · 技 ${state.skills.size}件 · 属性 ${state.elements.size}種`;
+    const official = document.getElementById?.("go-app");
+    if (official) geneOrderUI.mount(official, state);
   } catch (error) {
     status.setAttribute("role", "alert");
     status.textContent = `GOデータの読み込みに失敗しました。 ${error.message}`;
@@ -4176,48 +4178,8 @@ function mountGeneOrderBattlePreview() {
         collect(result, events);
       }
       const sideName = (side) => side === "player" ? "自分側" : "相手側";
-      const describe = {
-        passive: describePassive,
-        move: (e) => `${e.actor}の${e.move}（EN −${e.cost}）` +
-          (e.category === "attack" && e.reason !== "decoy" ? ` → ${e.target}に${e.actualDamage}ダメージ（威力${e.power}）` : ""),
-        charge: (e) => `${e.actor}は${e.move}を予約（威力${e.power}、EN −${e.cost}）`,
-        "defense-ready": (e) => `${e.actor}は${e.name}を構えた`,
-        absorbed: (e) => `${e.actor}は水技を吸収しHPを${e.recovered}回復`,
-        reflected: (e) => `${e.actor}は${e.target}に${e.damage}ダメージを反射`,
-        revenge: (e) => `${e.actor}は${e.target}に${e.damage}ダメージの反撃`,
-        recoil: (e) => `${e.actor}は反動で${e.damage}ダメージ`,
-        "dodge-attempt": (e) => `${e.actor}の回避判定（${e.chance}%）${e.success ? "成功：回避状態" : "失敗"}`,
-        evaded: (e) => `${e.actor}は${e.move}を回避した`,
-        "half-guard": (e) => `${e.actor}は被ダメージ半減状態になった`,
-        "defense-expired": (e) => `${e.actor}の${[e.dodge && "回避状態", e.guard && "半減防御"].filter(Boolean).join("・")}が終了した`,
-        stage: (e) => `${e.actor}の${statLabels[e.stat]} ${e.delta >= 0 ? "+" : ""}${e.delta}（現在 ${e.stage}）`,
-        heal: (e) => `${e.actor}のHP +${e.recovered}`,
-        "effect-energy": (e) => `${e.actor}のEN +${e.recovered}（技効果）`,
-        switch: (e) => `${e.actor}から${e.target}に交代` +
-          (e.inheritedStages ? "（能力ランクを引き継いだ）" : "") + (e.decoyHp ? `（デコイHP ${e.decoyHp}を引き継いだ）` : ""),
-        "decoy-created": (e) => `${e.actor}はHPを${e.cost}消費し、HP ${e.maxHp}のデコイを出した`,
-        "decoy-hit": (e) => `${e.actor}のデコイに${e.damage}ダメージ（残りHP ${e.hp}）`,
-        "decoy-broken": (e) => `${e.actor}のデコイが壊れた`,
-        "move-failed": (e) => `${e.actor}の${e.move}は不成立`,
-        replacement: (e) => `${sideName(e.side)}に${e.target}が登場`,
-        wait: (e) => `${e.actor}は待機`,
-        faint: (e) => `${e.actor}は戦闘不能`,
-        skipped: (e) => `${e.actor}は行動できなかった`,
-        energy: (e) => `${sideName(e.side)}のEN +${e.recovered}`,
-        win: (e) => `${sideName(e.side)}の勝利`,
-        draw: () => "引き分け",
-        residual: (e) => `${e.actor}は${e.name}で ${e.damage} ダメージ`,
-        "status-applied": (e) => `${e.actor}は${e.name}状態（${e.turns}ターン）`,
-        bind: (e) => `${e.actor}は締め付けで交代できない（${e.turns}ターン）`,
-        "bind-ended": (e) => `${e.actor}の締め付けが解除された`,
-        "evasion-boost": (e) => `${e.actor}の回避率が次ターンに上昇する`,
-        "effect-expired": (e) => `${e.actor}の${e.name}が終了した`,
-        "field-applied": (e) => `${sideName(e.side)}の${e.name}（ターン${e.starts}〜${e.expires - 1}）`,
-        "field-cleared": (e) => `${sideName(e.side)}のフィールドを解除${e.removed.length ? `（${e.removed.join("、")}）` : ""}`,
-        "field-expired": (e) => `${sideName(e.side)}の${e.name}が終了した`,
-      };
       const lines = pending ? log.textContent.split("\n").slice(0, -1) : [startLog(), `ターン ${result.turn}`].filter(Boolean);
-      lines.push(...events.map((entry) => describe[entry.type](entry)));
+      lines.push(...events.map(describeGeneOrderEvent));
       if (result.pendingSwitch) lines.push(`${sideName(result.pendingSwitch.side)}の交代先を選択`);
       log.textContent = lines.join("\n");
       if (!result.pendingSwitch && decisions.length) diagnostics.textContent = decisions.map(({ side, type, selected, candidates }) =>
@@ -6787,7 +6749,7 @@ function renderCommandLights() {
     .join("");
 }
 
-function renderSprite(fighter, side, activeIndex = 0) {
+function renderSprite(fighter, side, activeIndex = 0, elementMarkup, missingImage = "") {
   if (!fighter) return "";
   const slotClass = `sprite-slot-${Math.max(1, Math.floor(number(fighter.base.slot, 1)))}`;
   const teamSlotClass = `sprite-team-slot-${Math.max(1, activeIndex + 1)}`;
@@ -6803,10 +6765,12 @@ function renderSprite(fighter, side, activeIndex = 0) {
     : "";
   return `
     <div class="sprite-image-wrap ${slotClass} ${teamSlotClass} ${characterClass}" data-fighter-side="${escapeHtml(side)}" role="button" tabindex="0" aria-label="${escapeHtml(fighter.name)}の状態">
-      <img class="sprite-image ${side === "enemy" ? "is-enemy" : ""}" src="${escapeHtml(fighter.base.imageSrc)}" alt="${escapeHtml(fighter.name)}"${imageStyle} />
+      ${fighter.base.imageSrc || !missingImage
+        ? `<img class="sprite-image ${side === "enemy" ? "is-enemy" : ""}" src="${escapeHtml(fighter.base.imageSrc)}" alt="${escapeHtml(fighter.name)}"${imageStyle} />`
+        : missingImage}
     </div>
     <div class="sprite-name">${escapeHtml(fighter.name)}</div>
-    <div class="sprite-element">${elementPill(fighter.base.element)}</div>
+    <div class="sprite-element">${elementMarkup ?? elementPill(fighter.base.element)}</div>
   `;
 }
 
@@ -9396,4 +9360,57 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function describeGeneOrderEvent(event) {
+  const statLabels = { phy_atk: "PA", phy_def: "PD", sp_atk: "SA", sp_def: "SD", speed: "SP" };
+  const sideName = (side) => side === "player" ? "自分側" : "相手側";
+  const describe = {
+    passive: (event) => {
+      const detail = event.multiplier ? '（' + statLabels[event.stat] + ' ×' + event.multiplier + '）' :
+        event.damage ? '（HP −' + event.damage + '）' : '';
+      return event.text + detail;
+    },
+    move: (e) => {
+      const suffix = { "passive-immune": "パッシブにより無効", blocked: "攻撃は無効", "position-miss": "位置によって届かなかった" }[e.reason];
+      const damage = e.category === "attack" && e.reason === "hit" ? ` → ${e.target}に${e.actualDamage}ダメージ（威力${e.power}）` : "";
+      return `${e.actor}の${e.move}（EN −${e.cost}）${suffix ? " → " + suffix : damage}`;
+    },
+    charge: (e) => `${e.actor}は${e.move}を予約（威力${e.power}、EN −${e.cost}）`,
+    "defense-ready": (e) => `${e.actor}は${e.name}を構えた`,
+    absorbed: (e) => `${e.actor}は水技を吸収しHPを${e.recovered}回復`,
+    reflected: (e) => `${e.actor}は${e.target}に${e.damage}ダメージを反射`,
+    revenge: (e) => `${e.actor}は${e.target}に${e.damage}ダメージの反撃`,
+    recoil: (e) => `${e.actor}は反動で${e.damage}ダメージ`,
+    "dodge-attempt": (e) => `${e.actor}の回避判定（${e.chance}%）${e.success ? "成功：回避状態" : "失敗"}`,
+    evaded: (e) => `${e.actor}は${e.move}を回避した`,
+    "half-guard": (e) => `${e.actor}は被ダメージ半減状態になった`,
+    "defense-expired": (e) => `${e.actor}の${[e.dodge && "回避状態", e.guard && "半減防御"].filter(Boolean).join("・")}が終了した`,
+    stage: (e) => `${e.actor}の${statLabels[e.stat]} ${e.delta >= 0 ? "+" : ""}${e.delta}（現在 ${e.stage}）`,
+    heal: (e) => `${e.actor}のHP +${e.recovered}`,
+    "effect-energy": (e) => `${e.actor}のEN +${e.recovered}（技効果）`,
+    switch: (e) => `${e.actor}から${e.target}に交代` +
+      (e.inheritedStages ? "（能力ランクを引き継いだ）" : "") + (e.decoyHp ? `（デコイHP ${e.decoyHp}を引き継いだ）` : ""),
+    "decoy-created": (e) => `${e.actor}はHPを${e.cost}消費し、HP ${e.maxHp}のデコイを出した`,
+    "decoy-hit": (e) => `${e.actor}のデコイに${e.damage}ダメージ（残りHP ${e.hp}）`,
+    "decoy-broken": (e) => `${e.actor}のデコイが壊れた`,
+    "move-failed": (e) => `${e.actor}の${e.move}は不成立`,
+    replacement: (e) => `${sideName(e.side)}に${e.target}が登場`,
+    wait: (e) => `${e.actor}は待機`,
+    faint: (e) => `${e.actor}は戦闘不能`,
+    skipped: (e) => `${e.actor}は行動できなかった`,
+    energy: (e) => `${sideName(e.side)}のEN +${e.recovered}`,
+    win: (e) => `${sideName(e.side)}の勝利`,
+    draw: () => "引き分け",
+    residual: (e) => `${e.actor}は${e.name}で ${e.damage} ダメージ`,
+    "status-applied": (e) => `${e.actor}は${e.name}状態（${e.turns}ターン）`,
+    bind: (e) => `${e.actor}は締め付けで交代できない（${e.turns}ターン）`,
+    "bind-ended": (e) => `${e.actor}の締め付けが解除された`,
+    "evasion-boost": (e) => `${e.actor}の回避率が次ターンに上昇する`,
+    "effect-expired": (e) => `${e.actor}の${e.name}が終了した`,
+    "field-applied": (e) => `${sideName(e.side)}の${e.name}（ターン${e.starts}〜${e.expires - 1}）`,
+    "field-cleared": (e) => `${sideName(e.side)}のフィールドを解除${e.removed.length ? `（${e.removed.join("、")}）` : ""}`,
+    "field-expired": (e) => `${sideName(e.side)}の${e.name}が終了した`,
+  };
+  return describe[event.type]?.(event) ?? "";
 }

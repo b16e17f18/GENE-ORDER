@@ -72,7 +72,7 @@ await go.boot();
 
 test("production scripts parse and evaluate in index.html order", () => {
   assert.deepEqual(scripts, ["data-validation.js", "passive.js", "battle-core.js", "battle-ai.js",
-    "bgm.js", "dialogue-manager.js", "app.js"]);
+    "bgm.js", "dialogue-manager.js", "go-ui.js", "app.js"]);
   assert.match(go.elements.get("#go-status").textContent, /46体.*65件.*7種/);
 });
 
@@ -409,4 +409,99 @@ test("AI CSV preferences diagnose unknown profiles and unlearned skills without 
   assert.equal(synthetic.run('state.dataDiagnostics.some(d => d.level === "AIタイプ未対応" && d.id === "character_001")'), true);
   assert.equal(synthetic.run('state.dataDiagnostics.some(d => d.level === "AI指定技未習得" && d.field === "ai_setup_skill")'), true);
   assert.equal(synthetic.run('enemyAiTypeFor({base: state.characterMap.get("character_001")})'), "balanced");
+});
+
+const formalMatch = (mode = "manual") => `
+  geneOrderUI.createMatch(state, {
+    team: { player: ["character_016", "character_015", "character_019"], enemy: ["character_009", "character_005"] },
+    lead: { player: "character_015", enemy: "character_009" }, mode: "${mode}"
+  }, { random: () => 0.1, aiRoll: () => 0 })
+`;
+
+test("official UI rejects unready, invalid, duplicate and oversized teams using the formal roster", () => {
+  assert.equal(go.run('geneOrderUI.fighterIssue(state.characterMap.get("character_047"), state)'), "習得技未設定");
+  assert.equal(go.run('geneOrderUI.fighterIssue(state.characterMap.get("character_005"), state)'), "");
+  assert.equal(go.run(`(${formalMatch()}).battle.teams.player[0].base.name`), "ユーズドマウス");
+  assert.throws(() => go.run(formalMatch().replace('"character_016", "character_015", "character_019"', "")), /先発/);
+  assert.throws(() => go.run(formalMatch().replace('"character_016"', '"character_015"')), /先発/);
+  assert.throws(() => go.run(formalMatch().replace("random: ()", "limit: 2, random: ()")), /1〜2体/);
+  assert.throws(() => go.run(formalMatch().replace('"character_016"', '"character_047"')), /習得技未設定/);
+});
+
+test("official match maps manual versus AI through GO and records display frames without legacy state", () => {
+  const priorCalls = go.storageCalls.length;
+  const actual = JSON.parse(go.run(`
+    (() => {
+      const match = ${formalMatch("enemy")};
+      const battle = match.battle;
+      const act = { type: "move", moveId: "skill_000" };
+      const result = match.resolve({ player: act, enemy: { type: "unknown" } });
+      return JSON.stringify([match.isAI("player"), match.isAI("enemy"), result.frames.length === result.events.length,
+        result.events.some(e => e.type === "dodge-attempt"), result.events.some(e => e.side === "enemy"), battle.turn,
+        state.playerTeam.length, state.enemyTeam.length]);
+    })()
+  `));
+  assert.deepEqual(actual, [false, true, true, true, true, 2, 0, 0]);
+  assert.equal(go.storageCalls.length, priorCalls);
+});
+
+test("official match presents decoy, Relay, entry passive and rejects duplicate continuation", () => {
+  const actual = JSON.parse(go.run(`
+    (() => {
+      const match = ${formalMatch()};
+      const battle = match.battle;
+      const wait = { type: "wait" };
+      const turn = (moveId) => match.resolve({ player: moveId ? { type: "move", moveId } : wait, enemy: wait });
+      turn();
+      const decoy = turn("skill_041");
+      const created = decoy.frames[decoy.events.findIndex(e => e.type === "decoy-created")].teams.player[0].decoy.hp;
+      const pending = turn("skill_042");
+      const before = battle.teams.player[0].energy;
+      let blocked = false, invalid = false, repeated = false;
+      try { turn(); } catch { blocked = true; }
+      try { match.resume(0); } catch { invalid = true; }
+      const result = match.resume(1);
+      try { match.resume(1); } catch { repeated = true; }
+      const beforeDamage = result.frames.find((_, i) => result.events[i].type === "switch");
+      return JSON.stringify([created, pending.pendingSwitch.reason, blocked, invalid, repeated, before,
+        battle.teams.player[0].energy, beforeDamage.teams.player[1].decoy.hp, battle.teams.player[1].decoy.hp,
+        result.events.filter(e => e.phase === "entry").length, battle.turn]);
+    })()
+  `));
+  assert.deepEqual(actual, [72, "relay", true, true, true, 1, 0, 72, 72, 1, 4]);
+});
+
+test("official match captures poison and HP0 before resuming a replacement, then supports replay", () => {
+  const actual = JSON.parse(go.run(`
+    (() => {
+      const make = () => ${formalMatch()};
+      const match = make();
+      const battle = match.battle;
+      const wait = { type: "wait" };
+      match.resolve({ player: { type: "switch", index: 2 }, enemy: wait });
+      const poison = { type: "move", moveId: "skill_053" };
+      const afflicted = match.resolve({ player: poison, enemy: wait });
+      const statusIndex = afflicted.events.findIndex(e => e.type === "status-applied");
+      const atApplication = afflicted.frames[statusIndex].teams.enemy[0].statuses[0].turns;
+      const after = battle.teams.enemy[0].statuses[0].turns;
+      let turn;
+      for (let i = 0; i < 15 && !battle.pendingSwitch; i++) {
+        const choice = geneOrderBattle.checkAction(battle, "player", poison) ? wait : poison;
+        turn = match.resolve({ player: choice, enemy: wait });
+      }
+      const faint = turn.events.findIndex(e => e.type === "faint");
+      const atFaint = turn.frames[faint].teams.enemy[0].hp;
+      const replacement = match.resume(1);
+      for (let i = 0; i < 15 && !battle.winner; i++) {
+        const choice = geneOrderBattle.checkAction(battle, "player", poison) ? wait : poison;
+        match.resolve({ player: choice, enemy: wait });
+      }
+      let blocked = false;
+      try { match.resolve({ player: wait, enemy: wait }); } catch { blocked = true; }
+      const replay = make().battle;
+      return JSON.stringify([atApplication, after, atFaint, replacement.events.some(e => e.type === "replacement"),
+        battle.winner, blocked, replay.turn, replay.winner, replay.teams.enemy[0].hp]);
+    })()
+  `));
+  assert.deepEqual(actual, [7, 6, 0, true, "player", true, 1, null, 146]);
 });

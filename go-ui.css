@@ -1,0 +1,51 @@
+/* GO adjustments for the reused MHB template. */
+#go-app .go-title-panel { margin-inline: auto; max-width: 540px; text-align: center; }
+#go-app .go-title-panel h1 { font-size: clamp(2rem, 8vw, 5rem); margin: 16px 0 0; }
+#go-app .go-title-panel .setup-actions { justify-content: center; }
+#go-app .go-mode { display: grid; gap: 6px; margin-top: 14px; }
+#go-app .go-mode select { min-width: 0; max-width: 100%; }
+#go-app .go-missing-image { display: grid; place-items: center; min-height: 72px; padding: 8px; text-align: center; }
+#go-app .move-grid > .command-note, #go-app .switch-grid > .command-note { grid-column: 1 / -1; }
+#go-app .card-name, #go-app .move-name, #go-app .move-text { overflow-wrap: anywhere; }
+#go-app .battle-view .enemy-hud .hp-value { display: block; }
+#go-app .battle-view .energy-line { grid-template-columns: auto minmax(0, 1fr); }
+#go-app .battle-view .energy-line .hud-value { background: #fff; border: 1px solid #111; color: #111; padding: 1px 4px; }
+#go-app .battle-view .battle-info-chips { overflow-wrap: anywhere; white-space: normal; }
+#go-app .battle-view .go-fainted .sprite-image-wrap { opacity: .25; }
+#go-app .battle-view .go-sheet { background-repeat: no-repeat; transform: translate(-50%, -50%); }
+#go-app .go-battle-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px; }
+#go-app .go-battle-footer details { flex: 1 1 100%; }
+#go-app #go-official-log { max-height: 12rem; overflow: auto; padding-inline-start: 2.5em; }
+#go-app .detail-panel { max-height: calc(100dvh - 24px); overflow: auto; }
+#go-app .element-wind { --element-color: #78c796; background-color: #78c796; color: #192b23; }
+#go-app .element-earth { --element-color: #cfa77e; background-color: #cfa77e; color: #2b2119; }
+#go-app .element-light { --element-color: #f9dd70; background-color: #f9dd70; color: #2b2119; }
+#go-app .element-dark { --element-color: #665c8f; background-color: #665c8f; color: #fff; }
+@media (max-width: 580px) {
+  #go-app .team-panel { position: static; }
+  #go-app .battle-view .battle-field { min-height: 430px; }
+  #go-app .battle-view .hud { margin-inline: 0; min-height: 116px; }
+  #go-app .battle-view .fighter-sprite { max-width: 45%; }
+}
+#go-app .battle-view .hp-fill { transition: width 120ms ease-out; }
+#go-app .battle-view.go-fast .hp-fill { transition: none; }
+#go-app .battle-view .battle-info-line { grid-template-columns: max-content minmax(0, 1fr); }
+#go-app .battle-view .fighter-sprite { grid-template-rows: auto; min-height: 0; }
+#go-app .battle-view .sprite-image-wrap { min-height: 0; }
+#go-app .battle-view .sprite-image-wrap .sprite-image { width: auto; max-width: 100%; max-height: 228px; height: auto; object-fit: contain; }
+#go-app .battle-view .move-button.move-element-wind { background: #226d51; }
+#go-app .battle-view .move-button.move-element-earth { background: #76502f; }
+#go-app .battle-view .move-button.move-element-light { background: #756017; }
+#go-app .battle-view .move-button.move-element-dark { background: #4e406e; }
+@media (max-width: 580px) {
+  #go-app .battle-view .battle-field { min-height: 470px; }
+  #go-app .battle-view .sprite-image-wrap .sprite-image { max-height: 118px; }
+  #go-app .battle-view .move-button { grid-template-columns: minmax(0, 1fr) auto; gap: 3px 5px; }
+  #go-app .battle-view .move-name { grid-column: 1; }
+  #go-app .battle-view .move-element, #go-app .battle-view .move-power { grid-column: 2; }
+  #go-app .battle-view .move-kind { grid-column: 1 / -1; grid-row: 3; }
+  #go-app .battle-view .move-text { grid-column: 1 / -1; grid-row: 4; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #go-app .battle-view .hp-fill { transition: none; }
+}

@@ -605,7 +605,7 @@ const geneOrderBattle = (() => {
   }
 
   function createBattle({ player, enemy, skills, effectiveness, effects = new Map(), battleEffects = new Map(), powerRules = new Map(),
-    passives = new Map(), random = Math.random, manualSwitches = false, onSwitch = null }) {
+    passives = new Map(), random = Math.random, manualSwitches = false, onSwitch = null, captureFrame = null }) {
     if (!player.length || !enemy.length) throw new Error("両チームに個体が必要です。");
     const teams = { player: player.map((base) => createFighter(base, passives)),
       enemy: enemy.map((base) => createFighter(base, passives)) };
@@ -620,7 +620,7 @@ const geneOrderBattle = (() => {
     }
     const battle = {
       teams, startEvents,
-      active: { player: 0, enemy: 0 }, fields: { player: new Map(), enemy: new Map() }, skills, effectiveness, effects, battleEffects, powerRules, random, turn: 1, winner: null, manualSwitches, onSwitch, pendingSwitch: null,
+      active: { player: 0, enemy: 0 }, fields: { player: new Map(), enemy: new Map() }, skills, effectiveness, effects, battleEffects, powerRules, random, turn: 1, winner: null, manualSwitches, onSwitch, captureFrame, pendingSwitch: null,
     };
     for (const side of SIDES) applyEntryPassive(battle, side, startEvents);
     return battle;
@@ -866,6 +866,13 @@ const geneOrderBattle = (() => {
       if (error) throw new Error(`${side}: ${error}`);
     }
     const state = { turn: battle.turn, events: [] };
+    if (battle.captureFrame) {
+      state.frames = [];
+      state.events.push = (...entries) => {
+        for (const entry of entries) state.frames.push(battle.captureFrame(battle, entry));
+        return Array.prototype.push.apply(state.events, entries);
+      };
+    }
     const actions = orderActions(battle, selected);
     if (actions[0].priority === actions[1].priority && actions[0].action.type !== "wait" && actions[1].action.type !== "wait") {
       for (const { actor, side, speedPassives } of actions) {
@@ -881,7 +888,9 @@ const geneOrderBattle = (() => {
     const next = iterator.next(choice);
     battle.pendingSwitch = next.done ? null : next.value;
     battle.turnContinuation = next.done ? null : { state, iterator };
-    return { turn: state.turn, events: state.events.splice(0), winner: battle.winner, pendingSwitch: battle.pendingSwitch };
+    const result = { turn: state.turn, events: state.events.splice(0), winner: battle.winner, pendingSwitch: battle.pendingSwitch };
+    if (state.frames) result.frames = state.frames.splice(0);
+    return result;
   }
 
   function continueSwitch(battle, side, index) {
