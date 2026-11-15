@@ -59,7 +59,7 @@
   flex: 0 0 auto;
   vertical-align: middle;
   position: relative;
-  background: url("./asset/element/go-attributes.webp") no-repeat;
+  background: url("./asset/element/go-attribute-backgrounds.webp") no-repeat;
   background-size: 700% 100%;
   background-position: var(--go-attribute-offset, 0%) center;
 }
@@ -126,3 +126,22 @@
 #go-app .go-chart-legend span { padding: 4px 7px; border: 1px solid #111; font-weight: 700; }
 #go-app .go-chart p { font-size: .85rem; }
 @media (max-width: 480px) { #go-app .go-chart-table th { font-size: .72rem; } #go-app .go-chart-heading .go-attribute-icon { font-size: .9rem; } #go-app .go-chart-table th, #go-app .go-chart-table td { padding: 5px 0; } }
+
+/* v0.66: letter-free backgrounds with live, pure-white Japanese Gothic glyphs. */
+.go-attribute-icon { display: inline-grid; place-items: center; }
+.go-attribute-icon > .go-attribute-label {
+  position: relative;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip-path: none;
+  z-index: 1;
+  font-family: "Noto Sans JP", "Yu Gothic", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+  font-size: 1.02em;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0;
+  text-align: center;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0,0,0,.75);
+}
