@@ -135,7 +135,9 @@ const geneOrderUI = (() => {
     arena.querySelector("#dexButton").remove();
     arena.querySelector("#switchTab").insertAdjacentHTML("beforebegin",
       `<button id="go-dodge" class="tab-button" type="button" data-go-move="${DODGE}">回避</button>`);
-    arena.querySelector("#glossaryPanel").innerHTML = '<p>HP＝体力、PA＝物理攻撃、PD＝物理防御、SA＝特殊攻撃、SD＝特殊防御、SP＝敏捷。回復力は個体の回復力を表します。ENは技の使用に必要です。</p><button class="small-button" type="button" data-go-chart>属性相性表</button>';
+    arena.querySelector("#glossaryPanel").remove();
+    arena.querySelector("#glossaryButton").outerHTML =
+      '<button id="go-battle-chart" class="tab-button" type="button" data-go-chart aria-haspopup="dialog">相性</button>';
     arena.querySelector(".battle-card").insertAdjacentHTML("beforeend", `
       <div class="go-battle-footer">
         <label><input type="checkbox" id="go-fast-battle"> 演出をスキップ</label>
@@ -147,14 +149,19 @@ const geneOrderUI = (() => {
     arena.querySelector("#battleLog").setAttribute("role", "status");
     dex.setAttribute("role", "dialog");
     dex.setAttribute("aria-modal", "true");
-    const chartOverlay = document.createElement("div");
-    chartOverlay.id = "chartOverlay";
-    chartOverlay.className = "detail-overlay is-hidden";
-    chartOverlay.setAttribute("role", "dialog");
-    chartOverlay.setAttribute("aria-modal", "true");
-    chartOverlay.setAttribute("aria-label", "属性相性一覧表");
-    chartOverlay.innerHTML = `<div class="detail-panel go-chart-panel"><div class="detail-header"><strong>GENE ORDER</strong><button class="small-button" type="button" data-go-close="chart">閉じる</button></div>${goAttributeChart(data)}</div>`;
-    shell.append(title, setup, arena, dex, chartOverlay);
+    const chartDialog = document.createElement("dialog");
+    chartDialog.className = "detail-panel go-chart-panel";
+    chartDialog.setAttribute("aria-label", "属性相性一覧表");
+    chartDialog.innerHTML = `<div class="detail-header"><strong>GENE ORDER</strong>
+      <form method="dialog"><button class="small-button" autofocus>閉じる</button></form></div>${goAttributeChart(data)}`;
+    chartDialog.addEventListener("click", (event) => {
+      if (event.target !== chartDialog) return;
+      const { left, right, top, bottom } = chartDialog.getBoundingClientRect();
+      if (event.clientX < left || event.clientX > right || event.clientY < top || event.clientY > bottom) {
+        chartDialog.close();
+      }
+    });
+    shell.append(title, setup, arena, dex, chartDialog);
     root.append(shell);
     const $ = (id) => shell.querySelector("#" + id);
     const debugBack = document.createElement("button");
@@ -503,7 +510,7 @@ const geneOrderUI = (() => {
         : go.checkAction(battle, candidate, { type: "move", moveId: DODGE });
       $("go-dodge").disabled = Boolean(dodgeIssue);
       $("go-dodge").title = dodgeIssue || "ENを使わず回避を試みる";
-      $("glossaryButton").disabled = blocking || forced;
+      $("go-battle-chart").disabled = blocking || forced;
       if (phase === "finished") {
         const label = battle.winner === "draw" ? "引き分け" : battle.winner === "player" ? "勝利" : "敗北";
         $("enemyInfoPanel").innerHTML = `<div class="battle-inspect-header"><strong class="detail-title">${label}</strong></div>
@@ -570,7 +577,6 @@ const geneOrderUI = (() => {
       switchOpen = false;
       inspectSide = null;
       $("go-official-log").replaceChildren();
-      $("glossaryPanel").classList.add("is-hidden");
       setPage("battle");
       if ($("go-battle-bgm").checked) playBgm(BATTLE_BGM);
       for (const entry of match.battle.startEvents) appendLog(describeGeneOrderEvent(entry));
@@ -684,7 +690,7 @@ const geneOrderUI = (() => {
         openInspect(sprite.dataset.fighterSide);
       }
       if (event.key === "Escape") {
-        const overlay = [$("chartOverlay"), $("dexOverlay"), $("detailOverlay")].find((node) => node && !node.classList.contains("is-hidden"));
+        const overlay = [$("dexOverlay"), $("detailOverlay")].find((node) => node && !node.classList.contains("is-hidden"));
         if (overlay) {
           overlay.classList.add("is-hidden");
           returnFocus?.focus();
@@ -701,9 +707,7 @@ const geneOrderUI = (() => {
       if (battleAction && event.detail > 1) return;
       if (command.goPage) return showPage(command.goPage);
       if (Object.hasOwn(command, "goChart")) {
-        returnFocus = control;
-        chartOverlay.classList.remove("is-hidden");
-        chartOverlay.querySelector("button").focus();
+        chartDialog.showModal();
         return;
       }
       if (command.goClose) {
@@ -737,8 +741,6 @@ const geneOrderUI = (() => {
         showPage("setup");
       } else if (control.id === "startButton" || Object.hasOwn(command, "goReplay")) {
         start();
-      } else if (control.id === "glossaryButton") {
-        $("glossaryPanel").classList.toggle("is-hidden");
       } else if (control.id === "switchTab" || control.id === "fightTab" || Object.hasOwn(command, "goInspectBack")) {
         if (phase !== "choice") return;
         inspectSide = null;

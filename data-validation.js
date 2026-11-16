@@ -1,7 +1,5 @@
-const GO_EFFECT_ALIASES = new Map([
-  "pa_down1", "pa_up1", "pa_up2", "pd_down1", "pd_up1", "sa_down4", "sa_down1", "sa_up1", "sa_up2",
-  "sd_down1", "sd_up2", "sp_up1", "sp_down2", "heal_half", "drain_50", "heal_en",
-].map((id) => [id, `bf_${id}`]));
+const GO_EFFECT_ALIASES = new Map(["heal_half", "drain_50", "heal_en"].map((id) => [id, `bf_${id}`]));
+const GO_RANK_EFFECT_ALIAS = /^(?:pa|pd|sa|sd|sp)_(?:down|up)[1-6]$/;
 const GO_BATTLE_EFFECT_ALIASES = new Map([
   ["dodge_guard", "bf_dodge_guard"], ["protect", "bf_half_guard"],
   ["shed_tail", "bf_shed_tail"], ["water_absorb_guard", "bf_water_absorb_guard"],
@@ -12,7 +10,8 @@ function canonicalizeGeneOrderSkill(row) {
   const skill = { ...row };
   for (const slot of [1, 2, 3]) {
     const field = `effect${slot}`;
-    skill[field] = GO_EFFECT_ALIASES.get(row[field]) ?? row[field];
+    const id = row[field];
+    skill[field] = GO_RANK_EFFECT_ALIAS.test(id) ? `bf_${id}` : GO_EFFECT_ALIASES.get(id) ?? id;
   }
   for (const slot of [1, 2]) {
     const field = `battle_effect${slot}`;

@@ -17,7 +17,7 @@
 | character.csv | 64 | 46 |
 | passive.csv | 64 | 24 |
 | skill.csv | 100 | 65 |
-| effect.csv | 15 | 15 |
+| effect.csv | 70 | 70 |
 | battle_effect.csv | 6 | 6 |
 | power_rule.csv | 2 | 2（1グループ） |
 | element.csv | 7 | 7 |
@@ -111,3 +111,10 @@ v0.31の16箇所から9箇所を解消し、7箇所が残る。技・能力・�
 ## v0.42 正式9マスタ検証
 
 24パッシブが対応済みで40枠が予約行。必須能力、EN、発生率、持続ターン、威力補正の診断を追加した。既知の参照不一致4箇所を維持。仮想CSV応答で初期EN・終了時ランク・火技倍率の3効果を合成し、倍率変更も検証した。[マスタ別結果](battle-validation.md)
+
+## 技のランク・継続ダメージ・回避率・攻撃参照能力
+
+- effect.csv は70定義で、そのうちランク効果は5能力×12種類。skill.csv の effect1〜3 には、例えば pa_down6 や bf_pd_up3 を指定し、対象と発動率を同じ番号の列に書く。ランクは戦闘中に−6〜＋6へ制限する。
+- 継続ダメージは effect.csv に一意の効果IDを作り、effect_group=damage、damage_type=percent_maxhp、damage_value に最大体力に対する百分率、turn に回数を書く。付与ターンの終了時から進み、同じIDでの再付与は期間を更新する。交代封じを伴うものは effect_group=bind を使う。
+- 回避率補正は effect_group=evasion、damage_type=multiplier、target_stat=evasion_percent。damage_value が倍率、turn が持続、start_delay が開始までのターン数（0で即時、1で次のターン）。ブロッサムシャインは倍率2・持続1・開始1。
+- 攻撃側の能力参照は skill.csv の attack_stat。phy_atk／phy_def／sp_atk／sp_def／speed を指定でき、空欄は技の分類に従う。シェルハードは phy_def。

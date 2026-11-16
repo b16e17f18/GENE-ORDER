@@ -150,13 +150,18 @@ const geneOrderBattle = (() => {
   function effectKind(effect) {
     if (!effect || effect.damage_value === "" || !Number.isFinite(Number(effect.damage_value))) return null;
     const value = Number(effect.damage_value);
-    if (effect.damage_type === "stat_stage" && STATS.includes(effect.target_stat) && Number.isInteger(value) &&
+    if (effect.damage_type === "stat_stage" && STATS.includes(effect.target_stat) && Number.isInteger(value) && Math.abs(value) <= MAX_STAGE &&
       ((effect.effect_group === "buff" && value > 0) || (effect.effect_group === "debuff" && value < 0))) return "stage";
-    if (effect.damage_type === "percent_maxhp" && value > 0 && Number.isInteger(Number(effect.turn)) && Number(effect.turn) > 0) {
+    const duration = Number(effect.turn);
+    const lasting = Number.isSafeInteger(duration) && duration > 0;
+    if (effect.damage_type === "percent_maxhp" && value > 0 && lasting) {
       if (effect.effect_group === "damage") return "status-damage";
       if (effect.effect_group === "bind") return "bind-damage";
     }
-    if (effect.effect_group === "evasion" && effect.damage_type === "multiplier") return "evasion-boost";
+    const delay = Number(effect.start_delay ?? 1);
+    if (effect.effect_group === "evasion" && effect.damage_type === "multiplier" &&
+      effect.target_stat === "evasion_percent" && value >= 0 && lasting &&
+      Number.isSafeInteger(delay) && delay >= 0) return "evasion-boost";
     if (effect.effect_group === "clear_field") return "clear-field";
     if (effect.effect_group === "clear_buff") return "clear-buff";
     if (effect.effect_group === "recoil" && effect.damage_type === "actual_damage_percent" && value > 0) return "recoil";
@@ -382,7 +387,7 @@ const geneOrderBattle = (() => {
   function evasionRate(fighter, turn) {
     let rate = fighter.base.evasion_percent ?? 0;
     for (const effect of (fighter.timedEffects ?? new Map()).values()) {
-      if (activeTimed(effect, turn)) rate *= effect.definition.damage_value;
+      if (activeTimed(effect, turn) && effectKind(effect.definition) === "evasion-boost") rate *= effect.definition.damage_value;
     }
     return Math.max(0, Math.min(100, rate));
   }
@@ -554,7 +559,8 @@ const geneOrderBattle = (() => {
         applyStatus(recipient, effect, event, events);
       } else if (kind === "evasion-boost") {
         const timed = setTimedEffect(recipient.timedEffects, effect, battle.turn, effect.start_delay ?? 1);
-        events.push({ ...event, type: "evasion-boost", starts: timed.starts });
+        events.push({ ...event, type: "evasion-boost", starts: timed.starts,
+          delay: timed.starts - battle.turn, duration: timed.expires - timed.starts, multiplier: value });
       } else if (kind === "clear-field") {
         const fields = fieldEffectsForSide(battle, event.side);
         const removed = [...fields.values()].map(({ definition }) => definition.name);

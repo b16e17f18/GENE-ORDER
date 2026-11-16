@@ -235,7 +235,7 @@ test("fainting cancels the queued move, replaces at end of turn and decides the 
   assert.throws(() => go.resolveTurn(match, { player: select(), enemy: wait }), /行動できません/);
 });
 
-test("official CSV integration: ミズアメネバムシ beats メトロシーザ in nine turns", () => {
+test("official CSV integration: current ミズアメネバムシ and メトロシーザ stats decide the duel", () => {
   const characters = new Map(csv(read("data/character.csv")).filter((row) => row.name)
     .map((row) => [row.character_id, normalizeCharacter(row, elements, species)]));
   const skills = csv(read("data/skill.csv")).filter((row) => row.category).map((row) => normalizeSkill(row, elements));
@@ -244,14 +244,16 @@ test("official CSV integration: ミズアメネバムシ beats メトロシー�
     const [a, b] = fighters(match);
     const expected = go.calculateDamage(a, b, match.skills.get("skill_026"), chart);
     const { events, winner } = go.resolveTurn(match, { player: select("skill_026"), enemy: select("skill_026") });
-    assert.equal(events[0].damage, 19);
+    assert.equal(events[0].damage, 21);
     assert.equal(events[0].side, "enemy");
-    assert.equal(events[1].damage, 18);
-    assert.equal(events[1].damage, expected.damage);
-    assert.equal(winner, turn === 9 ? "player" : null);
+    if (turn < 9) {
+      assert.equal(events[1].damage, 17);
+      assert.equal(events[1].damage, expected.damage);
+    }
+    assert.equal(winner, turn === 9 ? "enemy" : null);
   }
-  assert.equal(active(match).hp, 4);
-  assert.equal(active(match, "enemy").hp, 0);
+  assert.equal(active(match).hp, 0);
+  assert.equal(active(match, "enemy").hp, 19);
 });
 
 const officialCharacters = new Map(csv(read("data/character.csv")).filter((row) => row.name)

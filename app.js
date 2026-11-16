@@ -9456,7 +9456,10 @@ function describeGeneOrderEvent(event) {
     "status-applied": (e) => `${e.actor}は${e.name}状態（${e.turns}ターン）`,
     bind: (e) => `${e.actor}は締め付けで交代できない（${e.turns}ターン）`,
     "bind-ended": (e) => `${e.actor}の締め付けが解除された`,
-    "evasion-boost": (e) => `${e.actor}の回避率が次ターンに上昇する`,
+    "evasion-boost": (e) => {
+      const timing = e.delay === 0 ? "このターンから" : e.delay === 1 ? "次のターンから" : `${e.delay}ターン後から`;
+      return `${e.actor}の回避率は${timing}${e.duration}ターン、${e.multiplier}倍になる`;
+    },
     "effect-expired": (e) => `${e.actor}の${e.name}が終了した`,
     "field-applied": (e) => `${sideName(e.side)}の${e.name}（ターン${e.starts}〜${e.expires - 1}）`,
     "field-cleared": (e) => `${sideName(e.side)}のフィールドを解除${e.removed.length ? `（${e.removed.join("、")}）` : ""}`,

@@ -121,7 +121,8 @@ test("diagnoses unresolved move references and keeps passive placeholders separa
   assert.equal(go.run('state.skills.get("skill_001").effect1'), "bf_pa_down1");
   assert.equal(go.run('[...state.passives.values()].every((p) => p.status === "implemented")'), true);
   assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照先未設定" && d.value === "passive_025")'), true);
-  assert.equal(go.run('state.dataDiagnostics.filter((d) => d.level === "予約行").length'), 93);
+  assert.equal(go.run('state.dataDiagnostics.filter((d) => d.level === "予約行" && d.id).length'), 93);
+  assert.equal(go.run('state.dataDiagnostics.filter((d) => d.level === "ID未設定" && d.table === "characters").length'), 10);
 });
 
 test("validator catches duplicate IDs, matrix pair gaps and invalid numbers", () => {
@@ -390,6 +391,145 @@ test("CSV edits change the speed multiplier and burn damage and duration in a ne
     })()
   `);
   assert.deepEqual(JSON.parse(result), [36, 24, 2]);
+});
+
+test("existing CSVs configure both bind moves, attack reference, and evasion timing", async () => {
+  const revised = runtime({ transforms: {
+    "./data/skill.csv": (csv) => csv.replace(/(^skill_033,.*),phy_def\r?$/m, "$1,sp_def"),
+    "./data/effect.csv": (csv) => csv
+      .replace("しめつける,締め付け,bind,percent_maxhp,10,3", "しめつける,締め付け,bind,percent_maxhp,20,2")
+      .replace(/(^回避率UP,.*),1\r?$/m, "$1,0"),
+  } });
+  await revised.boot();
+  const result = revised.run(`
+    (() => {
+      const go = geneOrderBattle;
+      const base = state.characterMap.get("character_010");
+      const make = (id) => go.createBattle({
+        player: [{ ...base, passive_id: null, skillIds: [id] }],
+        enemy: [{ ...base, passive_id: null, hp: 200 }, base],
+        skills: state.skills, effects: state.effects, battleEffects: state.battleEffects,
+        powerRules: state.powerRules, effectiveness: state.effectiveness, random: () => 0,
+      });
+      const cast = (match, id) => {
+        go.changeEnergy(go.activeFighter(match, "player"), 6);
+        return go.resolveTurn(match, { player: { type: "move", moveId: id }, enemy: { type: "wait" } });
+      };
+      const bind = ["skill_052", "skill_059"].map(id => {
+        const match = make(id);
+        const turn = cast(match, id);
+        const blocked = go.checkAction(match, "enemy", { type: "switch", index: 1 });
+        return [turn.events.find(e => e.type === "residual").damage,
+          go.activeFighter(match, "enemy").bind.turns, Boolean(blocked)];
+      });
+      const shell = make("skill_033");
+      const ref = go.previewDamage(shell, "player", state.skills.get("skill_033")).attack;
+      const evade = make("skill_034");
+      const starts = cast(evade, "skill_034").events.find(e => e.type === "evasion-boost").starts;
+      return JSON.stringify([bind, ref, starts]);
+    })()
+  `);
+  assert.deepEqual(JSON.parse(result), [[[40, 1, true], [40, 1, true]], 88, 1]);
+});
+
+test("all 60 rank effects can be assigned by short ID and change the correct rank", () => {
+  assert.equal(go.run(`
+    (() => {
+      const engine = geneOrderBattle;
+      const base = state.characters[0];
+      const names = masterIdLookup([...state.elements.values()], "element_id");
+      let checked = 0;
+      for (const [prefix, stat] of [["pa", "phy_atk"], ["pd", "phy_def"], ["sa", "sp_atk"], ["sd", "sp_def"], ["sp", "speed"]]) {
+        for (const dir of ["down", "up"]) {
+          for (let amount = 1; amount <= 6; amount++) {
+            const short = prefix + "_" + dir + amount;
+            const move = normalizeSkill({ skill_id: "fixture", name: "ランク検証", category: "status",
+              element: "none", cost: "0", priority: "0",
+              effect1: short, effect_chance1: "100", effect_target1: "self" }, names);
+            if (move.effect1 !== "bf_" + short) throw new Error(short + " alias");
+            const battle = engine.createBattle({
+              player: [{ ...base, skillIds: ["fixture"] }], enemy: [base],
+              skills: new Map([["fixture", move]]), effects: state.effects, effectiveness: state.effectiveness,
+            });
+            engine.resolveTurn(battle, { player: { type: "move", moveId: "fixture" }, enemy: { type: "wait" } });
+            const rank = engine.activeFighter(battle, "player").stages[stat];
+            if (rank !== (dir === "down" ? -amount : amount)) throw new Error(short + " rank " + rank);
+            checked++;
+          }
+        }
+      }
+      return checked;
+    })()
+  `), 60);
+});
+
+test("new CSV status and evasion IDs work in other moves without adding JS registrations", async () => {
+  const configured = runtime({ transforms: {
+    "./data/effect.csv": (csv) => csv.trimEnd() + "\nfixture_residual,検証用継続,damage,percent_maxhp,12,2,TRUE,none,,\n" +
+      "fixture_evasion,検証用回避,evasion,multiplier,1.5,2,TRUE,evasion_percent,,2\n",
+    "./data/skill.csv": (csv) => csv.replace(/^skill_021,.*$/m, (row) =>
+      row.replace(/,pa_up[12],self,100,pd_up[12],self,100,/, ",fixture_residual,enemy,100,fixture_evasion,self,100,")),
+  } });
+  await configured.boot();
+  const result = configured.run(`
+    (() => {
+      const engine = geneOrderBattle;
+      const base = state.characters[0];
+      const battle = engine.createBattle({
+        player: [{ ...base, evasion_percent: 40, skillIds: ["skill_021"] }],
+        enemy: [{ ...base, hp: 200 }], skills: state.skills, effects: state.effects, effectiveness: state.effectiveness,
+      });
+      const wait = { type: "wait" };
+      const first = engine.resolveTurn(battle, { player: { type: "move", moveId: "skill_021" }, enemy: wait });
+      const player = engine.activeFighter(battle, "player");
+      const rates = [engine.evasionRate(player, battle.turn)];
+      const damage = [first.events.find(e => e.type === "residual").damage];
+      for (let i = 0; i < 3; i++) {
+        const turn = engine.resolveTurn(battle, { player: wait, enemy: wait });
+        rates.push(engine.evasionRate(player, battle.turn));
+        damage.push(turn.events.find(e => e.type === "residual")?.damage ?? 0);
+      }
+      const boost = first.events.find(e => e.type === "evasion-boost");
+      return JSON.stringify([rates, damage, describeGeneOrderEvent(boost)]);
+    })()
+  `);
+  const [rates, damage, log] = JSON.parse(result);
+  assert.deepEqual(rates, [40, 60, 60, 40]);
+  assert.deepEqual(damage, [24, 24, 0, 0]);
+  assert.match(log, /2ターン後から2ターン、1\.5倍/);
+});
+
+test("Drumming Beat applies a CSV-configured PD gain while Full Commitment cancels a one-rank PA gain", async () => {
+  const configured = runtime({ transforms: {
+    "./data/skill.csv": (csv) => csv.replace(/^skill_021,.*$/m, (row) =>
+      row.replace(/,pa_up[12],self,100,pd_up[12],self,100,/, ",pa_up1,self,100,pd_up2,self,100,")),
+  } });
+  await configured.boot();
+  const result = configured.run(`
+    (() => {
+      const engine = geneOrderBattle;
+      const move = state.skills.get("skill_021");
+      const battle = engine.createBattle({
+        player: [state.characterMap.get("character_006")], enemy: [state.characters[0]],
+        skills: state.skills, effects: state.effects, passives: state.passives,
+        effectiveness: state.effectiveness, random: () => 0,
+      });
+      const turn = engine.resolveTurn(battle, { player: { type: "move", moveId: move.skill_id }, enemy: { type: "wait" } });
+      const fighter = engine.activeFighter(battle, "player");
+      return JSON.stringify([move.effect2, fighter.stages.phy_atk, fighter.stages.phy_def,
+        turn.events.filter(e => e.type === "stage").map(e => [e.stat, e.delta])]);
+    })()
+  `);
+  assert.deepEqual(JSON.parse(result), ["bf_pd_up2", 0, 2, [["phy_atk", 1], ["phy_def", 2]]]);
+});
+
+test("an invalid CSV attack stat is diagnosed and blocks the move", async () => {
+  const invalid = runtime({ transforms: {
+    "./data/skill.csv": (csv) => csv.replace(/(^skill_033,.*),phy_def\r?$/m, "$1,hp"),
+  } });
+  await invalid.boot();
+  assert.equal(invalid.run('state.dataDiagnostics.some(d => d.id === "skill_033" && d.field === "attack_stat")'), true);
+  assert.match(invalid.run('geneOrderBattle.unsupportedMoveReason(state.skills.get("skill_033"), state)'), /攻撃参照能力 hp/);
 });
 
 test("a three-slot fixture from the CSV response works with no new JavaScript handler", async () => {
