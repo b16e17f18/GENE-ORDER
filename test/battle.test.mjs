@@ -1038,7 +1038,7 @@ test("Decoy checks HP, uses exact thirds, and rejects duplicate creation without
   const fighter = active(match);
   full(fighter);
   fighter.hp = 72;
-  assert.throws(() => specialWait(match, "skill_041"), /HPが不足/);
+  assert.throws(() => specialWait(match, "skill_041"), /HPが不足.*消費は72（最大HP基準）/);
   assert.equal(fighter.energy, 7);
   fighter.hp = 73;
   specialWait(match, "skill_041");
@@ -1139,8 +1139,8 @@ test("Tail Purge validates and transfers atomically, then retains the per-fighte
   go.resolveTurn(match, { player: voluntary(1), enemy: wait });
   full(tail);
   tail.hp = 83;
-  assert.match(go.checkAction(match, "player", select("skill_006")), /HPが不足/);
-  tail.hp = 125;
+  assert.match(go.checkAction(match, "player", select("skill_006")), /HPが不足.*消費は83（最大HP基準）/);
+  tail.hp = 84;
   tail.decoy = { hp: 1, maxHp: 1 };
   assert.match(go.checkAction(match, "player", select("skill_006")), /すでに存在/);
   tail.decoy = null;
@@ -1149,7 +1149,7 @@ test("Tail Purge validates and transfers atomically, then retains the per-fighte
   const replacement = match.teams.player[2];
   const output = specialWait(match, "skill_006", 2);
   assert.equal(output.events.find(e => e.type === "switch").reason, "tail-purge");
-  assert.deepEqual([tail.hp, tail.energy, tail.decoy, replacement.decoy.hp, replacement.hp], [42, 5, null, 41, 139]);
+  assert.deepEqual([tail.hp, tail.energy, tail.decoy, replacement.decoy.hp, replacement.hp], [1, 5, null, 41, 139]);
   go.resolveTurn(match, { player: voluntary(1), enemy: wait });
   tail.hp = 125;
   assert.match(go.checkAction(match, "player", select("skill_006")), /使用済み/);
@@ -1494,7 +1494,7 @@ test("poison and binding precede living active fighters' two end stages and EN, 
   assert.equal(eventKinds.filter((type) => type === "residual").length, 3);
   assert.ok(eventKinds.lastIndexOf("residual") < eventKinds.indexOf("passive"));
   assert.ok(eventKinds.lastIndexOf("passive") < eventKinds.indexOf("energy"));
-  assert.deepEqual([holder.stages.phy_def, holder.stages.sp_def], [1, -1]);
+  assert.deepEqual([holder.stages.phy_def, holder.stages.sp_atk, holder.stages.sp_def], [0, 1, -1]);
   assert.equal(foe.passiveState.uses.size, 0);
   assert.equal(match.teams.player[1].passiveState.uses.size, 0);
   assert.equal(result.pendingSwitch.reason, "replacement");

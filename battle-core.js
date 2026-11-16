@@ -703,11 +703,11 @@ const geneOrderBattle = (() => {
   }
 
   function decoyValues(fighter, definition) {
-    const fraction = (value) => {
-      const [n, d] = hpRatio(value);
-      return Math.floor(fighter.maxHp * n / d);
+    const fractionOfMaxHp = (ratio) => {
+      const [numerator, denominator] = hpRatio(ratio);
+      return Math.floor(fighter.maxHp * numerator / denominator);
     };
-    return { cost: fraction(definition.hp_cost_ratio), maxHp: fraction(definition.decoy_hp_ratio) };
+    return { cost: fractionOfMaxHp(definition.hp_cost_ratio), maxHp: fractionOfMaxHp(definition.decoy_hp_ratio) };
   }
 
   function decoyError(fighter, definition, hp = fighter.hp) {
@@ -716,7 +716,8 @@ const geneOrderBattle = (() => {
     }
     if (fighter.decoy) return "デコイがすでに存在します。";
     const { cost, maxHp } = decoyValues(fighter, definition);
-    if (maxHp < 1 || hp <= cost) return "デコイを出すためのHPが不足しています。";
+    if (maxHp < 1) return "デコイのHPが1未満になるため使用できません。";
+    if (hp <= cost) return `デコイを出すためのHPが不足しています。消費は${cost}（最大HP基準）で、使用後にHPが1以上必要です。`;
     return "";
   }
 
