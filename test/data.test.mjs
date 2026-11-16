@@ -690,6 +690,26 @@ test("GO character stat card uses Japanese labels and independent graph maxima",
 });
 
 
+test("GO stat grades use the specified inclusive boundaries and base stat offsets", () => {
+  const bounds = [
+    [20, "G", "#A855F7"], [21, "F", "#35CFFF"], [40, "F", "#35CFFF"],
+    [41, "E", "#9ACD32"], [60, "E", "#9ACD32"], [61, "D", "#FFFF00"],
+    [80, "D", "#FFFF00"], [81, "C", "#FFA500"], [100, "C", "#FFA500"],
+    [101, "B", "#FF0000"], [120, "B", "#FF0000"], [121, "A", "#FF69B4"],
+    [140, "A", "#FF69B4"], [141, "S", "#F7B9D4"],
+  ];
+  for (const [stat, offset] of [["hp", 75], ...["phy_atk", "phy_def", "sp_atk", "sp_def", "speed"].map(stat => [stat, 25])]) {
+    for (const [score, letter, color] of bounds) {
+      const { letter: actualLetter, color: actualColor } = go.run(`goStatRank("${stat}", ${score + offset})`);
+      assert.deepEqual([actualLetter, actualColor], [letter, color], `${stat}, score ${score}`);
+    }
+  }
+  assert.equal(go.run('goStatRank("regen_value", 200)'), null);
+  const chai = go.run('goCharacterStat("hp", state.characterMap.get("character_001").hp)');
+  assert.match(chai, /種族値ランク E.*#9ACD32.*>E<\/span>/);
+  assert.doesNotMatch(go.run('goCharacterStat("regen_value", 25)'), /detail-stat-grade"/);
+});
+
 test("GO matchup chart renders all official CSV multipliers and shared attribute icons", () => {
   const html = go.run("goAttributeChart(state)");
   assert.equal((html.match(/data-attack=/g) || []).length, 49);

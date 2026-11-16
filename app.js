@@ -4220,11 +4220,30 @@ function goStatText(text) {
   return String(text ?? "").replace(/(?<![A-Za-z])(HP|PA|PD|SA|SD|SP)(?![A-Za-z])/g, (key) => labels[key]);
 }
 
-// GO character-card graph scales only; these do not cap battle stats.
-function goCharacterStat(stat, value) {
+const GO_STAT_RANKS = [
+  { max: 20, letter: "G", color: "#A855F7" },
+  { max: 40, letter: "F", color: "#35CFFF" },
+  { max: 60, letter: "E", color: "#9ACD32" },
+  { max: 80, letter: "D", color: "#FFFF00" },
+  { max: 100, letter: "C", color: "#FFA500" },
+  { max: 120, letter: "B", color: "#FF0000" },
+  { max: 140, letter: "A", color: "#FF69B4" },
+  { max: Infinity, letter: "S", color: "#F7B9D4" },
+];
+const GO_STAT_RANK_OFFSETS = { hp: 75, phy_atk: 25, phy_def: 25, sp_atk: 25, sp_def: 25, speed: 25 };
+
+function goStatRank(stat, baseValue) {
+  if (!Object.hasOwn(GO_STAT_RANK_OFFSETS, stat) || !Number.isFinite(baseValue)) return null;
+  const score = baseValue - GO_STAT_RANK_OFFSETS[stat];
+  return GO_STAT_RANKS.find(({ max }) => score <= max);
+}
+
+function goCharacterStat(stat, value, options = {}) {
   return detailStat(STAT_LABELS[stat], value, stat, {
     displayValue: value,
     graphMax: stat === "regen_value" ? 50 : stat === "hp" ? 275 : 225,
+    ...options,
+    grade: goStatRank(stat, options.baseValue ?? value),
   });
 }
 
@@ -4925,10 +4944,16 @@ function detailStat(label, value, statKey, options = {}) {
   const penaltyPercent = options.showPenalty ? Math.max(0, baseBarPercent - barPercent) : 0;
   const bonusBar = bonusPercent > 0 ? `<span class="detail-stat-bonus-fill"></span>` : "";
   const penaltyBar = penaltyPercent > 0 ? `<span class="detail-stat-penalty-fill"></span>` : "";
+  const grade = options.grade;
+  const gradeClass = grade === undefined ? "" : " detail-stat-go-graded";
+  const gradeMarkup = grade
+    ? `<span class="detail-stat-grade" role="img" aria-label="種族値ランク ${escapeHtml(grade.letter)}" style="--stat-rank-color: ${escapeHtml(grade.color)}">${escapeHtml(grade.letter)}</span>`
+    : "";
   return `
-    <div class="detail-stat detail-stat-${statKey}" style="--bar-width: ${barPercent}%; --base-bar-width: ${visibleBaseBarPercent}%; --bonus-bar-width: ${bonusPercent}%; --penalty-bar-left: ${barPercent}%; --penalty-bar-width: ${penaltyPercent}%">
+    <div class="detail-stat detail-stat-${statKey}${gradeClass}" style="--bar-width: ${barPercent}%; --base-bar-width: ${visibleBaseBarPercent}%; --bonus-bar-width: ${bonusPercent}%; --penalty-bar-left: ${barPercent}%; --penalty-bar-width: ${penaltyPercent}%">
       <span class="detail-stat-label">${escapeHtml(label)}</span>
       <div class="detail-stat-track"><span class="detail-stat-fill"></span>${bonusBar}${penaltyBar}</div>
+      ${gradeMarkup}
       <strong class="detail-stat-value">${escapeHtml(displayValue)}</strong>
     </div>
   `;

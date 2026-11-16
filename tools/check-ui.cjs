@@ -67,6 +67,17 @@ async function verify(browser, width) {
     assert.equal(await ui.locator("#titleView").getByText("v0.66", { exact: true }).count(), 1);
     await shot("title");
     await ui.locator('#titleView [data-go-page="dex"]').click();
+    const chaiHp = ui.locator(".dex-content .detail-stat-hp");
+    assert.equal(await chaiHp.locator(".detail-stat-value").textContent(), "125");
+    const grade = chaiHp.getByRole("img", { name: "種族値ランク E" });
+    assert.equal(await grade.textContent(), "E");
+    assert.equal(await grade.evaluate((letter) => getComputedStyle(letter).color), "rgb(154, 205, 50)");
+    assert.ok(await chaiHp.evaluate((row) => {
+      const track = row.querySelector(".detail-stat-track").getBoundingClientRect();
+      const letter = row.querySelector(".detail-stat-grade").getBoundingClientRect();
+      const value = row.querySelector(".detail-stat-value").getBoundingClientRect();
+      return track.right <= letter.left && letter.right <= value.left;
+    }));
     await ui.locator('[data-go-dex="character_047"]').click();
     assert.match(await ui.locator(".dex-content").textContent(), /画像未設定.*習得技.*未設定/s);
     await ui.locator('[data-go-dex="character_019"]').click();
@@ -120,6 +131,8 @@ async function verify(browser, width) {
         ["回復力", 50, "rgb(59, 209, 127)"],
       ];
       assert.equal(stats.length, expected.length);
+      assert.equal(await card.locator(".detail-stat-grade").count(), 6);
+      assert.equal(await card.locator(".detail-stat-regen_value .detail-stat-grade").count(), 0);
       const tracks = await card.locator(".detail-stat-track").evaluateAll((bars) => bars.map((bar) => {
         const { left, right, width } = bar.getBoundingClientRect();
         return { left, right, width };
@@ -205,6 +218,8 @@ async function verify(browser, width) {
     assert.deepEqual(await inspect.locator(".detail-stat-label").allTextContents(),
       ["物理攻撃", "物理防御", "特殊攻撃", "特殊防御", "敏捷", "回復力"]);
     assert.equal(await inspect.locator(".detail-stat-phy_def .detail-stat-value").textContent(), "143");
+    assert.equal(await inspect.locator(".detail-stat-phy_def .detail-stat-grade").textContent(), "B");
+    assert.equal(await inspect.locator(".detail-stat-grade").count(), 5);
     assert.match(await inspect.locator(".detail-passive").textContent(), /特性.*氷棚形成/s);
     const resistances = inspect.locator(".battle-inspect-resistance-grid .resistance-cell");
     assert.equal(await resistances.count(), 7);
@@ -264,6 +279,7 @@ async function verify(browser, width) {
     assert.deepEqual(await byId("enemyHud").locator(".go-hud-ranks > span").allTextContents(), ["物理防御-1"]);
     await inspectEnemy();
     assert.match(await inspect.locator(".detail-stat-phy_def .detail-stat-value").textContent(), / \(-1\)$/);
+    assert.equal(await inspect.locator(".detail-stat-phy_def .detail-stat-grade").textContent(), "B");
     await closeInspect();
     await ui.locator('.go-battle-footer [data-go-page="setup"]').click();
     await byId("go-official-mode").selectOption("enemy");
