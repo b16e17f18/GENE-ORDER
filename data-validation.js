@@ -24,7 +24,7 @@ function canonicalizeGeneOrderSkill(row) {
 const GO_DATA_IDS = {
   characters: "character_id", passives: "passive_id", skills: "skill_id",
   effects: "effect_id", battleEffects: "battle_effect_id", powerRules: "power_rule_id",
-  elements: "element_id", effectiveness: "attack_element", species: "species_id",
+  elements: "element_id", effectiveness: "attack_element", species: "species_id", animations: "animation_id",
 };
 
 const GO_REQUIRED_COLUMNS = {
@@ -38,6 +38,7 @@ const GO_REQUIRED_COLUMNS = {
     ...[1, 2, 3].flatMap((slot) => [`effect${slot}`, `effect_target${slot}`, `effect_chance${slot}`]),
     ...[1, 2].flatMap((slot) => [`battle_effect${slot}`, `battle_effect_chance${slot}`])],
   effects: ["name", "effect_group", "damage_type", "damage_value", "turn", "target_stat"],
+  animations: ["image_file", "frame_width", "frame_height", "columns", "rows", "frame_order", "fps", "repeat_count"],
   battleEffects: ["name", "battle_effect_group", "damage_value", "turn", "damage_cut"],
   powerRules: ["power_rule_group", "power_multiplier", "min_ratio", "max_ratio"],
   elements: ["name"],
@@ -60,6 +61,18 @@ function characterImagePath(imageName) {
   const name = imageName?.trim();
   if (!name || name === "none" || /[\\/]/.test(name) || name === "." || name === "..") return "";
   return `./asset/character/${encodeURIComponent(/\.[a-z0-9]+$/i.test(name) ? name : name + ".png")}`;
+}
+
+function normalizeGoMoveAnimation(row) {
+  const id = row.animation_id;
+  if (!id || !/^[a-z0-9_]+$/i.test(id) || !/^[a-z0-9_.-]+\.png$/i.test(row.image_file)) return null;
+  const [width, height, columns, rows, fps, repeatCount] =
+    [row.frame_width, row.frame_height, row.columns, row.rows, row.fps, row.repeat_count].map(Number);
+  if (![width, height, columns, rows, fps, repeatCount].every(n => Number.isSafeInteger(n) && n > 0)) return null;
+  if (!/^\d+(?:-\d+)*$/.test(row.frame_order)) return null;
+  const order = row.frame_order.split("-").map(Number);
+  if (order.some(frame => frame >= columns * rows)) return null;
+  return { id, path: "./asset/battle-animation/" + row.image_file, width, height, columns, rows, order, fps, repeatCount };
 }
 
 function geneOrderStatusIds(rows) {
@@ -182,6 +195,8 @@ function validateGeneOrderData(tables, imageExists) {
     range("skills", id, row, ["priority"], -Infinity, Infinity, true);
     range("skills", id, row, ["power"], row.category === "attack" ? 1 : 0, Infinity);
     range("skills", id, row, ["power_cap"], 1, Infinity);
+    range("skills", id, row, ["animation_duration_ms", "repeat_count"], 0, Infinity, true);
+    if (ids.animations) reference("skills", id, row, "animation_id", "animations");
     if (!geneOrderBattle.validAttackStat(row)) add("効果未対応", "skills", id, "attack_stat", row.attack_stat);
     range("skills", id, row, ["effect_chance1", "effect_chance2", "effect_chance3",
       "battle_effect_chance1", "battle_effect_chance2"], 0, 100);
@@ -190,6 +205,10 @@ function validateGeneOrderData(tables, imageExists) {
     for (const field of ["effect1", "effect2", "effect3"]) reference("skills", id, row, field, "effects");
     for (const field of ["battle_effect1", "battle_effect2"]) reference("skills", id, row, field, "battleEffects");
     if (isSet(row.power_rule) && !powerGroups.has(row.power_rule)) add("参照不一致", "skills", id, "power_rule", row.power_rule);
+  }
+
+  for (const row of tables.animations ?? []) {
+    if (!normalizeGoMoveAnimation(row)) add("演出定義不正", "animations", row.animation_id, "animation_id");
   }
 
   const statusIds = geneOrderStatusIds(tables.effects);

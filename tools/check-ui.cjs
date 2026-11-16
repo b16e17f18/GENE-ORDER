@@ -310,8 +310,18 @@ async function verify(browser, width) {
     await move("skill_054").click(); await pass();
     await byId("go-fast-battle").uncheck();
     await move("skill_054").click(); await pass();
-    await byId("battleAnimationLayer").locator(".go-sheet").waitFor();
+    const sheet = byId("battleAnimationLayer").locator(".go-sheet");
+    await sheet.waitFor();
+    assert.match(await sheet.evaluate(el => el.style.backgroundImage), /attack_hit01\.png/);
     assert.equal(bgmRequested, true);
+    await ui.locator('.go-battle-footer [data-go-page="setup"]').click();
+    await byId("startButton").click();
+    await move("skill_038").click(); await pass();
+    await sheet.waitFor();
+    assert.match(await sheet.evaluate(el => el.style.backgroundImage), /magic_fire01\.png/);
+    const playback = await sheet.evaluate(el => el.getAnimations()[0].effect.getTiming());
+    assert.equal(playback.duration, 250);
+    assert.equal(playback.iterations, 2);
     await ui.locator('.go-battle-footer [data-go-page="title"]').click();
     await ui.getByRole("heading", { name: "GENE ORDER" }).waitFor();
     await page.waitForFunction(() => document.querySelector("#go-app #battleAnimationLayer").childElementCount === 0);
@@ -322,9 +332,9 @@ async function verify(browser, width) {
     assert.deepEqual(await page.evaluate(() => window.__storageReads), []);
     assert.deepEqual(legacyRequests, []);
     assert.deepEqual(errors, []);
-    assert.equal(new Set(masters).size, 9);
+    assert.equal(new Set(masters).size, 10);
     assert.ok(images.every((path) => ["/asset/character/character_047.png", "/asset/character/character_064.png"].includes(path)));
-    console.log(`Edge ${width}px: official flow, all modes, replay, double-click, 9 CSVs. Image probes: ${images.join(", ")}`);
+    console.log(`Edge ${width}px: official flow, all modes, replay, double-click, 10 CSVs. Image probes: ${images.join(", ")}`);
   } finally {
     await page.close();
   }

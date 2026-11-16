@@ -2,6 +2,7 @@ const DATA_PATHS = {
   characters: "./data/character.csv",
   passives: "./data/passive.csv",
   skills: "./data/skill.csv",
+  animations: "./data/animation.csv",
   effects: "./data/effect.csv",
   battleEffects: "./data/battle_effect.csv",
   powerRules: "./data/power_rule.csv",
@@ -3994,6 +3995,7 @@ async function loadGameData() {
     battleEffects: new Map(tables.battleEffects.map(normalizeBattleEffect).filter((row) => row.battle_effect_id && row.name)
       .map((row) => [row.battle_effect_id, row])),
     powerRules,
+    moveAnimations: new Map(tables.animations.map(normalizeGoMoveAnimation).filter(Boolean).map((animation) => [animation.id, animation])),
     elements: new Map(tables.elements.map((row) => [row.element_id, row])),
     effectiveness,
     speciesMap: new Map(tables.species.map(normalizeSpecies).map((row) => [row.species_id, row])),

@@ -76,11 +76,26 @@ test("production scripts parse and evaluate in index.html order", () => {
   assert.match(go.elements.get("#go-status").textContent, /46体.*65件.*7種/);
 });
 
-test("reads only the nine official UTF-8 tables", () => {
-  assert.deepEqual(go.requested.sort(), ["battle_effect", "character", "effect", "element",
+test("reads only the official UTF-8 tables", () => {
+  assert.deepEqual(go.requested.sort(), ["animation", "battle_effect", "character", "effect", "element",
     "element_effectiveness", "passive", "power_rule", "skill", "species"].map((name) => "./data/" + name + ".csv"));
   assert.equal(go.run("state.enemyParties.size"), 0);
   assert.equal(go.run("state.rankBattles.size"), 0);
+});
+
+test("each named skill uses valid animation metadata and a matching PNG sheet", () => {
+  const missing = go.run('[...state.skills.values()].filter(move => !state.moveAnimations.has(move.animation_id)).map(move => move.skill_id)');
+  assert.equal(missing.length, 0);
+  const sheets = go.run("[...state.moveAnimations.values()]");
+  assert.ok(sheets.length > 5);
+  for (const { path, width, height, columns, rows } of sheets) {
+    const image = read(path);
+    assert.equal(image.toString("ascii", 1, 4), "PNG", path);
+    assert.equal(image.readUInt32BE(16), width * columns, path);
+    assert.equal(image.readUInt32BE(20), height * rows, path);
+  }
+  assert.equal(go.run('state.skills.get("skill_045").animation_id'), "attack_slash03");
+  assert.equal(go.run('state.skills.get("skill_038").repeat_count'), 2);
 });
 
 test("loads Japanese character, skill and passive names and keeps passive linkage", () => {

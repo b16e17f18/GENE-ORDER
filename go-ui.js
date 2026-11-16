@@ -1,14 +1,3 @@
-const GO_MOVE_ART = Object.fromEntries([
-  ["attack_hit01", 70, 70, 24],
-  ["magic_enhance02", 115, 110, 32],
-  ["magic_fire01", 125, 125, 24],
-  ["magic_shieldbreak01", 135, 121, 40],
-  ["magic_sonicwave01", 240, 170, 24],
-].map(([id, width, height, frames]) => [id, {
-  path: "./asset/battle-animation/" + id + ".png", width, height, columns: 8,
-  order: Array.from({ length: frames }, (_, index) => index),
-}]));
-
 const geneOrderUI = (() => {
   const SIDES = ["player", "enemy"];
   const LABELS = { player: "自分", enemy: "相手" };
@@ -584,28 +573,30 @@ const geneOrderUI = (() => {
 
     function effectMotion(event) {
       const move = event.type === "move" && data.skills.get(event.moveId);
-      const hit = move?.category === "attack";
-      const target = hit || ["reflected", "revenge"].includes(event.type) ? otherSide(event.side) : event.side;
+      const targetsEnemy = move?.category === "attack" || move?.target === "enemy";
+      const target = targetsEnemy || ["reflected", "revenge"].includes(event.type) ? otherSide(event.side) : event.side;
       const sprite = $(target + "Sprite");
       const layer = $("battleAnimationLayer");
       motion?.cancel();
       layer.replaceChildren();
-      const asset = move && GO_MOVE_ART[move.animation_id];
+      const asset = move && data.moveAnimations.get(move.animation_id);
       if (asset && !["evaded", "passive-immune", "blocked", "position-miss"].includes(event.reason)) {
         const marker = document.createElement("div");
         marker.className = "battle-animation go-sheet";
-        const a = sprite.getBoundingClientRect();
+        const a = (sprite.querySelector(".sprite-image") ?? sprite).getBoundingClientRect();
         const b = layer.getBoundingClientRect();
         Object.assign(marker.style, { left: (a.left + a.width / 2 - b.left) + "px", top: (a.top + a.height / 2 - b.top) + "px",
           width: asset.width + "px", height: asset.height + "px", backgroundImage: "url(" + asset.path + ")" });
         layer.append(marker);
-        const frames = asset.order.map((cell) => {
+        const frames = asset.order.map((cell, index) => {
           const point = animationFramePosition(cell, asset.columns, asset.width, asset.height);
-          return { backgroundPosition: point.x + "px " + point.y + "px", easing: "steps(1, end)" };
+          return { offset: index / asset.order.length, backgroundPosition: point.x + "px " + point.y + "px", easing: "steps(1, end)" };
         });
-        const duration = Math.min(450, Math.max(160, move.animation_duration_ms || 250));
-        motion = marker.animate(frames, { duration });
-        return duration;
+        frames.push({ ...frames.at(-1), offset: 1 });
+        const duration = Math.max(80, move.animation_duration_ms || Math.round(asset.order.length * 1000 / asset.fps));
+        const iterations = Math.min(8, move.repeat_count || asset.repeatCount);
+        motion = marker.animate(frames, { duration, iterations });
+        return duration * iterations;
       }
       if (sprite && ["move", "residual", "faint", "switch", "replacement", "absorbed", "heal", "reflected", "revenge", "passive", "decoy-hit"].includes(event.type)) {
         const positive = ["absorbed", "heal", "passive"].includes(event.type);
