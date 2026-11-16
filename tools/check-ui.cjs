@@ -75,10 +75,19 @@ async function verify(browser, width) {
     assert.ok(await dualEntry.evaluate((button) => {
       const [name, attributes] = button.children;
       const [first, second] = attributes.querySelectorAll(".go-attribute-icon");
-      return name.getBoundingClientRect().bottom <= first.getBoundingClientRect().top &&
-        first.getBoundingClientRect().right <= second.getBoundingClientRect().left &&
-        first.getBoundingClientRect().top === second.getBoundingClientRect().top;
-    }), "dex dual attributes overlap the name or wrap");
+      const nameBox = name.getBoundingClientRect();
+      const firstBox = first.getBoundingClientRect();
+      const secondBox = second.getBoundingClientRect();
+      const css = getComputedStyle(button);
+      const bounds = button.getBoundingClientRect();
+      const left = bounds.left + parseFloat(css.borderLeftWidth) + parseFloat(css.paddingLeft);
+      const right = bounds.right - parseFloat(css.borderRightWidth) - parseFloat(css.paddingRight);
+      return css.textAlign === "left" && Math.abs(nameBox.left - left) < 1 &&
+        nameBox.right <= firstBox.left && firstBox.right <= secondBox.left &&
+        Math.abs(secondBox.right - right) < 1 &&
+        Math.abs((nameBox.top + nameBox.bottom) - (firstBox.top + firstBox.bottom)) < 1 &&
+        firstBox.top === secondBox.top;
+    }), "dex name and dual attributes should align on opposite sides of one row");
     const attributeIds = ["none", "fire", "water", "wind", "earth", "light", "dark"];
     const iconData = await ui.locator(".dex-list").evaluate((list, ids) => ids.map((id) => {
       const icon = list.querySelector(".go-attribute-" + id);
