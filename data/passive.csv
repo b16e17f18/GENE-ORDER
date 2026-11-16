@@ -12,7 +12,7 @@ passive_010,スーパーハード,debuff_immunity,pd_down,1,none,none,0,none,non
 passive_011,ソーラーエナジー,on_use_element_stat_stage,flash_pa,1,none,none,0,none,none,0,光属性技を使うとPAが1段階上がる。,none,none,none,,,
 passive_012,イオンチャージャー,on_use_element_stat_stage,fire_sd,1,none,none,0,none,none,0,火属性技を使うとSDが1段階上がる。,none,none,none,,,
 passive_013,オーバーロード,starting_en,none,2,on_use_element_stat_stage,fire_pa,-1,none,none,0,初期ENが2で戦闘開始する。火属性技を使うとPAが1段階下がる。,none,none,none,,,
-passive_014,精神崩壊,turn_end_stat_stage,pd,1,turn_end_stat_stage,sd,-1,none,none,0,ターン終了時、PDが1段階上がる。SDが1段階下がる。,none,none,none,,,
+passive_014,精神崩壊,turn_end_stat_stage,sa,1,turn_end_stat_stage,sd,-1,none,none,0,ターン終了時、SAが1段階上がる。SDが1段階下がる。,none,none,none,,,
 passive_015,知覚過敏,on_hit_element_stat_stage,light_pa,1,on_hit_element_stat_stage,light_sp,1,none,none,0,光属性技を受けた時、PAとSPが1段階上がる。,none,none,none,,,
 passive_016,羽音,on_entry_enemy_stat_stage,sp,-1,none,none,0,none,none,0,場に出た時、相手のSPを1段階下げる。,none,none,none,,,
 passive_017,火事場,conditional_stat_multiplier,pa,1.2,conditional_stat_multiplier,sa,1.2,none,none,0,HP1/2以下でPAとSAが1.2倍。,none,none,none,self_hp_lte:1/2,self_hp_lte:1/2,
