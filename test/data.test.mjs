@@ -698,7 +698,7 @@ test("GO stat grades use the specified inclusive boundaries and base stat offset
     [101, "B", "#FF0000"], [120, "B", "#FF0000"], [121, "A", "#FF69B4"],
     [140, "A", "#FF69B4"], [141, "S", "#F7B9D4"],
   ];
-  for (const [stat, offset] of [["hp", 75], ...["phy_atk", "phy_def", "sp_atk", "sp_def", "speed"].map(stat => [stat, 25])]) {
+  for (const [stat, offset] of [["hp", 75], ...["phy_atk", "phy_def", "sp_atk", "sp_def", "speed"].map(stat => [stat, 20])]) {
     for (const [score, letter, color] of bounds) {
       const { letter: actualLetter, color: actualColor } = go.run(`goStatRank("${stat}", ${score + offset})`);
       assert.deepEqual([actualLetter, actualColor], [letter, color], `${stat}, score ${score}`);
@@ -707,6 +707,8 @@ test("GO stat grades use the specified inclusive boundaries and base stat offset
   assert.equal(go.run('goStatRank("regen_value", 200)'), null);
   const chai = go.run('goCharacterStat("hp", state.characterMap.get("character_001").hp)');
   assert.match(chai, /種族値ランク E.*#9ACD32.*>E<\/span>/);
+  const chaiAttack = go.run('goCharacterStat("phy_atk", state.characterMap.get("character_001").phy_atk)');
+  assert.match(chaiAttack, /種族値ランク D.*#FFFF00.*>D<\/span>/);
   assert.doesNotMatch(go.run('goCharacterStat("regen_value", 25)'), /detail-stat-grade"/);
 });
 

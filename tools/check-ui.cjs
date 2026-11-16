@@ -78,6 +78,10 @@ async function verify(browser, width) {
       const value = row.querySelector(".detail-stat-value").getBoundingClientRect();
       return track.right <= letter.left && letter.right <= value.left;
     }));
+    const chaiAttack = ui.locator(".dex-content .detail-stat-phy_atk");
+    assert.equal(await chaiAttack.locator(".detail-stat-value").textContent(), "81");
+    const attackGrade = chaiAttack.getByRole("img", { name: "種族値ランク D" });
+    assert.equal(await attackGrade.evaluate((letter) => getComputedStyle(letter).color), "rgb(255, 255, 0)");
     await ui.locator('[data-go-dex="character_047"]').click();
     assert.match(await ui.locator(".dex-content").textContent(), /画像未設定.*習得技.*未設定/s);
     await ui.locator('[data-go-dex="character_019"]').click();
@@ -218,7 +222,7 @@ async function verify(browser, width) {
     assert.deepEqual(await inspect.locator(".detail-stat-label").allTextContents(),
       ["物理攻撃", "物理防御", "特殊攻撃", "特殊防御", "敏捷", "回復力"]);
     assert.equal(await inspect.locator(".detail-stat-phy_def .detail-stat-value").textContent(), "143");
-    assert.equal(await inspect.locator(".detail-stat-phy_def .detail-stat-grade").textContent(), "B");
+    assert.equal(await inspect.locator(".detail-stat-phy_def .detail-stat-grade").textContent(), "A");
     assert.equal(await inspect.locator(".detail-stat-grade").count(), 5);
     assert.match(await inspect.locator(".detail-passive").textContent(), /特性.*氷棚形成/s);
     const resistances = inspect.locator(".battle-inspect-resistance-grid .resistance-cell");
@@ -279,7 +283,7 @@ async function verify(browser, width) {
     assert.deepEqual(await byId("enemyHud").locator(".go-hud-ranks > span").allTextContents(), ["物理防御-1"]);
     await inspectEnemy();
     assert.match(await inspect.locator(".detail-stat-phy_def .detail-stat-value").textContent(), / \(-1\)$/);
-    assert.equal(await inspect.locator(".detail-stat-phy_def .detail-stat-grade").textContent(), "B");
+    assert.equal(await inspect.locator(".detail-stat-phy_def .detail-stat-grade").textContent(), "A");
     await closeInspect();
     await ui.locator('.go-battle-footer [data-go-page="setup"]').click();
     await byId("go-official-mode").selectOption("enemy");

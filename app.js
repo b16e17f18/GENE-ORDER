@@ -4230,7 +4230,7 @@ const GO_STAT_RANKS = [
   { max: 140, letter: "A", color: "#FF69B4" },
   { max: Infinity, letter: "S", color: "#F7B9D4" },
 ];
-const GO_STAT_RANK_OFFSETS = { hp: 75, phy_atk: 25, phy_def: 25, sp_atk: 25, sp_def: 25, speed: 25 };
+const GO_STAT_RANK_OFFSETS = { hp: 75, phy_atk: 20, phy_def: 20, sp_atk: 20, sp_def: 20, speed: 20 };
 
 function goStatRank(stat, baseValue) {
   if (!Object.hasOwn(GO_STAT_RANK_OFFSETS, stat) || !Number.isFinite(baseValue)) return null;
