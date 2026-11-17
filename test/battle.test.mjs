@@ -732,10 +732,11 @@ test("direct victory skips residuals and active-side fields survive a forced rep
   assert.ok(!win.events.some(e => e.type === "residual"));
 });
 
-test("Spark Needle overrides only the water component without changing STAB", () => {
-  const needle = skill("skill_018");
-  const match = battle({ ...assets, player: official("character_005"),
-    enemy: [character({ element_1: "water", element_2: "fire" })], skills: [needle] });
+test("legacy water override replaces only the water component without changing STAB", () => {
+  const needle = { ...skill("skill_018"), battle_effect1: "bf_water_super_effective", battle_effect_chance1: 100 };
+  const effectiveness = new Map(chart).set("thunder", new Map(chart.get("thunder")).set("water", 0.5));
+  const match = battle({ ...assets, effectiveness, player: official("character_005"),
+    enemy: [character({ element_1: "water", element_2: "earth" })], skills: [needle] });
   const ordinary = go.previewDamage(match, "player", { ...needle, battle_effect1: "none" });
   go.changeEnergy(active(match), 6);
   const preview = go.previewDamage(match, "player", needle);
@@ -967,8 +968,153 @@ test("official burn uses MHB residuals, refreshes once, coexists with poison and
   assert.equal(tick(pass()).length, 0);
 });
 
-test("unconfirmed fire boost remains unavailable", () => {
-  assert.match(go.unsupportedMoveReason(skill("skill_020"), assets), /未対応/);
+const powerSetup = (element, effectId = "next_" + element + "_power_150") => statusMove({
+  skill_id: "setup-" + effectId, name: "Setup", element, battle_effect1: effectId, battle_effect_chance1: 100,
+});
+const powerEvents = (turn, phase = "used") => turn.events.filter((event) => event.type === "next-power-" + phase);
+
+test("Discharge costs no EN, raises SD twice and readies Thunder power", () => {
+  const move = skill("skill_020");
+  const attack = skill("skill_018");
+  const match = battle({ ...assets, skills: [move, attack],
+    player: [character({ skillIds: [move.skill_id, attack.skill_id], energy_charge: 0 })],
+    enemy: [character({ hp: 600, element_1: "water" })] });
+  const actor = active(match);
+  go.changeEnergy(actor, -actor.energy);
+  assert.deepEqual([move.element, move.cost, move.battle_effect_chance1], ["thunder", 0, 100]);
+  assert.equal(go.checkAction(match, "player", select(move.skill_id)), "");
+  const turn = action(match, move.skill_id);
+  assert.deepEqual([actor.energy, actor.stages.sp_def, powerEvents(turn, "ready")[0].element], [0, 2, "thunder"]);
+  go.changeEnergy(actor, attack.cost);
+  const result = action(match, attack.skill_id);
+  assert.equal(powerEvents(result)[0].power, 120);
+  assert.equal(actor.nextElementPower.size, 0);
+});
+
+test("all nine elements boost physical and special power, including neutral", () => {
+  for (const element of chart.keys()) {
+    for (const attack_type of ["physical", "special"]) {
+      const setup = powerSetup(element);
+      const attack = { ...strike, attack_type, element, cost: 0 };
+      const match = battle({ ...assets, skills: [setup, attack],
+        player: [character({ element_1: element, skillIds: [setup.skill_id, attack.skill_id] })],
+        enemy: [character({ hp: 600, element_1: "none" })] });
+      const actor = active(match);
+      const base = go.previewDamage(match, "player", attack);
+      const granted = action(match, setup.skill_id);
+      assert.equal(powerEvents(granted, "ready")[0].element, element);
+      const boosted = go.previewDamage(match, "player", attack);
+      assert.deepEqual([base.power, boosted.power, boosted.stab], [80, 120, 1.5]);
+      assert.equal(actor.nextElementPower.size, 1);
+      const turn = action(match, attack.skill_id);
+      assert.equal(powerEvents(turn).length, 1);
+      assert.equal(turn.events.find(({ type }) => type === "move").actualDamage, boosted.actualDamage);
+      assert.equal(actor.nextElementPower.size, 0);
+      assert.equal(go.previewDamage(match, "player", attack).power, 80);
+    }
+  }
+});
+
+test("next power persists through other attacks, same-element status, dodge, EN failure and time", () => {
+  const setup = powerSetup("none");
+  const status = { ...skill("skill_020"), element: "none", battle_effect1: "none" };
+  const dodge = skill("skill_000");
+  const attack = { ...strike, skill_id: "neutral", element: "none", cost: 4 };
+  const match = battle({ ...assets, skills: [setup, status, dodge, attack, strike],
+    player: [character({ energy_charge: 0, skillIds: [setup.skill_id, status.skill_id, attack.skill_id, "strike"] })],
+    enemy: [character({ hp: 600 })] });
+  const actor = active(match);
+  action(match, setup.skill_id);
+  assert.throws(() => action(match, attack.skill_id), /ENが不足/);
+  for (const id of [status.skill_id, dodge.skill_id, strike.skill_id]) {
+    assert.equal(powerEvents(action(match, id)).length, 0);
+  }
+  for (let i = 0; i < 4; i++) idle(match);
+  assert.equal(actor.nextElementPower.size, 1);
+  assert.equal(go.previewDamage(match, "player", attack).power, 120);
+  assert.equal(actor.nextElementPower.size, 1);
+});
+
+test("next power is spent on evasion, immunity and passive immunity, but not when KO skips the action", () => {
+  for (const [element, defense, passive, reason] of [
+    ["fire", "none", "", "evaded"], ["earth", "wind", "", "blocked"], ["fire", "none", "024", "passive-immune"],
+  ]) {
+    const setup = powerSetup(element);
+    const attack = { ...strike, element, cost: 0 };
+    const dodge = skill("skill_000");
+    const lethal = { ...strike, skill_id: "lethal", power: 1000, priority: 2, cost: 0 };
+    const match = passiveBattle({ skills: [setup, attack, dodge, lethal], manualSwitches: true,
+      player: [character({ skillIds: [setup.skill_id, attack.skill_id] }), character()],
+      enemy: [withPassive(passive, { hp: 600, element_1: defense, evasion_percent: 100, skillIds: [lethal.skill_id] })] });
+    const actor = active(match);
+    action(match, setup.skill_id);
+    const result = action(match, attack.skill_id, reason === "evaded" ? select(dodge.skill_id) : wait);
+    assert.equal(powerEvents(result).length, 1);
+    assert.equal(result.events.find((e) => e.type === "move" && e.side === "player").reason, reason);
+    assert.equal(actor.nextElementPower.size, 0);
+    action(match, setup.skill_id);
+    const ko = action(match, attack.skill_id, select(lethal.skill_id));
+    assert.equal(powerEvents(ko).length, 0);
+    assert.equal(actor.fainted, true);
+    assert.equal(actor.nextElementPower.size, 0);
+  }
+});
+
+test("same-element refresh replaces the legacy effect; distinct boosts coexist and do not transfer", () => {
+  const legacy = powerSetup("fire", "bf_next_fire_power_150");
+  const fire = powerSetup("fire", "test-fire-double");
+  const ice = powerSetup("ice");
+  const relay = skill("skill_042");
+  const battleEffects = new Map(officialDefense).set("test-fire-double", {
+    ...officialDefense.get("next_fire_power_150"), battle_effect_id: "test-fire-double", modifier: 2,
+  });
+  for (const viaRelay of [false, true]) {
+    const skills = [legacy, fire, ice, relay, strike];
+    const match = battle({ ...assets, battleEffects, skills,
+      player: [character({ skillIds: skills.map((move) => move.skill_id) }), character()] });
+    const actor = active(match);
+    action(match, legacy.skill_id);
+    assert.equal(go.previewDamage(match, "player", strike).power, 120);
+    assert.equal(powerEvents(action(match, fire.skill_id), "ready")[0].replaced, true);
+    action(match, ice.skill_id);
+    assert.equal(actor.nextElementPower.size, 2);
+    assert.equal(go.previewDamage(match, "player", strike).power, 160);
+    action(match, strike.skill_id);
+    assert.equal(actor.nextElementPower.has("ice"), true);
+    action(match, fire.skill_id);
+    go.previewSwitch(match, "player", 1, viaRelay ? "relay" : "normal");
+    assert.equal(actor.nextElementPower.size, 2);
+    if (viaRelay) {
+      go.changeEnergy(actor, 7);
+      specialWait(match, relay.skill_id, 1);
+    } else go.resolveTurn(match, { player: voluntary(1), enemy: wait });
+    assert.equal(actor.nextElementPower.size, 0);
+    assert.equal(active(match).nextElementPower.size, 0);
+  }
+});
+
+test("power combines with variable rules and passives before the cap and is booked once on charge", () => {
+  const setup = powerSetup("none");
+  const attack = { ...skill("skill_054"), element: "none", power: 100, power_cap: 260,
+    battle_effect2: "next_none_power_150", battle_effect_chance2: 100 };
+  const match = passiveBattle({ skills: [setup, attack],
+    player: [withPassive("006", { skillIds: [setup.skill_id, attack.skill_id] })], enemy: [character({ hp: 600 })] });
+  const actor = active(match);
+  action(match, setup.skill_id);
+  go.changeEnergy(actor, 7);
+  const preview = go.previewDamage(match, "player", attack);
+  assert.equal(preview.power, 260); // 100 × 1.5 (EN) × 1.2 (passive) × 1.5 (effect), capped at 260
+  assert.equal(go.previewRelease(match, "player", attack, preview).power, 260);
+  assert.equal(actor.nextElementPower.size, 1);
+  const start = action(match, attack.skill_id);
+  assert.equal(powerEvents(start).length, 1);
+  assert.equal(actor.pending.power, 260);
+  assert.equal(powerEvents(start, "ready").length, 1);
+  assert.equal(actor.nextElementPower.size, 1);
+  const release = action(match, attack.skill_id);
+  assert.equal(powerEvents(release).length, 0);
+  assert.equal(release.events.find((event) => event.type === "move").power, 260);
+  assert.equal(actor.nextElementPower.size, 1);
 });
 
 test("normalization re-reads CSV tuning for status probability, damage, duration and guard", () => {
@@ -1388,7 +1534,7 @@ test("elemental immunity blocks water, neutral and fire before dodge, absorption
 
 test("all elemental use-stage passives apply to status, hit, evade or immunity on use", () => {
   for (const [id, element, stat, delta, mode] of [
-    ["004", "wind", "speed", 1, "evaded"], ["009", "water", "phy_def", 1, "immune"],
+    ["004", "wind", "speed", 1, "evaded"], ["009", "ice", "phy_def", 1, "hit"],
     ["011", "light", "phy_atk", 1, "status"], ["012", "fire", "phy_atk", 1, "hit"],
     ["013", "fire", "phy_atk", 1, "hit"], ["006", "none", "phy_atk", -1, "immune"],
   ]) {
@@ -1581,19 +1727,20 @@ test("special switch suspension does not repeat use passives and Relay transfers
 
 test("official GO teams replay starting EN, elemental immunity, a normal switch and turn-end stages", () => {
   const match = passiveBattle({ skills: officialSkills, player: official("character_003", "character_002"),
-    enemy: official("character_009", "character_005") });
+    enemy: official("character_007", "character_005") });
   assert.equal(active(match).energy, 4);
   const results = [];
   results.push(idle(match));
-  results.push(go.resolveTurn(match, { player: voluntary(1), enemy: select("skill_029") }));
+  results.push(idle(match));
+  results.push(go.resolveTurn(match, { player: voluntary(1), enemy: select("skill_027") }));
   results.push(go.resolveTurn(match, { player: wait, enemy: voluntary(1) }));
   results.push(idle(match));
   assert.equal(active(match).base.name, "メイジェリー");
   assert.equal(active(match).hp, active(match).maxHp);
-  assert.equal(passivesIn(results[1], "element-immunity").length, 1);
-  assert.equal(match.teams.enemy[0].passiveState.uses.get(1), 1);
+  assert.equal(passivesIn(results[2], "element-immunity").length, 1);
+  assert.equal(active(match).statuses.length, 0);
   assert.equal(active(match, "enemy").stages.phy_atk, 2);
-  assert.equal(match.turn, 5);
+  assert.equal(match.turn, 6);
 });
 
 
@@ -2247,9 +2394,32 @@ test("GO AI and resolved turns use shared Thunder and Ice damage", () => {
   }
 });
 
+test("AI projects matching boosted attacks without consuming power or rewarding redundant setup", () => {
+  const setup = skill("skill_020");
+  const attack = aiMove("thunder", { element: "thunder", cost: 0 });
+  const match = battle({ ...assets, skills: [setup, attack],
+    player: [character({ skillIds: [setup.skill_id, attack.skill_id] })],
+    enemy: [character({ hp: 600, element_1: "water" })] });
+  const actor = active(match);
+  go.changeStage(actor, "sp_def", 6);
+  const evaluate = () => ai.evaluate(ai.observe(match, "player"));
+  const setupScore = (entries) => entries.find((entry) => entry.move?.skill_id === setup.skill_id).score;
+  const fresh = evaluate();
+  assert.ok(setupScore(fresh) > 0);
+  action(match, setup.skill_id);
+  const snapshot = [...actor.nextElementPower];
+  const primed = evaluate();
+  assert.equal(setupScore(primed), 0);
+  assert.notEqual(ai.choose(ai.observe(match, "player"), { random: () => 0 }).action.moveId, setup.skill_id);
+  const candidate = primed.find((entry) => entry.move?.skill_id === attack.skill_id);
+  assert.equal(candidate.forecast.power, 120);
+  assert.deepEqual([...actor.nextElementPower], snapshot);
+  assert.equal(action(match, attack.skill_id).events.find((entry) => entry.type === "move").actualDamage, candidate.damage);
+});
+
 test("GO AI accepts all six MHB profiles, safely defaults, and honors only usable preferences", () => {
   const moves = [aiMove("main"), aiMove("setup"), aiMove("expensive", { cost: 7 }),
-    { ...skill("skill_020"), skill_id: "unfinished" }];
+    { ...skill("skill_020"), skill_id: "unfinished", battle_effect1: "missing_effect" }];
   for (const type of ["", "balanced", "aggressive", "patient", "defensive", "disruptor", "tactical", "missing", "constructor"]) {
     const match = passiveBattle({ skills: moves, player: [character({ ai_type: type, ai_main_skill: "main",
       ai_setup_skill: "setup", skillIds: moves.map((move) => move.skill_id) })] });

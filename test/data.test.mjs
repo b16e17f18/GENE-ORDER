@@ -201,6 +201,35 @@ if (process.env.GO_REPORT === "1") {
   }
 }
 
+test("CSV-only next power definitions are read at runtime and validate their attribute and multiplier", async () => {
+  const revised = runtime({ transforms: {
+    "./data/battle_effect.csv": (csv) => csv + "\n" + [
+      "test_custom,テスト,next_element_power,none,0,1,TRUE,none,none,0,,,thunder,2,,,,",
+      "test_unknown,属性違い,next_element_power,none,0,1,TRUE,none,none,0,,,unknown,1.5,,,,",
+      "test_zero,倍率違い,next_element_power,none,0,1,TRUE,none,none,0,,,none,0,,,,",
+    ].join("\n"),
+    "./data/skill.csv": (csv) => csv.replace("next_thunder_power_150", "test_custom"),
+  } });
+  await revised.boot();
+  const scenario = `
+    (() => {
+      const go = geneOrderBattle;
+      const fighter = state.characterMap.get("character_005");
+      const battle = go.createBattle({ player: [fighter], enemy: [fighter], skills: state.skills,
+        effects: state.effects, battleEffects: state.battleEffects, effectiveness: state.effectiveness });
+      const selection = { player: { type: "move", moveId: "skill_020" }, enemy: { type: "wait" } };
+      go.resolveTurn(battle, selection);
+      return go.previewDamage(battle, "player", state.skills.get("skill_018")).power;
+    })()
+  `;
+  assert.equal(go.run(scenario), 120);
+  assert.equal(revised.run(scenario), 160);
+  assert.equal(revised.run("state.dataDiagnostics.some((d) => d.id === \"test_unknown\" && d.field === \"element\" && d.level === \"参照不一致\")"), true);
+  assert.equal(revised.run("state.dataDiagnostics.some((d) => d.id === \"test_zero\" && d.field === \"modifier\" && d.level === \"数値異常\")"), true);
+  assert.equal(revised.run("geneOrderBattle.battleEffectKind(state.battleEffects.get(\"test_unknown\"))"), null);
+  assert.equal(go.run("state.dataDiagnostics.some((d) => d.value === \"next_thunder_power_150\")"), false);
+});
+
 test("reloading CSV over the data loader changes live battle tuning without code changes", async () => {
   const updateCell = (csv, id, column, value) => {
     const rows = csv.split(/\r?\n/);

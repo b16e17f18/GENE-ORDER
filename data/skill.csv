@@ -19,7 +19,7 @@ skill_016,レインフォール,attack,110,水,none,physical,ignore_dodge,pa_dow
 skill_017,ニードルブレイク,attack,50,無,none,physical,normal,sd_down1,enemy,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,1,相手のSDを1段階下げる。,attack_hit02,450,1,,,,,,,
 skill_018,スパークニードル,attack,80,雷,none,physical,normal,none,enemy,0,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,3,,attack_slashfire01_custom,250,1,,,,,,,
 skill_019,吸血,attack,60,闇,none,physical,normal,drain_50,self,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,1,与えたダメージの50%を回復する。,magic_shadow01,500,1,,,,,,,
-skill_020,発電,status,0,雷,none,none,normal,sd_up2,self,100,none,enemy,0,none,enemy,0,next_thunder_power_150,100,none,0,self,0,0,自分のSDが2段階上がる。次に使う火属性技の威力が1.5倍。,magic_lightning01_akira,250,2,,,,,,,
+skill_020,発電,status,0,雷,none,none,normal,sd_up2,self,100,none,enemy,0,none,enemy,0,next_thunder_power_150,100,none,0,self,0,0,自分のSDが2段階上がる。次に使用する雷属性の攻撃技の威力が1.5倍になる。,magic_lightning01_akira,250,2,,,,,,,
 skill_021,ドラミングビート,status,0,無,none,none,normal,pa_up2,self,100,pd_up1,self,100,none,enemy,0,none,0,none,0,self,0,0,自分のPAが1段階、PDが1段階上がる。,attack_beat01,350,1,,,,,,,
 skill_022,コンビネーション,attack,120,無,none,physical,normal,pd_down1,self,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,2,攻撃後、自分のPDが1段階下がる。,attack_hit01,250,2,,,,,,,
 skill_023,ギガストンプ,attack,150,無,none,physical,normal,none,enemy,0,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,5,,magic_stone01,500,1,,,,,,,

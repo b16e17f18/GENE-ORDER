@@ -1203,7 +1203,7 @@ const geneOrderAI = (() => {
     return { base: publicBase, hp, maxHp, energy, fainted, dodgeActive, halfGuard, tookDirectDamage,
       stages: { ...fighter.stages }, pending: pending && { ...pending }, decoy: decoy && { ...decoy },
       statuses: fighter.statuses.map((status) => ({ ...status })), timedEffects: new Map(fighter.timedEffects),
-      defenses: new Map(fighter.defenses), bind: null, passiveEffects,
+      defenses: new Map(fighter.defenses), nextElementPower: new Map(fighter.nextElementPower), bind: null, passiveEffects,
       passiveState: { uses: new Map(fighter.passiveState.uses) }, moveUses: own ? new Map(fighter.moveUses) : new Map() };
   }
 
@@ -1296,6 +1296,26 @@ const geneOrderAI = (() => {
     return fraction(Math.max(average(known) * config.PUBLIC_ATTACK_WEIGHT, unknown));
   }
 
+  function nextPowerValue(board, side, actor, effect, config) {
+    const go = geneOrderBattle;
+    if (effect.modifier <= (actor.nextElementPower.get(effect.element)?.modifier ?? 1)) return 0;
+    const index = board.active[side];
+    const team = board.teams[side].slice();
+    const nextElementPower = new Map(actor.nextElementPower).set(effect.element, effect);
+    team[index] = { ...actor, nextElementPower };
+    const projected = { ...board, teams: { ...board.teams, [side]: team } };
+    const damage = (state, move) => {
+      const start = go.previewDamage(state, side, move);
+      const release = go.previewRelease(state, side, move, start);
+      const result = release ?? start;
+      return (result.actualDamage + (result.decoyDamage ?? 0) * config.DECOY_WEIGHT) *
+        (release ? config.TWO_TURN_DAMAGE_MULTIPLIER : 1);
+    };
+    const attacks = availableMoves(board, side, { future: true })
+      .filter((move) => move.category === "attack" && move.element === effect.element);
+    return Math.max(0, ...attacks.map((move) => damage(projected, move) - damage(board, move)));
+  }
+
   function supportScore(context, move, result, release) {
     const { board, side, actor, target, position, config } = context;
     const go = geneOrderBattle;
@@ -1338,6 +1358,8 @@ const geneOrderAI = (() => {
           value = stageValue(recipient, effect.target_stat, effect.damage_value) * (self ?
             enemyAiSelfBuffTypeMultiplier(effect.target_stat, config) : -enemyAiTypeMultiplier(config, "DEBUFF_SCORE_MULTIPLIER"));
         }
+      } else if (kind === "next-element-power") {
+        value = nextPowerValue(board, side, actor, effect, config);
       } else if (kind === "recover-en") {
         const payment = actor.pending ? 0 : move.cost;
         const gap = go.MAX_ENERGY - recipient.energy + (self ? payment - actor.base.energy_charge : 0);

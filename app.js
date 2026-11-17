@@ -3992,7 +3992,7 @@ async function loadGameData() {
       .map((row) => [row.skill_id, row])),
     effects: new Map(tables.effects.map(normalizeEffect).filter((row) => row.effect_id && row.name)
       .map((row) => [row.effect_id, row])),
-    battleEffects: new Map(tables.battleEffects.map(normalizeBattleEffect).filter((row) => row.battle_effect_id && row.name)
+    battleEffects: new Map(tables.battleEffects.map((row) => normalizeBattleEffect(row, elementNames)).filter((row) => row.battle_effect_id && row.name)
       .map((row) => [row.battle_effect_id, row])),
     powerRules,
     moveAnimations: new Map(tables.animations.map(normalizeGoMoveAnimation).filter(Boolean).map((animation) => [animation.id, animation])),
@@ -4517,7 +4517,7 @@ function normalizeEffect(row) {
   };
 }
 
-function normalizeBattleEffect(row) {
+function normalizeBattleEffect(row, elementNames) {
   return {
     battle_effect_id: safeText(row.battle_effect_id),
     name: safeText(row.name),
@@ -4530,7 +4530,8 @@ function normalizeBattleEffect(row) {
     weak_hit_type: safeText(row.weak_hit_type, "none"),
     damage_cut: number(row.damage_cut),
     start_delay: number(row.start_delay),
-    element: safeText(row.element),
+    element: row.battle_effect_group === "next_element_power" && elementNames && elementNames.get(row.element) !== row.element
+      ? "" : safeText(row.element),
     modifier: optionalNumber(row.modifier),
     hp_cost_ratio: safeText(row.hp_cost_ratio),
     decoy_hp_ratio: safeText(row.decoy_hp_ratio),
@@ -9454,6 +9455,14 @@ function describeGeneOrderEvent(event) {
       return `${e.actor}の${e.move}（EN −${e.cost}）${suffix ? " → " + suffix : damage}`;
     },
     charge: (e) => `${e.actor}は${e.move}を予約（威力${e.power}、EN −${e.cost}）`,
+    "next-power-ready": (e) => {
+      const element = state.elements.get(e.element)?.name ?? e.element;
+      return e.actor + "の次の" + element + "属性攻撃の威力が" + e.multiplier + "倍になる" + (e.replaced ? "（上書き）" : "");
+    },
+    "next-power-used": (e) => {
+      const element = state.elements.get(e.element)?.name ?? e.element;
+      return e.actor + "の" + e.move + "に" + element + "属性の威力強化（" + e.multiplier + "倍）を適用して消費した（威力" + e.power + "）";
+    },
     "defense-ready": (e) => `${e.actor}は${e.name}を構えた`,
     absorbed: (e) => `${e.actor}は水技を吸収しHPを${e.recovered}回復`,
     reflected: (e) => `${e.actor}は${e.target}に${e.damage}ダメージを反射`,

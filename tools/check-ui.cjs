@@ -243,7 +243,7 @@ async function verify(browser, width) {
     assert.match(await inspect.locator(".detail-passive").textContent(), /特性.*氷棚形成/s);
     const resistances = inspect.locator(".battle-inspect-resistance-grid .resistance-cell");
     assert.equal(await resistances.count(), 9);
-    for (const [id, expected] of [["thunder", "200%"], ["ice", "100%"], ["wind", "100%"]]) {
+    for (const [id, expected] of [["thunder", "100%"], ["ice", "50%"], ["wind", "50%"]]) {
       const resistance = resistances.filter({ has: page.locator(".go-attribute-" + id) });
       assert.equal(await resistance.locator("strong").textContent(), expected);
     }
@@ -281,11 +281,6 @@ async function verify(browser, width) {
       } else {
         if (await move("skill_053").isEnabled()) await move("skill_053").click();
         else await pass();
-        const unfinished = move("skill_020");
-        if (await unfinished.count()) {
-          assert.ok(await unfinished.isDisabled());
-          assert.match(await unfinished.textContent(), /未対応/);
-        }
         await pass();
       }
     }
@@ -319,6 +314,25 @@ async function verify(browser, width) {
     await byId("go-fast-battle").check();
     await ui.locator("[data-go-turn]").click();
     assert.ok((await log.locator("li").count()) > 0);
+    await ui.locator('.go-battle-footer [data-go-page="setup"]').click();
+    await byId("setupPlayerModeButton").click();
+    await byId("clearTeamButton").click();
+    await pick("012");
+    await byId("go-official-mode").selectOption("manual");
+    await byId("startButton").click();
+    await byId("go-fast-battle").check();
+    assert.ok(await move("skill_020").isEnabled());
+    await move("skill_020").click(); await pass();
+    await byId("playerSprite").locator("[data-fighter-side]").click();
+    const playerInfo = byId("enemyInfoPanel");
+    assert.match(await playerInfo.locator(".battle-inspect-body").textContent(), /次の雷属性攻撃の威力 ×1.5/);
+    assert.match(await log.textContent(), /次の雷属性攻撃の威力が1.5倍/);
+    await playerInfo.getByRole("button", { name: "戻る" }).click();
+    await move("skill_035").click(); await pass();
+    assert.match(await log.textContent(), /サウンドウォールに雷属性の威力強化.*消費した（威力135）/);
+    await byId("playerSprite").locator("[data-fighter-side]").click();
+    assert.doesNotMatch(await playerInfo.locator(".battle-inspect-body").textContent(), /次の雷属性攻撃の威力/);
+    await playerInfo.getByRole("button", { name: "戻る" }).click();
     await ui.locator('.go-battle-footer [data-go-page="setup"]').click();
     await byId("setupPlayerModeButton").click();
     await byId("clearTeamButton").click();

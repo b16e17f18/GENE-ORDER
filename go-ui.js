@@ -36,10 +36,11 @@ const geneOrderUI = (() => {
 
   function captureFrame(battle) {
     const teams = Object.fromEntries(SIDES.map((side) => [side, battle.teams[side].map((fighter) => {
-      const { base, hp, maxHp, energy, fainted, dodgeActive, halfGuard, bind, pending, decoy, stages, statuses, defenses, timedEffects, passive } = fighter;
+      const { base, hp, maxHp, energy, fainted, dodgeActive, halfGuard, bind, pending, decoy, stages, statuses, defenses, timedEffects, nextElementPower, passive } = fighter;
       return { base, hp, maxHp, energy, fainted, dodgeActive, halfGuard, bind: bind && { turns: bind.turns },
         pending: pending && { ...pending }, decoy: decoy && { ...decoy }, stages: { ...stages },
         statuses: statuses.map((status) => ({ ...status })), defenses: new Map([...defenses].map(([id, entry]) => [id, { ...entry }])),
+        nextElementPower: new Map(nextElementPower),
         timedEffects: new Map([...timedEffects].map(([id, entry]) => [id, { ...entry }])), passive };
     })]));
     return { teams, active: { ...battle.active }, turn: battle.turn,
@@ -355,6 +356,9 @@ const geneOrderUI = (() => {
         if (!["bf_half_guard", "bf_dodge_guard"].includes(definition.battle_effect_id)) {
           labels.push(`${definition.name}（${starts > frame.turn ? "次ターン" : Math.max(0, expires - frame.turn)}）`);
         }
+      }
+      for (const [element, effect] of fighter.nextElementPower) {
+        labels.push("次の" + (data.elements.get(element)?.name ?? element) + "属性攻撃の威力 ×" + effect.modifier);
       }
       return labels;
     }

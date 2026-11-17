@@ -3,7 +3,7 @@ const GO_RANK_EFFECT_ALIAS = /^(?:pa|pd|sa|sd|sp)_(?:down|up)[1-6]$/;
 const GO_BATTLE_EFFECT_ALIASES = new Map([
   ["dodge_guard", "bf_dodge_guard"], ["protect", "bf_half_guard"],
   ["shed_tail", "bf_shed_tail"], ["water_absorb_guard", "bf_water_absorb_guard"],
-  ["water_super_effective", "bf_water_super_effective"], ["next_fire_power_150", "bf_next_fire_power_150"],
+  ["water_super_effective", "bf_water_super_effective"],
 ]);
 
 function canonicalizeGeneOrderSkill(row) {
@@ -250,6 +250,12 @@ function validateGeneOrderData(tables, imageExists) {
       }
       if (table === "effects" && !geneOrderBattle.effectKind(row)) {
         add("効果未対応", table, id, "damage_type", row.damage_type);
+      }
+      if (table === "battleEffects" && row.battle_effect_group === "next_element_power") {
+        masterReference(table, id, row, "element", elements, true);
+        if (!String(row.modifier ?? "").trim() || Number(row.modifier) <= 0) {
+          add("数値異常", table, id, "modifier", row.modifier);
+        }
       }
       if (table === "battleEffects" && !geneOrderBattle.battleEffectKind(row)) {
         add("効果未対応", table, id, "battle_effect_group", row.battle_effect_group);
