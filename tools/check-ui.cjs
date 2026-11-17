@@ -104,6 +104,7 @@ async function verify(browser, width) {
         firstBox.top === secondBox.top;
     }), "dex name and dual attributes should align on opposite sides of one row");
     const attributeIds = ["none", "fire", "water", "wind", "earth", "light", "dark"];
+    const attributePositions = [0, 12.91, 25.43, 62.78, 75.2, 87.71, 100];
     const iconData = await ui.locator(".dex-list").evaluate((list, ids) => ids.map((id) => {
       const icon = list.querySelector(".go-attribute-" + id);
       if (!icon) return null;
@@ -112,15 +113,15 @@ async function verify(browser, width) {
     }), attributeIds);
     for (const [index, icon] of iconData.entries()) {
       assert.match(icon?.label ?? "", /^(無|火|水|風|地|光|闇)属性$/);
-      assert.match(icon.image, /go-attribute-backgrounds[.]webp/);
-      assert.ok(Math.abs(parseFloat(icon.position) - index * 100 / 6) < 0.001);
+      assert.match(icon.image, /go-attribute-backgrounds[.]png/);
+      assert.ok(Math.abs(parseFloat(icon.position) - attributePositions[index]) < 0.001);
     }
     assert.deepEqual(await page.evaluate(async () => {
       const image = new Image();
-      image.src = "./asset/element/go-attribute-backgrounds.webp";
+      image.src = "./asset/element/go-attribute-backgrounds.png";
       await image.decode();
       return [image.naturalWidth, image.naturalHeight];
-    }), [392, 56]);
+    }), [2172, 724]);
     const verifyCard = async (card) => {
       const stats = await card.locator(".detail-stat").evaluateAll((rows) => rows.map((row) => [
         row.querySelector(".detail-stat-label").textContent,
@@ -195,7 +196,22 @@ async function verify(browser, width) {
     const chartButton = byId("go-battle-chart");
     const chart = ui.getByRole("dialog", { name: "属性相性一覧表" });
     await chartButton.click();
-    assert.equal(await chart.locator("td[data-attack][data-defense]").count(), 49);
+    assert.equal(await chart.locator("td[data-attack][data-defense]").count(), 81);
+    assert.equal(await chart.locator('td[aria-label="0倍"]').count(), 3);
+    const expectedOrder = ["火属性", "水属性", "雷属性", "氷属性", "風属性", "地属性", "光属性", "闇属性", "無属性"];
+    for (const section of ["thead", "tbody th"]) {
+      assert.deepEqual(await chart.locator(section + " .go-attribute-icon").evaluateAll(
+        (icons) => icons.map((icon) => icon.getAttribute("aria-label"))), expectedOrder);
+    }
+    assert.ok(await chart.locator(".go-chart-scroll").evaluate((table) => table.scrollWidth === table.clientWidth));
+    await shot("chart", true);
+    const chartImage = await chart.getByRole("link", { name: /相性表を画像で見る/ }).getAttribute("href");
+    assert.deepEqual(await page.evaluate(async (href) => {
+      const image = new Image();
+      image.src = href;
+      await image.decode();
+      return [image.naturalWidth, image.naturalHeight];
+    }, chartImage), [1448, 1086]);
     await chart.getByRole("button", { name: "閉じる" }).click();
     assert.ok(await chart.isHidden());
     assert.ok(await chartButton.evaluate((button) => document.activeElement === button));
@@ -226,8 +242,11 @@ async function verify(browser, width) {
     assert.equal(await inspect.locator(".detail-stat-grade").count(), 5);
     assert.match(await inspect.locator(".detail-passive").textContent(), /特性.*氷棚形成/s);
     const resistances = inspect.locator(".battle-inspect-resistance-grid .resistance-cell");
-    assert.equal(await resistances.count(), 7);
-    assert.equal(await resistances.filter({ has: page.locator(".go-attribute-wind") }).locator("strong").textContent(), "50%");
+    assert.equal(await resistances.count(), 9);
+    for (const [id, expected] of [["thunder", "200%"], ["ice", "100%"], ["wind", "100%"]]) {
+      const resistance = resistances.filter({ has: page.locator(".go-attribute-" + id) });
+      assert.equal(await resistance.locator("strong").textContent(), expected);
+    }
     await shot("inspect");
     await closeInspect();
     assert.ok(await dodge.isEnabled());

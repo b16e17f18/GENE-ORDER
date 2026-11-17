@@ -7,7 +7,7 @@ passive_005,電熱線,turn_end_stat_stage,pa,1,none,none,0,none,none,0,ターン
 passive_006,全身全霊,element_power_multiplier,neutral,1.2,on_use_element_stat_stage,neutral_pa,-1,none,none,0,無属性技の威力が1.2倍になる。ただし無属性技を使うたびにPAが1段階下がる。,none,none,none,,,
 passive_007,流動体質,element_immunity,neutral,1,none,none,0,none,none,0,無属性技を無効にする。,none,none,none,,,
 passive_008,短期決戦,starting_en,none,5,turn_end_stat_stage,sa,-1,none,none,0,初期ENが5で戦闘開始する。ターン終了時、SAが1段階下がる。,none,none,none,,,
-passive_009,氷棚形成,on_use_element_stat_stage,water_pd,1,none,none,0,none,none,0,水属性技を使うとPDが1段階上がる。,none,none,none,,,
+passive_009,氷棚形成,on_use_element_stat_stage,ice_pd,1,none,none,0,none,none,0,氷属性技を使うとPDが1段階上がる。,none,none,none,,,
 passive_010,スーパーハード,debuff_immunity,pd_down,1,none,none,0,none,none,0,相手によってPDを下げられない。,none,none,none,,,
 passive_011,ソーラーエナジー,on_use_element_stat_stage,flash_pa,1,none,none,0,none,none,0,光属性技を使うとPAが1段階上がる。,none,none,none,,,
 passive_012,イオンチャージャー,on_use_element_stat_stage,fire_pa,1,none,none,0,none,none,0,火属性技を使うとPAが1段階上がる。,none,none,none,,,

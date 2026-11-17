@@ -39,6 +39,7 @@ const fighters = (match) => [active(match), active(match, "enemy")];
 
 test("physical and special damage use their own stats with an optional attack stat input", () => {
   const [a, b] = fighters(battle());
+  b.base.element_1 = "thunder";
   const physical = go.calculateDamage(a, b, strike, chart);
   assert.deepEqual([physical.attack, physical.defense, physical.baseDamage, physical.damage], [120, 100, 44, 66]);
   const special = go.calculateDamage(a, b, { ...strike, attack_type: "special" }, chart);
@@ -49,6 +50,7 @@ test("physical and special damage use their own stats with an optional attack st
 test("preview does not mutate state, use RNG, or roll critical hits", () => {
   const match = battle({ random: () => { throw Error("turn RNG used"); } });
   const [a, b] = fighters(match);
+  b.base.element_1 = "thunder";
   a.passiveState = { survive_once_used: false };
   const snapshot = JSON.stringify(match);
   vm.runInContext('const originalRandom = Math.random; Math.random = () => { throw Error("damage RNG used"); };', context);
@@ -67,11 +69,11 @@ test("GO rounding, STAB, resistance, weakness, zero, and minimum damage", () => 
     assert.equal(go.roundHalfDown(value), expected);
   }
   const [a, b] = fighters(battle());
-  for (const [type, expected] of [["light", 66], ["earth", 132], ["water", 33]]) {
+  for (const [type, expected] of [["thunder", 66], ["earth", 132], ["water", 33]]) {
     b.base.element_1 = type;
     assert.equal(go.calculateDamage(a, b, strike, chart).damage, expected);
   }
-  b.base.element_1 = "light";
+  b.base.element_1 = "thunder";
   go.changeStage(a, "phy_atk", 1);
   const boosted = go.calculateDamage(a, b, strike, chart);
   assert.deepEqual([boosted.attack, boosted.baseDamage, boosted.damage], [180, 65, 97]);
@@ -85,9 +87,9 @@ test("GO rounding, STAB, resistance, weakness, zero, and minimum damage", () => 
   assert.equal(go.calculateDamage(a, b, strike, chart).damage, 97);
 });
 
-test("every one of the 49 official matchups is read directly from the chart", () => {
+test("every one of the 81 official matchups is read directly from the chart", () => {
   const [a, b] = fighters(battle());
-  assert.equal(chart.size, 7);
+  assert.equal(chart.size, 9);
   let count = 0;
   for (const [element, row] of chart) {
     for (const [target, expected] of row) {
@@ -96,7 +98,7 @@ test("every one of the 49 official matchups is read directly from the chart", ()
       count += 1;
     }
   }
-  assert.equal(count, 49);
+  assert.equal(count, 81);
 });
 
 test("dual defense multiplies to 4, 1, 0.25 and 0, and STAB is applied once", () => {
@@ -115,6 +117,28 @@ test("dual defense multiplies to 4, 1, 0.25 and 0, and STAB is applied once", ()
   assert.equal(go.calculateDamage(a, b, strike, chart).stab, 1.5);
 });
 
+test("all 324 dual defenses multiply, with Thunder and Ice STAB applied once", () => {
+  const [attacker, defender] = fighters(battle());
+  const types = [...chart.keys()];
+  let count = 0;
+  for (const [element, row] of chart) {
+    attacker.base.element_1 = "fire";
+    attacker.base.element_2 = element;
+    for (const [index, first] of types.entries()) {
+      for (const second of types.slice(index + 1)) {
+        defender.base.element_1 = first;
+        defender.base.element_2 = second;
+        const result = go.calculateDamage(attacker, defender, { ...strike, element }, chart);
+        assert.equal(result.stab, 1.5);
+        assert.equal(result.effectiveness, row.get(first) * row.get(second));
+        assert.equal(result.damage === 0, result.effectiveness === 0);
+        count += 1;
+      }
+    }
+  }
+  assert.equal(count, 324);
+});
+
 test("neutral, blank, status and unsupported compound attacks remain distinct", () => {
   const [a, b] = fighters(battle());
   a.base.element_1 = "none";
@@ -123,7 +147,7 @@ test("neutral, blank, status and unsupported compound attacks remain distinct", 
   a.base.element_1 = null;
   assert.equal(go.calculateDamage(a, b, neutral, chart).stab, 1);
   b.base.element_1 = "dark";
-  assert.equal(go.calculateDamage(a, b, neutral, chart).damage, 0);
+  assert.equal(go.calculateDamage(a, b, neutral, chart).effectiveness, 0.5);
   assert.throws(() => go.calculateDamage(a, b, { ...neutral, element: null }, chart), /未定義/);
   assert.throws(() => go.calculateDamage(a, b, { ...neutral, element2: "fire" }, chart), /複合属性/);
   const status = go.calculateDamage(a, b, { category: "status", power: 0 }, chart);
@@ -313,7 +337,7 @@ test("drain uses actual HP loss, including overkill and zero", () => {
   const match = battle({ ...assets, skills: [drain], enemy: [character({ hp: 30, element_1: "light" })] });
   active(match).hp = 100;
   const result = action(match, "strike");
-  assert.equal(result.events[0].damage, 66);
+  assert.equal(result.events[0].damage, 33);
   assert.equal(result.events[0].actualDamage, 30);
   assert.equal(active(match).hp, 115);
   const immune = battle({ ...assets, skills: [{ ...drain, element: "earth" }],
@@ -478,10 +502,10 @@ test("official poison is guaranteed, rounds like MHB, refreshes and ticks seven 
 });
 
 test("poison is retained and paused on the bench, and is blocked by evasion or immunity", () => {
-  const original = skill("skill_053");
+  const original = { ...skill("skill_053"), element: "earth" };
   const poisoner = character({ skillIds: [original.skill_id] });
   const match = battle({ ...assets, skills: [original, skill("skill_000")], player: [poisoner],
-    enemy: [character({ element_1: "dark", evasion_percent: 100 }), character({ evasion_percent: 100 })] });
+    enemy: [character({ element_1: "wind", evasion_percent: 100 }), character({ evasion_percent: 100 })] });
   go.changeEnergy(active(match), 6);
   const run = (enemy) => action(match, original.skill_id, enemy);
   run(wait);
@@ -815,10 +839,10 @@ test("recoil uses actual damage, never poisons and can produce a draw", () => {
 });
 
 test("zero damage from immunity or evasion never produces recoil", () => {
-  const recoil = skill("skill_046");
+  const recoil = { ...skill("skill_046"), element: "earth" };
   for (const dodge of [false, true]) {
     const match = battle({ ...assets, skills: [recoil, skill("skill_000")], player: [character({ skillIds: [recoil.skill_id] })],
-      enemy: [character({ element_1: dodge ? "light" : "dark", evasion_percent: 100 })] });
+      enemy: [character({ element_1: dodge ? "fire" : "wind", evasion_percent: 100 })] });
     go.changeEnergy(active(match), 2);
     const result = action(match, recoil.skill_id, dodge ? select("skill_000") : wait);
     assert.ok(!result.events.some(e => e.type === "recoil"));
@@ -1085,7 +1109,8 @@ test("Decoy damage shares hit, affinity, individual and field mitigation", () =>
   f.dodgeActive = true;
   assert.equal(go.previewDamage(match, "enemy", probe).decoyDamage, 0);
   assert.equal(go.previewDamage(match, "enemy", { ...probe, hit_type: "ignore_dodge" }).decoyDamage, mitigated);
-  assert.equal(go.previewDamage(match, "enemy", { ...probe, element: "none", hit_type: "ignore_dodge" }).decoyDamage, 0);
+  f.base.element_1 = "earth";
+  assert.equal(go.previewDamage(match, "enemy", { ...probe, element: "dark", hit_type: "ignore_dodge" }).decoyDamage, 0);
 });
 
 test("Decoy is hit before absorption, reflection and counter; damage excludes body-hit history", () => {
@@ -1595,7 +1620,7 @@ test("Revive excludes reflection, counter, recoil and HP paid for a decoy", () =
 });
 
 test("Revive tests lethality after half guard and the field multiplier", () => {
-  const match = passiveBattle({ player: [withPassive("001", { hp: 50, element_1: "light" })],
+  const match = passiveBattle({ player: [withPassive("001", { hp: 50, element_1: "thunder" })],
     enemy: [character({ element_1: "fire" })] });
   const holder = active(match);
   assert.ok(go.previewDamage(match, "enemy", strike).survival);
@@ -2199,6 +2224,28 @@ test("forecast lists optional recoil without rolling it or subtracting it from g
 const ai = vn("geneOrderAI");
 const visibleHistory = () => ({ player: new Map(), enemy: new Map() });
 const aiMove = (id, overrides = {}) => ({ ...strike, skill_id: id, name: id, ...overrides });
+
+test("GO AI and resolved turns use shared Thunder and Ice damage", () => {
+  for (const [element, target, second, expected] of [
+    ["thunder", "water", "wind", 4], ["ice", "thunder", "fire", 1],
+  ]) {
+    const move = aiMove(element, { element });
+    const match = battle({ skills: [move],
+      player: [character({ element_1: element, skillIds: [element] })],
+      enemy: [character({ element_1: target, element_2: second, hp: 400 })] });
+    const [attacker, defender] = fighters(match);
+    go.changeEnergy(attacker, 4);
+    const snapshot = JSON.stringify(match);
+    const candidate = ai.evaluate(ai.observe(match, "player")).find((entry) => entry.move?.skill_id === element);
+    const preview = go.previewDamage(match, "player", move);
+    assert.equal(go.calculateDamage(attacker, defender, move, chart).effectiveness, expected);
+    assert.equal(candidate.damage, preview.actualDamage);
+    assert.equal(JSON.stringify(match), snapshot);
+    const hp = defender.hp;
+    go.resolveTurn(match, { player: select(element), enemy: wait });
+    assert.equal(hp - defender.hp, preview.actualDamage);
+  }
+});
 
 test("GO AI accepts all six MHB profiles, safely defaults, and honors only usable preferences", () => {
   const moves = [aiMove("main"), aiMove("setup"), aiMove("expensive", { cost: 7 }),

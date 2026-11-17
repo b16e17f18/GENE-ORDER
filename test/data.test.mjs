@@ -73,7 +73,7 @@ await go.boot();
 test("production scripts parse and evaluate in index.html order", () => {
   assert.deepEqual(scripts, ["data-validation.js", "passive.js", "battle-core.js", "battle-ai.js",
     "bgm.js", "dialogue-manager.js", "go-ui.js", "app.js"]);
-  assert.match(go.elements.get("#go-status").textContent, /46体.*65件.*7種/);
+  assert.match(go.elements.get("#go-status").textContent, /46体.*65件.*9種/);
 });
 
 test("reads only the official UTF-8 tables", () => {
@@ -116,11 +116,12 @@ test("distinguishes explicit neutral, absent and unknown attributes, and loads e
   assert.equal(go.run(`normalizeCharacter({ element_1: "unknown" }, masterIdLookup([...state.elements.values()], "element_id"), new Map()).element_1`), null);
 });
 
-test("keeps all 49 matchups and all four zeros", () => {
-  assert.equal(go.run('state.elements.size'), 7);
-  assert.equal(go.run('[...state.effectiveness.values()].reduce((n, row) => n + row.size, 0)'), 49);
-  assert.equal(go.run('[...state.effectiveness.values()].flatMap((row) => [...row.values()]).filter((n) => n === 0).length'), 4);
-  assert.equal(go.run('state.effectiveness.get("none").get("dark")'), 0);
+test("keeps the ordered nine elements, all 81 matchups and the three immunities", () => {
+  assert.equal(go.run('JSON.stringify([...state.elements.keys()])'),
+    JSON.stringify(['fire', 'water', 'thunder', 'ice', 'wind', 'earth', 'light', 'dark', 'none']));
+  assert.equal(go.run('[...state.effectiveness.values()].reduce((n, row) => n + row.size, 0)'), 81);
+  assert.equal(go.run('[...state.effectiveness.values()].flatMap((row) => [...row.values()]).filter((n) => n === 0).length'), 3);
+  assert.equal(go.run('state.effectiveness.get("dark").get("earth")'), 0);
 });
 
 test("excludes placeholders and never fills absent moves with MHB attacks", () => {
@@ -729,8 +730,10 @@ test("GO stat grades use the specified inclusive boundaries and base stat offset
 
 test("GO matchup chart renders all official CSV multipliers and shared attribute icons", () => {
   const html = go.run("goAttributeChart(state)");
-  assert.equal((html.match(/data-attack=/g) || []).length, 49);
-  assert.equal((html.match(/class="go-attribute-icon /g) || []).length, 14);
+  assert.equal((html.match(/data-attack=/g) || []).length, 81);
+  assert.equal((html.match(/class="go-attribute-icon /g) || []).length, 18);
+  assert.match(html, /BattleFactory_属性相性表_9属性[.]png/);
+  assert.match(html, /data-attack="ice" data-defense="thunder" aria-label="2倍">○/);
   assert.match(html, /data-attack="earth" data-defense="wind" aria-label="0倍">×/);
   assert.match(html, /data-attack="fire" data-defense="none" aria-label="2倍">○/);
   assert.match(html, /data-attack="water" data-defense="dark" aria-label="0.5倍">△/);
