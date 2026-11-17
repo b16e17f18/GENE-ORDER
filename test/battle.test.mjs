@@ -1364,8 +1364,8 @@ test("elemental immunity blocks water, neutral and fire before dodge, absorption
 test("all elemental use-stage passives apply to status, hit, evade or immunity on use", () => {
   for (const [id, element, stat, delta, mode] of [
     ["004", "wind", "speed", 1, "evaded"], ["009", "water", "phy_def", 1, "immune"],
-    ["011", "light", "phy_atk", 1, "status"], ["012", "fire", "sp_def", 1, "hit"],
-    ["013", "fire", "phy_atk", -1, "hit"], ["006", "none", "phy_atk", -1, "immune"],
+    ["011", "light", "phy_atk", 1, "status"], ["012", "fire", "phy_atk", 1, "hit"],
+    ["013", "fire", "phy_atk", 1, "hit"], ["006", "none", "phy_atk", -1, "immune"],
   ]) {
     const move = { ...(mode === "status" ? { ...skill("skill_060"), skill_id: "strike" } : strike), element, cost: 0 };
     const enemyPassive = mode === "immune" ? (element === "water" ? "002" : "007") : "";
@@ -1847,23 +1847,23 @@ test("hostile status immunity blocks only individually targeted status effects",
 
 test("dodge action and actual evade are separate, including failed dodge and ignore-dodge attacks", () => {
   const dodge = skill("skill_000"), sharpen = skill("skill_043");
-  for (const [id, evasion, hitType, dodgeMove, count, stat] of [
-    ["021", 0, "normal", sharpen, 1, "phy_def"], ["021", 100, "normal", dodge, 1, "phy_def"],
-    ["023", 0, "normal", dodge, 0, "sp_atk"], ["023", 100, "normal", dodge, 1, "sp_atk"],
-    ["023", 100, "ignore_dodge", dodge, 0, "sp_atk"],
+  for (const [id, evasion, hitType, dodgeMove, events, stage, stat] of [
+    ["021", 0, "normal", sharpen, 1, 2, "phy_def"], ["021", 100, "normal", dodge, 1, 2, "phy_def"],
+    ["023", 0, "normal", dodge, 0, 0, "sp_atk"], ["023", 100, "normal", dodge, 1, 1, "sp_atk"],
+    ["023", 100, "ignore_dodge", dodge, 0, 0, "sp_atk"],
   ]) {
     const match = passiveBattle({ skills: [dodgeMove, { ...strike, hit_type: hitType }],
       player: [withPassive(id, { evasion_percent: evasion, skillIds: [dodgeMove.skill_id] })] });
     const turn = action(match, dodgeMove.skill_id, select());
-    assert.equal(passivesIn(turn, id === "021" ? "dodge-action" : "evaded").length, count);
-    assert.equal(active(match).stages[stat], count);
+    assert.equal(passivesIn(turn, id === "021" ? "dodge-action" : "evaded").length, events);
+    assert.equal(active(match).stages[stat], stage);
   }
   const match = passiveBattle({ skills: [dodge], player: [withPassive("023", { evasion_percent: 100 })] });
   action(match, dodge.skill_id);
   assert.equal(active(match).stages.sp_atk, 0);
 });
 
-test("toxic sweat uses normal poison refresh, requires surviving physical body loss and excludes decoy", () => {
+test("toxic mucus uses normal poison refresh, requires surviving physical body loss and excludes decoy", () => {
   for (const mode of ["hit", "refresh", "special", "decoy", "evade", "lethal"]) {
     const match = passiveBattle({ skills: [{ ...strike, attack_type: mode === "special" ? "special" : "physical" }],
       enemy: [withPassive("022", { hp: mode === "lethal" ? 1 : 200 })] });
@@ -2033,7 +2033,7 @@ test("1,024 seeded battles on the formal CSV finish with valid state and resumab
   assert.equal(summary.finished + summary.capped, count);
 });
 
-test("Revive survives for Toxic Sweat and retaliation; a decoy consumes neither", () => {
+test("Revive survives for toxic mucus and retaliation; a decoy consumes neither", () => {
   const survival = officialPassives.get("passive_001").effects[0];
   const toxin = { ...officialPassives.get("passive_022").effects[0], slot: 2 };
   const passives = new Map([["passive_001", { effects: [survival, toxin] }]]);
@@ -2090,7 +2090,7 @@ test("drain and HP cost re-evaluate Adrenaline against live HP and match the for
   assert.equal(go.statValue(actor, "phy_atk"), actor.base.phy_atk);
 });
 
-test("Toxic Sweat and Pursuit both use the status that triggers Metabolism", () => {
+test("Toxic mucus and Pursuit both use the status that triggers Metabolism", () => {
   const pursuit = skill("skill_061");
   const toxin = { ...officialPassives.get("passive_022").effects[0], slot: 3 };
   const metabolism = officialPassives.get("passive_019");

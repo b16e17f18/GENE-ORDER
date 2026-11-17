@@ -2,7 +2,7 @@
 
 ## 確定したデータ契約
 
-- 実行時に参照する正式マスタは `data/` 直下のUTF-8 CSV 9表。
+- 実行時に参照する正式マスタは `data/` 直下のUTF-8 CSV 10表。
 - 属性マスタは **火 fire、水 water、風 wind、地 earth、光 light、闇 dark、無 none**。指示の7 IDと一致。CSVセルは維持し、日本語表示名とIDの両方をマスタから引いて実行時に正規化する。未定義値・空欄は `null`、明示的な無は `none`。技の第2属性欄の `none` は第2属性なしを表す現行データ表記として扱う。
 - 種族は図鑑分類。属性と同様に、マスタの表示名からIDを解決する。
 - 相性表の倍率0を有効な数値として保持する。戦闘の倍率計算はv0.20以降。
@@ -17,6 +17,7 @@
 | character.csv | 64 | 46 |
 | passive.csv | 64 | 24 |
 | skill.csv | 100 | 65 |
+| animation.csv | 30 | 30 |
 | effect.csv | 70 | 70 |
 | battle_effect.csv | 6 | 6 |
 | power_rule.csv | 2 | 2（1グループ） |
@@ -24,7 +25,7 @@
 | element_effectiveness.csv | 49 | 49（倍率0は4組） |
 | species.csv | 10 | 10 |
 
-CP932から厳密にデコードしたキャラ・技と、ワークブックの `passive` シート（数式なし）を含む正式マスタ全9表について、ヘッダーから全行・全セルの順序と値が一致。正本の変換前ファイルは初期コミット `72ed342d4d31410ede052fb2479faeee9dc898f0` のルートにあり、例えば `git show 72ed342:data/element.csv` で旧10属性版、`git show 72ed342:element.csv` で正式版の変換前ファイルを参照できる。旧10属性表とテンプレートは `data/reference/bf-10-elements/`、MHB由来の敵編成30行は `data/reference/mhb/enemy_party.csv` に保管。
+CP932から厳密にデコードしたキャラ・技と、ワークブックの `passive` シート（数式なし）を含む初期の正式マスタ9表について、ヘッダーから全行・全セルの順序と値が一致。表示用に追加した `animation.csv` は、技からの参照、数値定義、参照PNGシートの寸法までを検証する。正本の変換前ファイルは初期コミット `72ed342d4d31410ede052fb2479faeee9dc898f0` のルートにあり、例えば `git show 72ed342:data/element.csv` で旧10属性版、`git show 72ed342:element.csv` で正式版の変換前ファイルを参照できる。旧10属性表とテンプレートは `data/reference/bf-10-elements/`、MHB由来の敵編成30行は `data/reference/mhb/enemy_party.csv` に保管。
 
 ## データ診断
 

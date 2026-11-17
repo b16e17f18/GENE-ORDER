@@ -311,13 +311,19 @@ async function verify(browser, width) {
     await byId("go-fast-battle").uncheck();
     await move("skill_054").click(); await pass();
     const sheet = byId("battleAnimationLayer").locator(".go-sheet");
-    await sheet.waitFor();
+    const waitForSheet = async (file) => {
+      await page.waitForFunction((expected) => {
+        const marker = document.querySelector("#go-app #battleAnimationLayer .go-sheet");
+        return marker?.style.backgroundImage.includes(expected);
+      }, file);
+    };
+    await waitForSheet("attack_hit01.png");
     assert.match(await sheet.evaluate(el => el.style.backgroundImage), /attack_hit01\.png/);
     assert.equal(bgmRequested, true);
     await ui.locator('.go-battle-footer [data-go-page="setup"]').click();
     await byId("startButton").click();
     await move("skill_038").click(); await pass();
-    await sheet.waitFor();
+    await waitForSheet("magic_fire01.png");
     assert.match(await sheet.evaluate(el => el.style.backgroundImage), /magic_fire01\.png/);
     const playback = await sheet.evaluate(el => el.getAnimations()[0].effect.getTiming());
     assert.equal(playback.duration, 250);
