@@ -1,4 +1,8 @@
 /* GO adjustments for the reused MHB template. */
+.go-mobile-battle-header, .go-move-detail { display: none; }
+.go-move-card { display: contents; }
+.go-skill-dialog { width: min(560px, calc(100vw - 24px)); border: 3px solid #111; }
+.go-skill-dialog::backdrop { background: rgba(0, 0, 0, .52); }
 #go-app .go-title-panel { margin-inline: auto; max-width: 540px; text-align: center; }
 #go-app .go-title-panel h1 { font-size: clamp(2rem, 8vw, 5rem); margin: 16px 0 0; }
 #go-app .go-title-panel .setup-actions { justify-content: center; }
@@ -160,4 +164,150 @@
   text-align: center;
   color: #ffffff;
   text-shadow: 0 1px 1px rgba(0,0,0,.45);
+}
+
+/* Portrait phones use the same controls and battle data in a vertical layout. */
+@media (max-width: 600px) and (orientation: portrait) {
+  #go-app .app-shell {
+    width: 100%;
+    padding: max(4px, env(safe-area-inset-top)) max(4px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left));
+  }
+  #go-app .battle-view { min-height: 0; }
+  #go-app .battle-card { border-width: 3px; }
+  #go-app .go-mobile-battle-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    min-height: 32px;
+    padding: 4px 8px;
+    color: #fff;
+    background: #111;
+  }
+  #go-app #go-mobile-turn { white-space: nowrap; font-size: .8rem; }
+  #go-app .battle-view .battle-field {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto clamp(120px, 18svh, 160px) auto;
+    min-height: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+  #go-app .battle-view .hud {
+    position: relative;
+    inset: auto;
+    grid-column: 1 / -1;
+    width: 100%;
+    min-height: 0;
+    margin: 0;
+    padding: 5px 7px;
+    border: 0;
+    font-size: .8rem;
+  }
+  #go-app .battle-view .enemy-hud { grid-row: 1; border-bottom: 3px solid #111; }
+  #go-app .battle-view .player-hud { grid-row: 3; border-top: 3px solid #111; }
+  #go-app .battle-view .hud-row { position: static; margin: 0 0 3px; }
+  #go-app .battle-view .hud-name { font-size: .9rem; line-height: 1.2; }
+  #go-app .battle-view .hud .go-attribute-icon { font-size: .8rem; }
+  #go-app .battle-view .hp-line, #go-app .battle-view .energy-line { gap: 5px; min-height: 20px; }
+  #go-app .battle-view .hud .meter { min-height: 14px; height: 16px; }
+  #go-app .battle-view .battle-info-stack { gap: 2px 8px; margin-top: 3px; }
+  #go-app .battle-view .battle-info-line { gap: 4px; font-size: .68rem; }
+  #go-app .battle-view .fighter-sprite {
+    position: relative;
+    inset: auto;
+    grid-row: 2;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    transform: none;
+    padding: 6px;
+  }
+  #go-app .battle-view .player-sprite { grid-column: 1; align-content: end; }
+  #go-app .battle-view .enemy-sprite { grid-column: 2; align-content: start; }
+  #go-app .battle-view .sprite-image-wrap { max-width: 100%; width: 100%; min-height: 0; }
+  #go-app .battle-view .sprite-image-wrap .sprite-image {
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: min(110px, 14svh);
+  }
+  #go-app .battle-view .battle-console { padding: 5px; min-height: 0; border-top-width: 3px; }
+  #go-app .battle-view .command-panel { min-height: 0; }
+  #go-app .battle-view .battle-command-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-height: 0; }
+  #go-app .battle-view .command-lights, #go-app .battle-view .battle-status-panel { display: none; }
+  #go-app .battle-view .command-side { display: block; }
+  #go-app .battle-view .command-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  #go-app .battle-view .tab-button { min-height: 44px; font-size: 1.1rem; border: 2px solid #111; }
+  #go-app .battle-view .move-grid { gap: 6px; align-items: stretch; }
+  #go-app .battle-view .move-grid > .command-note {
+    margin: 0;
+    padding: 7px;
+    min-height: 38px;
+    border: 2px solid #111;
+    background: #fff3bc;
+    color: #111;
+    font-size: .9rem;
+  }
+  #go-app .go-move-card { display: grid; position: relative; min-width: 0; }
+  #go-app .battle-view .go-move-card .move-button {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-height: 146px;
+    padding: 6px 7px 46px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto auto;
+    align-content: start;
+    gap: 4px;
+    border-width: 2px;
+    text-align: left;
+  }
+  #go-app .battle-view .move-name { grid-column: 1 / -1; grid-row: 1; padding-right: 24px; font-size: .9rem; line-height: 1.25; overflow-wrap: anywhere; }
+  #go-app .battle-view .move-element { position: absolute; right: 7px; top: 7px; min-width: 0; padding: 0; border: 0; }
+  #go-app .battle-view .move-element .go-attribute-icon { font-size: .8rem; }
+  #go-app .battle-view .move-cost { grid-column: 1; grid-row: 2; font-size: .8rem; }
+  #go-app .battle-view .move-power { grid-column: 2; grid-row: 2; padding: 2px; font-size: .73rem; }
+  #go-app .battle-view .move-kind { grid-column: 1 / -1; grid-row: 3; font-size: .77rem; }
+  #go-app .battle-view .move-text {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    font-size: .76rem;
+    line-height: 1.4;
+  }
+  #go-app .go-move-detail {
+    display: block;
+    position: absolute;
+    right: 3px;
+    bottom: 3px;
+    min-width: 52px;
+    min-height: 44px;
+    padding: 5px 8px;
+    border: 1px solid #fff;
+    background: #333;
+    color: #fff;
+    font-size: .76rem;
+  }
+  #go-app .battle-view .battle-action-area > .battle-log.is-visible {
+    position: absolute;
+    inset: 0;
+    padding: 14px;
+    font-size: 1rem;
+    line-height: 1.6;
+    overflow-y: auto;
+  }
+  #go-app .battle-view .switch-grid { grid-template-columns: minmax(0, 1fr); }
+  #go-app .battle-view .switch-button { min-height: 64px; }
+  #go-app .go-battle-footer { gap: 4px 8px; padding: 5px; }
+  #go-app .go-battle-footer label { display: flex; align-items: center; min-height: 36px; font-size: .75rem; }
+  #go-app .go-battle-footer .small-button { min-height: 36px; padding: 4px 8px; font-size: .75rem; }
+  #go-app .go-battle-footer details { font-size: .8rem; }
+  #go-app .go-battle-footer summary { min-height: 36px; padding-block: 8px; }
+  #go-app .go-skill-dialog { max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow-y: auto; }
 }

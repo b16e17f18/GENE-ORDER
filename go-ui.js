@@ -128,6 +128,8 @@ const geneOrderUI = (() => {
     const title = clone("#titleView");
     const setup = clone("#setupView");
     const arena = clone("#battleView");
+    arena.querySelector(".battle-card").insertAdjacentHTML("afterbegin",
+      '<header class="go-mobile-battle-header"><strong>GENE ORDER</strong><span id="go-mobile-turn"></span></header>');
     const dex = clone("#dexOverlay");
     title.querySelector(".title-stage").innerHTML = `
       <div class="team-panel go-title-panel">
@@ -181,7 +183,11 @@ const geneOrderUI = (() => {
         chartDialog.close();
       }
     });
-    shell.append(title, setup, arena, dex, chartDialog);
+    const skillDialog = document.createElement("dialog");
+    skillDialog.className = "detail-panel go-skill-dialog";
+    skillDialog.setAttribute("aria-label", "技の詳細");
+    skillDialog.innerHTML = '<div class="detail-header"><strong>技の詳細</strong><form method="dialog"><button class="small-button" autofocus>閉じる</button></form></div><div class="go-skill-dialog-content"></div>';
+    shell.append(title, setup, arena, dex, chartDialog, skillDialog);
     root.append(shell);
     const $ = (id) => shell.querySelector("#" + id);
     const debugBack = document.createElement("button");
@@ -235,6 +241,7 @@ const geneOrderUI = (() => {
         return;
       }
       epoch++;
+      if (skillDialog.open) skillDialog.close();
       finishWait?.();
       motion?.cancel();
       match = null;
@@ -414,6 +421,7 @@ const geneOrderUI = (() => {
     }
 
     function drawBoard(frame) {
+      $("go-mobile-turn").textContent = `${frame.turn}ターン`;
       const status = [];
       for (const candidate of SIDES) {
         const index = frame.active[candidate];
@@ -590,13 +598,14 @@ const geneOrderUI = (() => {
         const issue = go.checkAction(battle, candidate, { type: "move", moveId: id });
         const releasing = actor.pending?.moveId === id;
         const kind = move.category === "attack" ? attackTypeLabel(move.attack_type) : "変化";
-        return `<button class="move-button move-element-${esc(move.element ?? "")}" type="button" data-go-move="${esc(id)}"
+        return `<div class="go-move-card"><button class="move-button move-element-${esc(move.element ?? "")}" type="button" data-go-move="${esc(id)}"
           ${issue ? "disabled" : ""} title="${esc(goStatText(issue || move.text))}">
           <span class="move-name">${esc(move.name)}</span>
           <span class="move-cost">${energyBadge(releasing ? 0 : move.cost)}</span>
           <span class="move-element">${moveAttributes(move)}</span><span class="move-kind">${esc(kind)}</span>
           <span class="move-power power-chip">威力 ${move.category === "attack" ? releasing ? actor.pending.power : move.power : "—"}</span>
-          <span class="move-text">優先度 ${move.priority} · ${esc(goStatText(move.text))}${issue ? ` · ${esc(goStatText(issue))}` : ""}</span></button>`;
+          <span class="move-text">優先度 ${move.priority} · ${esc(goStatText(move.text))}${issue ? ` · ${esc(goStatText(issue))}` : ""}</span></button>
+          <button class="go-move-detail" type="button" data-go-skill-detail="${esc(id)}" aria-label="${esc(move.name)}の詳細" aria-haspopup="dialog">詳細</button></div>`;
       });
       $("moveGrid").innerHTML = `<div class="command-note">${LABELS[candidate]}の行動を選択</div>${buttons.join("")}`;
     }
@@ -767,6 +776,17 @@ const geneOrderUI = (() => {
       const battleAction = ["goMove", "goSwitch", "goTurn", "goReplay"].some((key) => Object.hasOwn(command, key));
       if (battleAction && event.detail > 1) return;
       if (command.goPage) return showPage(command.goPage);
+      if (command.goSkillDetail) {
+        const move = data.skills.get(command.goSkillDetail);
+        if (!move || !["choice", "switch"].includes(phase)) return;
+        skillDialog.querySelector(".go-skill-dialog-content").innerHTML = renderSkillDetail(move, {
+          attributeMarkup: moveAttributes(move),
+          description: goStatText(move.text),
+          issue: goStatText(go.checkAction(match.battle, turnSide, { type: "move", moveId: move.skill_id })),
+        });
+        skillDialog.showModal();
+        return;
+      }
       if (Object.hasOwn(command, "goChart")) {
         chartDialog.showModal();
         return;

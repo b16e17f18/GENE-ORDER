@@ -194,6 +194,54 @@ async function verify(browser, width) {
     assert.ok(await byId("playerSprite").locator(".go-attribute-icon").count());
     assert.equal(await byId("playerHud").locator(".hp-line > span").first().textContent(), "体力");
     assert.deepEqual(await ui.locator(".command-tabs .tab-button:visible").allTextContents(), ["回避", "入替", "相性"]);
+    if (width < 600) {
+      const layout = async () => {
+        const enemyHud = await byId("enemyHud").boundingBox();
+        const playerHud = await byId("playerHud").boundingBox();
+        const enemySprite = await byId("enemySprite").boundingBox();
+        const playerSprite = await byId("playerSprite").boundingBox();
+        assert.ok(enemyHud.y + enemyHud.height <= enemySprite.y + 1);
+        assert.ok(playerSprite.y + playerSprite.height <= playerHud.y + 1);
+        const cards = await ui.locator(".go-move-card").evaluateAll((nodes) => nodes.map((node) => {
+          const box = node.getBoundingClientRect();
+          return { x: box.x, y: box.y, width: box.width };
+        }));
+        assert.equal(cards.length, 4);
+        assert.equal(cards[0].y, cards[1].y);
+        assert.ok(cards[1].x >= cards[0].x + cards[0].width);
+        assert.ok(cards[2].y > cards[0].y);
+        for (const button of await ui.locator(".command-tabs .tab-button:visible, .go-move-detail").all()) {
+          assert.ok((await button.boundingBox()).height >= 44);
+        }
+      };
+      await layout();
+      assert.match(await byId("go-mobile-turn").textContent(), /1ターン/);
+      const logs = await byId("go-official-log").locator("li").count();
+      const detail = ui.getByRole("button", { name: "デコイの詳細", exact: true });
+      await detail.click();
+      const dialog = ui.getByRole("dialog", { name: "技の詳細", exact: true });
+      assert.match(await dialog.textContent(), /最大体力の1\/3/);
+      assert.ok(await move("skill_041").isDisabled());
+      await dialog.getByRole("button", { name: "閉じる" }).click();
+      assert.ok(await dialog.isHidden());
+      assert.equal(await byId("go-official-log").locator("li").count(), logs);
+      await detail.click();
+      await page.keyboard.press("Escape");
+      assert.ok(await dialog.isHidden());
+      for (const viewport of [{ width: 320, height: 640 }, { width: 375, height: 812 }, { width: 430, height: 932 }]) {
+        await page.setViewportSize(viewport);
+        await layout();
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), viewport.width);
+      }
+      await page.setViewportSize({ width: 844, height: 390 });
+      assert.ok(await ui.locator(".go-mobile-battle-header").isHidden());
+      assert.ok(await detail.isHidden());
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 844);
+      await page.setViewportSize({ width, height: 844 });
+    } else {
+      assert.ok(await ui.locator(".go-mobile-battle-header").isHidden());
+      assert.equal(await ui.locator(".go-move-detail:visible").count(), 0);
+    }
     const chartButton = byId("go-battle-chart");
     const chart = ui.getByRole("dialog", { name: "属性相性一覧表" });
     await chartButton.click();
