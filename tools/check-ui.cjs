@@ -130,9 +130,9 @@ async function verify(browser, width) {
         getComputedStyle(row.querySelector(".detail-stat-fill")).backgroundColor,
       ]));
       const expected = [
-        ["体力", 275, "rgb(157, 240, 0)"], ["物理攻撃", 225, "rgb(229, 57, 53)"],
-        ["物理防御", 225, "rgb(246, 215, 67)"], ["特殊攻撃", 225, "rgb(255, 90, 165)"],
-        ["特殊防御", 225, "rgb(255, 157, 40)"], ["敏捷", 225, "rgb(0, 158, 232)"],
+        ["体力", 200, "rgb(157, 240, 0)"], ["物理攻撃", 200, "rgb(229, 57, 53)"],
+        ["物理防御", 200, "rgb(246, 215, 67)"], ["特殊攻撃", 200, "rgb(255, 90, 165)"],
+        ["特殊防御", 200, "rgb(255, 157, 40)"], ["敏捷", 200, "rgb(0, 158, 232)"],
         ["回復力", 50, "rgb(59, 209, 127)"],
       ];
       assert.equal(stats.length, expected.length);
@@ -150,7 +150,8 @@ async function verify(browser, width) {
         const [name, max, rgb] = expected[index];
         assert.equal(label, name);
         assert.ok(Number.isFinite(value));
-        assert.equal(bar, Math.round(Math.min(value / max, 1) * 100), name);
+        const offset = name === "体力" ? 75 : name === "回復力" ? 0 : 20;
+        assert.equal(bar, Math.round(Math.max(0, Math.min((value - offset) / max, 1)) * 100), name);
         assert.equal(color, rgb, name);
       }
       assert.ok(await card.locator(".detail-skill-card .go-attribute-icon").count());

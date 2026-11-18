@@ -447,7 +447,6 @@ const geneOrderUI = (() => {
         return goCharacterStat(stat, value, {
           baseValue: fighter.base[stat],
           displayValue: rank ? `${value} (${rank > 0 ? "+" : ""}${rank})` : value,
-          graphMax: BATTLE_STAT_GRAPH_MAX,
           showPenalty: true,
         });
       });

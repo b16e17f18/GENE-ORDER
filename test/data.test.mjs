@@ -718,18 +718,24 @@ test("official match captures poison and HP0 before resuming a replacement, then
 });
 
 
-test("GO character stat card uses Japanese labels and independent graph maxima", () => {
+test("GO stat graphs use base scores against 200 while displaying actual stats", () => {
   const stats = ["hp", "phy_atk", "phy_def", "sp_atk", "sp_def", "speed"];
   for (const key of stats) {
-    const max = key === "hp" ? 275 : 225;
+    const offset = key === "hp" ? 75 : 20;
+    const max = 200 + offset;
     const markup = go.run(`goCharacterStat("${key}", ${max})`);
     assert.match(markup, /--bar-width: 100%/);
-    assert.match(go.run(`goCharacterStat("${key}", ${Math.floor(max / 2)})`), /--bar-width: 50%/);
+    assert.match(go.run(`goCharacterStat("${key}", ${100 + offset})`), /--bar-width: 50%/);
+    assert.match(go.run(`goCharacterStat("${key}", ${offset})`), /--bar-width: 0%/);
+    assert.match(go.run(`goCharacterStat("${key}", ${offset - 1})`), /--bar-width: 0%/);
+    assert.match(go.run(`goCharacterStat("${key}", ${max + 20})`), /--bar-width: 100%/);
   }
   assert.match(go.run('goCharacterStat("regen_value", 25)'), /--bar-width: 50%/);
   assert.match(go.run('goCharacterStat("regen_value", 50)'), /--bar-width: 100%/);
   assert.match(go.run('goCharacterStat("hp", 300)'), />300<\/strong>/);
   assert.match(go.run('goCharacterStat("regen_value", 25)'), /回復力/);
+  assert.match(go.run('goCharacterStat("hp", 125)'), /--bar-width: 25%/);
+  assert.match(go.run('goCharacterStat("phy_atk", 81)'), /--bar-width: 31%/);
   assert.equal(go.run('goStatText("HPとPA・PD・SA・SD・SP")'), "体力と物理攻撃・物理防御・特殊攻撃・特殊防御・敏捷");
   assert.equal(go.run('state.characterMap.get("character_001").regen_value'), 25);
 });

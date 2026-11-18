@@ -4243,7 +4243,8 @@ function goStatRank(stat, baseValue) {
 function goCharacterStat(stat, value, options = {}) {
   return detailStat(STAT_LABELS[stat], value, stat, {
     displayValue: value,
-    graphMax: stat === "regen_value" ? 50 : stat === "hp" ? 275 : 225,
+    graphMax: stat === "regen_value" ? 50 : 200,
+    graphOffset: GO_STAT_RANK_OFFSETS[stat] ?? 0,
     ...options,
     grade: goStatRank(stat, options.baseValue ?? value),
   });
@@ -4978,7 +4979,7 @@ function characterBattleNo(character) {
 
 function detailStatBarPercent(statKey, value, options = {}) {
   const maxStatValue = options.graphMax ?? STAT_GRAPH_MAX[statKey] ?? 250;
-  return Math.round(clamp(value / maxStatValue, 0, 1) * 100);
+  return Math.round(clamp((value - (options.graphOffset ?? 0)) / maxStatValue, 0, 1) * 100);
 }
 
 function moveElementText(move) {
