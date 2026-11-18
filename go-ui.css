@@ -27,7 +27,7 @@
   #go-app .battle-view .hud { margin-inline: 0; min-height: 116px; }
   #go-app .battle-view .fighter-sprite { max-width: 45%; }
 }
-#go-app .battle-view .hp-fill { transition: width 120ms ease-out; }
+#go-app .battle-view .hp-fill { transition: width var(--go-hp-transition-ms, 360ms) ease-out; }
 #go-app .battle-view.go-fast .hp-fill { transition: none; }
 #go-app .battle-view .battle-info-line { grid-template-columns: max-content minmax(0, 1fr); }
 #go-app .battle-view .fighter-sprite { grid-template-rows: auto; min-height: 0; }

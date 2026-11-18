@@ -1,5 +1,28 @@
 # パッシブ共通エンジン v0.41
 
+## パッシブ種別マスタ
+
+`data/passive_type.csv` に16種の定義を置き、`passive.csv` の各効果を検証する。UTF-8で保存し、再読み込み後の新規戦闘に反映する。
+
+| 列 | 内容 |
+|---|---|
+| `passive_type_id` | `passive.csv` の `passive_type1`〜`3` から参照するID |
+| `name`、`description` | 種別の日本語名称と処理の説明 |
+| `handler` | `passive.js` に登録された処理方式のID |
+| `phase` | 発動タイミング。ハンドラーが対応するタイミングと照合 |
+| `target_kind` | 属性、能力、属性＋能力、状態異常などの対象形式 |
+| `value_type` | `integer` または `number` |
+| `value_min`、`value_max` | 効果量の下限・上限。空欄はその側の制限なし |
+| `min_inclusive`、`max_inclusive` | `TRUE` は境界を含む、`FALSE` は境界を含まない |
+| `condition_kind` | `none`、`stat_condition`、`priority`、`attack_type` |
+| `aliases` | 互換用の別名。複数の場合は `|` で区切る |
+
+流動体質は `element_damage_multiplier` を使う。種別マスタは効果量を0より大きく1以下の倍率に制限し、個別パッシブの `value1=0.5` で半減する。`neutral` は無属性ID `none` へ正規化する。未設定の効果スロットを表す `passive_type=none` は種別マスタへの登録を必要としない。旧種別ID `start_energy` はマスタの `aliases` に記録し、`starting_en` として解決する。
+
+既存の処理方式を使う種別は、新しい `passive_type_id` と既存の `handler` を指定した行を追加して利用できる。新しい処理方式を作る場合はJavaScriptにもハンドラーを実装する。発動タイミング・対象形式・条件形式がハンドラーと食い違う行、重複ID・別名、未登録ハンドラー、矛盾した数値範囲、既存16種の定義欠落は起動時エラーになる。個別パッシブの不正な対象・効果量・種別IDはデータ診断で検出する。
+
+種別検証には `geneOrderPassives.readTypes(rows)`、パッシブの正規化には `normalize(row, elements, statuses, catalog)` を使う。ローダー・診断・テストへ同じ種別マスタを渡し、JavaScript側に範囲定義の代替データを持たせない。
+
 ## データと状態
 
 [正式パッシブCSV](../data/passive.csv) は64枠。名称設定済み24件を実装。残る40枠は予約行。既存の最大3枠と各枠の `passive_typeN`、`target_idN`、`valueN`、`trigger_textN` を使う。
@@ -47,7 +70,7 @@ MHB由来の `normalizePassive()` / `normalizePassiveEffect()`、`passiveEffects
 | 004 | スピンナップ | `wind_sp / +1` | 実装。使用時の順序は暫定 |
 | 005 | 電熱線 | 終了時PA+1 | 実装 |
 | 006 | 全身全霊 | `neutral / 1.2` の威力補正、`neutral_pa / −1` | 実装。使用時の順序は暫定 |
-| 007 | 流動体質 | `element_immunity / neutral / 1` | 実装。攻撃技のみ暫定 |
+| 007 | 流動体質 | `element_damage_multiplier / neutral / 0.5` | 無属性の物理・特殊攻撃の被ダメージを半減。倍率はCSVで管理 |
 | 008 | 短期決戦 | 初期EN5、終了時SA−1 | 実装 |
 | 009 | 氷棚形成 | `water_pd / +1` | 実装。使用時の順序は暫定 |
 | 010 | スーパーハード | `debuff_immunity / pd_down / 1`。相手のPD低下を無効 | 実装 |
@@ -107,7 +130,7 @@ IDは `data/passive.csv` の `passive_NNN`。各効果の対象・量・条件�
 | 004 | 風技使用｜通常効果後 | 自分 SP+1 | 使用ごと、溜め1回 | 回避・リレー | all elemental use-stage / special switch suspension |
 | 005 | 場で生存｜終了 | 自分 PA+1 | 終了ごと | 通常交代後・補充前 | official GO teams replay |
 | 006 | 無攻撃の威力評価・無技使用後 | 威力×1.2、自分 PA−1 | 各枠、技使用ごと | 窮鼠猫噛・溜め・無効 | Full Commitment / neutral power |
-| 007 | 無攻撃｜無効判定 | 敵技を無効、1 | 枠別記録 | 複合属性・デコイ | elemental immunity |
+| 007 | 無攻撃｜軽減計算 | 被ダメージ×0.5 | 回数制限なし | 防御・追加効果・AI予測 | Fluid Body |
 | 008 | 戦闘開始・場で生存｜初期化・終了 | 自分 EN5、SA−1 | 初期化1回、SAは終了ごと | 交代再登場 | starting EN |
 | 009 | 水技使用｜通常効果後 | 自分 PD+1 | 使用ごと | 属性無効、自己変化技 | all elemental use-stage |
 | 010 | 敵由来PD低下｜ランク適用前 | 自分の低下を無効、1 | 阻止ごと | 外部デバフ・自己低下・強化解除 | stage immunity |

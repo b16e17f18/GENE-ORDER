@@ -95,8 +95,11 @@ const geneOrderBattle = (() => {
     const { value: defense, passives: defensePassives } = effectiveStat(defender, stats[1], { opponent: attacker });
     const guard = activeDefense(defender, "guard", modifiers.turn ?? 1);
     const cut = Math.max(guard?.definition.damage_cut ?? (defender.halfGuard ?? 0), absorb?.definition.damage_cut ?? 0);
+    const damagePassives = geneOrderPassives.matching(defender, "incoming-damage",
+      (effect) => effect.element === move.element);
+    const passiveMultiplier = damagePassives.reduce((multiplier, effect) => multiplier * effect.value, 1);
     const finalMultiplier = (modifiers.finalMultiplier ?? (100 - cut * pierce) / 100) *
-      fieldDamageMultiplier(move, modifiers.targetFields ?? [], modifiers.turn ?? 1, pierce);
+      fieldDamageMultiplier(move, modifiers.targetFields ?? [], modifiers.turn ?? 1, pierce) * passiveMultiplier;
     if (!Number.isFinite(power) || power <= 0 || !Number.isFinite(finalMultiplier) || finalMultiplier < 0) {
       throw new Error("技威力または最終補正が無効です。");
     }
@@ -122,7 +125,7 @@ const geneOrderBattle = (() => {
     return { damage, decoyDamage, power, attack, defense, baseDamage, stab, afterStab, effectiveness, afterEffectiveness,
       reason: decoy ? "decoy" : absorbed ? "absorbed" : reflected ? "reflected" : reason ?? "hit",
       response: response ? { id: response.id, damage: Math.max(1, Math.round(virtualDamage * response.definition.damage_value / 100)) } : null,
-      powerPassives, attackPassives, defensePassives, survival, heal: absorbed ? Math.floor(defender.maxHp * absorb.definition.modifier / 100) : 0 };
+      powerPassives, attackPassives, defensePassives, damagePassives, survival, heal: absorbed ? Math.floor(defender.maxHp * absorb.definition.modifier / 100) : 0 };
   }
 
 
@@ -1010,6 +1013,9 @@ const geneOrderBattle = (() => {
         }
         for (const effect of result.defensePassives) {
           geneOrderPassives.activate(defender, other, effect, events, { stat: effect.stat, multiplier: effect.value });
+        }
+        for (const effect of result.damagePassives) {
+          geneOrderPassives.activate(defender, other, effect, events, { multiplier: effect.value });
         }
       }
       if (result.immunity) geneOrderPassives.activate(defender, other, result.immunity, events);

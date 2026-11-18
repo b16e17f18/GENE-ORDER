@@ -2,7 +2,7 @@
 character_001,チャイ,無,,獣族,125,81,75,75,128,126,85,25,1,43,skill_001,skill_002,skill_005,skill_006,character_001,#FFFFFF,8,,,,,1,,,,passive_001,
 character_002,メイジェリー,無,光,獣族,157,84,84,135,141,129,55,12,2,55,skill_003,skill_004,skill_007,skill_008,character_002,#FFFFFF,8,,,,,2,,,,passive_002,
 character_003,エメリーホール,地,火,植物族,133,151,122,101,62,101,25,16,1,49,skill_009,skill_010,skill_011,skill_012,character_003,#FFFFFF,8,,,,,3,,,,passive_003,
-character_004,ジャイロスクリーン,風,水,鳥獣族,140,110,98,120,85,117,75,14,2,49,skill_013,skill_014,skill_015,skill_016,character_004,#FFFFFF,8,,,,,4,,,,passive_004,
+character_004,ジャイロスクリン,風,水,鳥獣族,140,110,98,120,85,117,75,14,2,49,skill_013,skill_014,skill_015,skill_016,character_004,#FFFFFF,8,,,,,4,,,,passive_004,
 character_005,バグズニードル,雷,無,昆虫族,152,97,132,85,97,47,35,16,1,43,skill_017,skill_018,skill_019,skill_020,character_005,#FFFFFF,8,,,,,5,,,,passive_005,
 character_006,デモルコング,無,,獣族,188,156,102,69,81,84,40,18,2,50,skill_021,skill_022,skill_023,skill_010,character_006,#FFFFFF,8,,,,,6,,,,passive_006,
 character_007,ミズアメネバムシ,水,闇,異体族,175,100,136,120,100,39,15,25,1,43,skill_024,skill_025,skill_026,skill_027,character_007,#FFFFFF,8,,,,,7,,,,passive_007,

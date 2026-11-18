@@ -78,9 +78,86 @@ test("production scripts parse and evaluate in index.html order", () => {
 
 test("reads only the official UTF-8 tables", () => {
   assert.deepEqual(go.requested.sort(), ["animation", "battle_effect", "character", "effect", "element",
-    "element_effectiveness", "passive", "power_rule", "skill", "species"].map((name) => "./data/" + name + ".csv"));
+    "element_effectiveness", "passive", "passive_type", "power_rule", "skill", "species"].map((name) => "./data/" + name + ".csv"));
   assert.equal(go.run("state.enemyParties.size"), 0);
   assert.equal(go.run("state.rankBattles.size"), 0);
+});
+
+test("passive type master covers the handlers, configured effects and legacy alias", () => {
+  assert.equal(go.run("state.passiveTypes.size"), 16);
+  assert.equal(go.run('state.passives.size'), 24);
+  assert.equal(go.run('[...state.passives.values()].every((passive) => passive.status === "implemented")'), true);
+  assert.equal(go.run('state.passives.get("passive_007").effects[0].value'), 0.5);
+  assert.equal(go.run('state.passives.get("passive_007").effects[0].element'), "none");
+  assert.equal(go.run('state.dataDiagnostics.some((issue) => issue.table === "passiveTypes")'), false);
+  assert.equal(go.run(`geneOrderPassives.normalize({ name: "Old EN", passive_type1: "start_energy",
+    target_id1: "en", value1: "3" }, new Set(), new Set(),
+    geneOrderPassives.readTypes([...state.passiveTypes.values()])).effects[0].type`), "starting_en");
+});
+
+test("a new passive type ID and alias reuse an existing handler through CSV", async () => {
+  const revised = runtime({ transforms: {
+    "./data/passive_type.csv": (csv) => csv.trimEnd() + "\n" +
+      "custom_reduction,試験軽減,element_damage_multiplier,incoming-damage,element,number,0,1,FALSE,TRUE,none,test_reduction,既存の被ダメージ処理を再利用する\n",
+    "./data/passive.csv": (csv) => csv.replace("element_damage_multiplier,neutral,0.5", "test_reduction,neutral,0.25"),
+  } });
+  await revised.boot();
+  assert.equal(revised.run('state.passives.get("passive_007").effects[0].type'), "custom_reduction");
+  assert.equal(revised.run('state.passives.get("passive_007").status'), "implemented");
+  const scenario = `(() => {
+    const go = geneOrderBattle;
+    const skill = state.skills.get("skill_023");
+    const actor = { ...state.characterMap.get("character_006"), skillIds: [skill.skill_id] };
+    const target = { ...state.characterMap.get("character_007"), hp: 1000 };
+    const battle = go.createBattle({ player: [actor], enemy: [target], skills: state.skills,
+      effects: state.effects, battleEffects: state.battleEffects, effectiveness: state.effectiveness, passives: state.passives });
+    go.changeEnergy(go.activeFighter(battle, "player"), 7);
+    const preview = go.previewDamage(battle, "player", skill);
+    const hp = go.activeFighter(battle, "enemy").hp;
+    go.resolveTurn(battle, { player: { type: "move", moveId: skill.skill_id }, enemy: { type: "wait" } });
+    return JSON.stringify([preview.damage, hp - go.activeFighter(battle, "enemy").hp]);
+  })()`;
+  const original = JSON.parse(go.run(scenario));
+  const updated = JSON.parse(revised.run(scenario));
+  assert.equal(original[0], original[1]);
+  assert.equal(updated[0], updated[1]);
+  assert.ok(updated[0] > 0 && updated[0] < original[0]);
+});
+
+test("CSV value bounds validate passive values after reload", async () => {
+  const revised = runtime({ transforms: {
+    "./data/passive_type.csv": (csv) => csv.replace("incoming-damage,element,number,0,1,FALSE", "incoming-damage,element,number,0,0.4,FALSE"),
+  } });
+  await revised.boot();
+  assert.equal(revised.run('state.passives.get("passive_007").status'), "pending");
+  assert.equal(revised.run('state.dataDiagnostics.some((issue) => issue.id === "passive_007" && issue.field === "value1")'), true);
+});
+
+test("invalid passive type definitions stop startup with the master path", async () => {
+  const mutations = [
+    (csv) => csv.replace("初期EN,starting_en,", "初期EN,missing_handler,"),
+    (csv) => csv.replace("starting_en,battle-start,", "starting_en,turn-end,"),
+    (csv) => csv.replace("battle-start,energy,", "battle-start,element,"),
+    (csv) => csv.replace("energy,integer,", "energy,unknown,"),
+    (csv) => csv.replace("integer,0,,TRUE", "integer,NaN,,TRUE"),
+    (csv) => csv.replace("number,0,1,FALSE,TRUE", "number,2,1,FALSE,TRUE"),
+    (csv) => csv.replace("none,start_energy,", "none,element_immunity,"),
+    (csv) => csv.replace("none,start_energy,", "none,none,"),
+    (csv) => csv.replace("stat_condition,,", "priority,,"),
+    (csv) => csv.split(/\r?\n/).filter((row) => !row.startsWith("starting_en,")).join("\n"),
+    (csv) => csv.trimEnd() + "\n" + csv.split(/\r?\n/)[1],
+  ];
+  for (const mutate of mutations) {
+    const revised = runtime({ transforms: { "./data/passive_type.csv": mutate } });
+    await revised.boot();
+    assert.equal(revised.elements.get("#go-status").role, "alert");
+    assert.match(revised.elements.get("#go-status").textContent, /passive_type[.]csv/);
+    assert.equal(revised.run("state.characters.length"), 0);
+  }
+  const missing = runtime({ missing: "passive_type.csv" });
+  await missing.boot();
+  assert.equal(missing.elements.get("#go-status").role, "alert");
+  assert.match(missing.elements.get("#go-status").textContent, /passive_type[.]csv/);
 });
 
 test("each named skill uses valid animation metadata and a matching PNG sheet", () => {
@@ -717,6 +794,19 @@ test("official match captures poison and HP0 before resuming a replacement, then
   assert.deepEqual(actual, [7, 6, 0, true, "player", true, 1, null, 146]);
 });
 
+
+test("playback timing provides MHB-length reading time for each visible event", () => {
+  const timing = go.run("geneOrderUI.PLAYBACK_TIMING");
+  assert.equal(Object.isFrozen(timing), true);
+  assert.equal(timing.moveName, 840);
+  assert.equal(timing.hpGauge, 360);
+  for (const [type, minimum] of [["move", 1040], ["stage", 600], ["passive", 600],
+    ["status-applied", 720], ["residual", 840], ["faint", 1040], ["switch", 840],
+    ["replacement", 840], ["energy", 600], ["charge", 720]]) {
+    assert.ok(go.run(`geneOrderUI.eventHold({ type: "${type}", category: "attack" })`) >= minimum, type);
+  }
+  assert.ok(timing.damage >= timing.hpGauge);
+});
 
 test("GO stat graphs use base scores against 200 while displaying actual stats", () => {
   const stats = ["hp", "phy_atk", "phy_def", "sp_atk", "sp_def", "speed"];

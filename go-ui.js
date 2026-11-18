@@ -7,6 +7,36 @@ const geneOrderUI = (() => {
   const TEAM_LIMIT = 4;
   const DODGE = "skill_000";
   const BATTLE_BGM = "go_free_battle";
+  // MHB pause() doubles its source delays. These values are the actual milliseconds.
+  const PLAYBACK_TIMING = Object.freeze({
+    input: 300,
+    moveName: 840,
+    damage: 1040,
+    stage: 600,
+    status: 720,
+    passive: 600,
+    faint: 1040,
+    switch: 840,
+    residual: 840,
+    energy: 600,
+    message: 720,
+    actionGap: 420,
+    turnEnd: 600,
+    hpGauge: 360,
+    flash: 130,
+    minimumAnimation: 80,
+  });
+  function eventHold(event) {
+    if (event.type === "move") return event.category === "attack" ? PLAYBACK_TIMING.damage : PLAYBACK_TIMING.status;
+    if (["faint", "win", "draw"].includes(event.type)) return PLAYBACK_TIMING.faint;
+    if (["switch", "replacement"].includes(event.type)) return PLAYBACK_TIMING.switch;
+    if (["residual", "heal", "absorbed"].includes(event.type)) return PLAYBACK_TIMING.residual;
+    if (["reflected", "revenge", "recoil", "decoy-hit"].includes(event.type)) return PLAYBACK_TIMING.damage;
+    if (event.type === "stage") return PLAYBACK_TIMING.stage;
+    if (event.type === "passive") return PLAYBACK_TIMING.passive;
+    if (["energy", "effect-energy"].includes(event.type)) return PLAYBACK_TIMING.energy;
+    return PLAYBACK_TIMING.message;
+  }
   const aiRandom = () => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32;
   const otherSide = (side) => side === "player" ? "enemy" : "player";
 
@@ -172,6 +202,25 @@ const geneOrderUI = (() => {
     let inspectSide = null;
     let epoch = 0;
     let motion;
+    let finishWait;
+    arena.style.setProperty("--go-hp-transition-ms", PLAYBACK_TIMING.hpGauge + "ms");
+
+    function skipping() {
+      return $("go-fast-battle").checked || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    }
+
+    function waitPlayback(milliseconds, current) {
+      if (skipping() || current !== epoch) return Promise.resolve();
+      return new Promise((done) => {
+        const finish = () => {
+          clearTimeout(timer);
+          if (finishWait === finish) finishWait = null;
+          done();
+        };
+        const timer = setTimeout(finish, milliseconds);
+        finishWait = finish;
+      });
+    }
 
     function setPage(next) {
       debug.hidden = next !== "debug";
@@ -186,6 +235,7 @@ const geneOrderUI = (() => {
         return;
       }
       epoch++;
+      finishWait?.();
       motion?.cancel();
       match = null;
       stopBgm();
@@ -559,6 +609,7 @@ const geneOrderUI = (() => {
         return;
       }
       epoch++;
+      finishWait?.();
       motion?.cancel();
       phase = "choice";
       turnSide = "player";
@@ -596,7 +647,7 @@ const geneOrderUI = (() => {
           return { offset: index / asset.order.length, backgroundPosition: point.x + "px " + point.y + "px", easing: "steps(1, end)" };
         });
         frames.push({ ...frames.at(-1), offset: 1 });
-        const duration = Math.max(80, move.animation_duration_ms || Math.round(asset.order.length * 1000 / asset.fps));
+        const duration = Math.max(PLAYBACK_TIMING.minimumAnimation, move.animation_duration_ms || Math.round(asset.order.length * 1000 / asset.fps));
         const iterations = Math.min(8, move.repeat_count || asset.repeatCount);
         motion = marker.animate(frames, { duration, iterations });
         return duration * iterations;
@@ -604,9 +655,9 @@ const geneOrderUI = (() => {
       if (sprite && ["move", "residual", "faint", "switch", "replacement", "absorbed", "heal", "reflected", "revenge", "passive", "decoy-hit"].includes(event.type)) {
         const positive = ["absorbed", "heal", "passive"].includes(event.type);
         motion = sprite.animate?.([{ opacity: 0.78, filter: positive ? "brightness(1.45)" : "brightness(.8)" },
-          { opacity: 1, filter: "none" }], { duration: 130 });
+          { opacity: 1, filter: "none" }], { duration: PLAYBACK_TIMING.flash });
       }
-      return 130;
+      return PLAYBACK_TIMING.flash;
     }
 
     async function play(resolve) {
@@ -615,6 +666,8 @@ const geneOrderUI = (() => {
       phase = running.isAI("enemy") || running.isAI("player") ? "ai" : "resolving";
       renderCommands();
       try {
+        await waitPlayback(PLAYBACK_TIMING.input, current);
+        if (current !== epoch) return;
         let result = resolve();
         for (;;) {
           phase = "playback";
@@ -622,13 +675,28 @@ const geneOrderUI = (() => {
             if (current !== epoch) return;
             const event = result.events[i];
             const text = describeGeneOrderEvent(event);
+            if (["move", "charge"].includes(event.type) && !skipping()) {
+              message(goStatText(`${event.actor}の ${event.move}！`), true);
+              await waitPlayback(PLAYBACK_TIMING.moveName, current);
+              if (current !== epoch) return;
+            }
+            if (text && event.type === "move" && !skipping()) {
+              await waitPlayback(effectMotion(event), current);
+              if (current !== epoch) return;
+              motion?.cancel();
+              $("battleAnimationLayer").replaceChildren();
+            }
             drawBoard(result.frames[i]);
             appendLog(text);
-            const fast = $("go-fast-battle").checked || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-            if (text && !fast) {
+            if (text && !skipping()) {
               message(text, true);
-              const delay = effectMotion(event);
-              await new Promise((done) => setTimeout(done, delay));
+              if (event.type !== "move") effectMotion(event);
+              await waitPlayback(eventHold(event), current);
+              if (current !== epoch) return;
+            }
+            if (["move", "charge", "switch", "replacement", "wait"].includes(event.type)) {
+              await waitPlayback(PLAYBACK_TIMING.actionGap, current);
+              if (current !== epoch) return;
             }
           }
           if (current !== epoch) return;
@@ -636,6 +704,8 @@ const geneOrderUI = (() => {
           phase = "ai";
           result = running.resume();
         }
+        await waitPlayback(PLAYBACK_TIMING.turnEnd, current);
+        if (current !== epoch) return;
         const battle = running.battle;
         inspectSide = null;
         drawBoard(captureFrame(battle));
@@ -747,7 +817,14 @@ const geneOrderUI = (() => {
         choose({ type: "wait" });
       }
     });
-    $("go-fast-battle").addEventListener("change", (event) => arena.classList.toggle("go-fast", event.target.checked));
+    $("go-fast-battle").addEventListener("change", (event) => {
+      arena.classList.toggle("go-fast", event.target.checked);
+      if (event.target.checked) {
+        motion?.cancel();
+        $("battleAnimationLayer").replaceChildren();
+        finishWait?.();
+      }
+    });
     $("go-battle-bgm").addEventListener("change", (event) => {
       if (event.target.checked && match) playBgm(BATTLE_BGM);
       else stopBgm();
@@ -756,5 +833,5 @@ const geneOrderUI = (() => {
     setPage("title");
   }
 
-  return { mount, createMatch, fighterIssue, captureFrame };
+  return { mount, createMatch, fighterIssue, captureFrame, PLAYBACK_TIMING, eventHold };
 })();

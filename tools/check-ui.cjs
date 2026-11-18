@@ -356,12 +356,48 @@ async function verify(browser, width) {
     assert.equal(bgmRequested, true);
     await ui.locator('.go-battle-footer [data-go-page="setup"]').click();
     await byId("startButton").click();
+    await page.evaluate(() => {
+      const root = document.querySelector("#go-app");
+      const probe = window.__tempoProbe = {};
+      const inspect = () => {
+        const text = root.querySelector("#battleLog").textContent;
+        const hp = root.querySelector("#enemyHud .hp-value").textContent;
+        const time = performance.now();
+        if (text.includes("の 炎の風！") && !probe.name) {
+          probe.name = time;
+          probe.hpBefore = hp;
+        }
+        if (root.querySelector(".go-sheet")?.style.backgroundImage.includes("magic_fire01.png") && !probe.animation) {
+          probe.animation = time;
+          probe.hpDuring = hp;
+        }
+        if (text.includes("炎の風（EN") && text.includes("ダメージ") && !probe.damage) probe.damage = time;
+        if (text.includes("状態（") && text.includes("火やられ") && !probe.status) probe.status = time;
+      };
+      const observer = new MutationObserver(inspect);
+      observer.observe(root, { subtree: true, childList: true, characterData: true, attributes: true });
+      window.__stopTempoProbe = () => observer.disconnect();
+    });
     await move("skill_038").click(); await pass();
     await waitForSheet("magic_fire01.png");
     assert.match(await sheet.evaluate(el => el.style.backgroundImage), /magic_fire01\.png/);
     const playback = await sheet.evaluate(el => el.getAnimations()[0].effect.getTiming());
     assert.equal(playback.duration, 250);
     assert.equal(playback.iterations, 2);
+    await page.waitForFunction(() => window.__tempoProbe.status);
+    const tempo = await page.evaluate(() => window.__tempoProbe);
+    assert.ok(tempo.animation - tempo.name >= 800, "move name needs reading time before animation");
+    assert.ok(tempo.damage - tempo.animation >= 450, "damage follows the full animation");
+    assert.ok(tempo.status - tempo.damage >= 1000, "damage result stays readable before status text");
+    assert.equal(tempo.hpBefore, tempo.hpDuring, "HP must stay unchanged until animation finishes");
+    assert.equal(await byId("enemyHud").locator(".hp-fill").evaluate((bar) => getComputedStyle(bar).transitionDuration), "0.36s");
+    await page.evaluate(() => window.__stopTempoProbe());
+    await byId("go-fast-battle").check();
+    await page.waitForFunction(() => !document.querySelector("#go-app #go-dodge")?.disabled, { timeout: 1500 });
+    assert.equal(await sheet.count(), 0);
+    await byId("go-fast-battle").uncheck();
+    await move("skill_038").click(); await pass();
+    await byId("battleLog").filter({ hasText: "の 炎の風！" }).waitFor();
     await ui.locator('.go-battle-footer [data-go-page="title"]').click();
     await ui.getByRole("heading", { name: "GENE ORDER" }).waitFor();
     await page.waitForFunction(() => document.querySelector("#go-app #battleAnimationLayer").childElementCount === 0);
@@ -372,9 +408,9 @@ async function verify(browser, width) {
     assert.deepEqual(await page.evaluate(() => window.__storageReads), []);
     assert.deepEqual(legacyRequests, []);
     assert.deepEqual(errors, []);
-    assert.equal(new Set(masters).size, 10);
+    assert.equal(new Set(masters).size, 11);
     assert.ok(images.every((path) => ["/asset/character/character_047.png", "/asset/character/character_064.png"].includes(path)));
-    console.log(`Edge ${width}px: official flow, all modes, replay, double-click, 10 CSVs. Image probes: ${images.join(", ")}`);
+    console.log(`Edge ${width}px: official flow, all modes, replay, double-click, 11 CSVs. Image probes: ${images.join(", ")}`);
   } finally {
     await page.close();
   }

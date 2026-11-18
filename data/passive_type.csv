@@ -1,0 +1,17 @@
+passive_type_id,name,handler,phase,target_kind,value_type,value_min,value_max,min_inclusive,max_inclusive,condition_kind,aliases,description
+starting_en,初期EN,starting_en,battle-start,energy,integer,0,,TRUE,TRUE,none,start_energy,戦闘開始時のENを指定する
+element_immunity,属性攻撃無効,element_immunity,element-immunity,element,number,0,,TRUE,TRUE,none,,指定属性の攻撃技を無効にする
+element_damage_multiplier,属性別被ダメージ倍率,element_damage_multiplier,incoming-damage,element,number,0,1,FALSE,TRUE,none,,指定属性の攻撃技から受けるダメージに倍率を掛ける
+element_power_multiplier,属性技威力倍率,element_power_multiplier,power,element,number,0,,FALSE,TRUE,none,,指定属性の攻撃技の威力に倍率を掛ける
+on_use_element_stat_stage,属性技使用時ランク変化,on_use_element_stat_stage,after-use,element_stat,integer,,,TRUE,TRUE,none,,指定属性の技使用後に自分の能力ランクを変える
+turn_end_stat_stage,ターン終了時ランク変化,turn_end_stat_stage,turn-end,stat,integer,,,TRUE,TRUE,none,,ターン終了時に自分の能力ランクを変える
+on_hit_element_stat_stage,属性被弾時ランク変化,on_hit_element_stat_stage,body-hit,element_stat,integer,,,TRUE,TRUE,none,,指定属性の直接攻撃で本体HPが減った時に能力ランクを変える
+on_entry_enemy_stat_stage,登場時相手ランク変化,on_entry_enemy_stat_stage,entry,stat,integer,,,TRUE,TRUE,none,,場に出た時に相手の能力ランクを変える
+on_dodge_action_stat_stage,回避行動時ランク変化,on_dodge_action_stat_stage,dodge-action,stat,integer,,,TRUE,TRUE,none,,回避行動時に自分の能力ランクを変える
+on_evade_stat_stage,回避成功時ランク変化,on_evade_stat_stage,evaded,stat,integer,,,TRUE,TRUE,none,,相手の攻撃を実際に回避した時に能力ランクを変える
+conditional_stat_multiplier,条件付き能力倍率,conditional_stat_multiplier,stat-multiplier,stat,number,0,,FALSE,TRUE,stat_condition,,HP条件または状態異常条件を満たす時に能力値へ倍率を掛ける
+priority_move_hp_cost,優先度技のHP費用,priority_move_hp_cost,move-cost,hp,number,-1,0,TRUE,TRUE,priority,,指定優先度以上の技使用時に最大HP基準の費用を支払う
+hostile_status_move_immunity,相手の変化効果無効,hostile_status_move_immunity,before-status-effect,none,number,0,,TRUE,TRUE,none,,相手から受ける個体対象の変化効果を無効にする
+on_hit_inflict_status,被弾時状態異常付与,on_hit_inflict_status,body-hit-status,status,number,0,1,TRUE,TRUE,attack_type,,指定攻撃分類で本体HPが減ると確率で攻撃者に状態異常を付与する
+debuff_immunity,能力低下無効,debuff_immunity,before-stage,debuff_stat,number,0,,TRUE,TRUE,none,,相手による指定能力のランク低下を無効にする
+survive_once,満タン時致死耐え,survive_once,before-hp-damage,hp_full_once,integer,0,,FALSE,TRUE,none,,HP満タンからの直接致死ダメージを指定回数だけHP1で耐える

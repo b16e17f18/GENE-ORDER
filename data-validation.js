@@ -23,11 +23,14 @@ function canonicalizeGeneOrderSkill(row) {
 
 const GO_DATA_IDS = {
   characters: "character_id", passives: "passive_id", skills: "skill_id",
+  passiveTypes: "passive_type_id",
   effects: "effect_id", battleEffects: "battle_effect_id", powerRules: "power_rule_id",
   elements: "element_id", effectiveness: "attack_element", species: "species_id", animations: "animation_id",
 };
 
 const GO_REQUIRED_COLUMNS = {
+  passiveTypes: ["name", "handler", "phase", "target_kind", "value_type", "value_min", "value_max",
+    "min_inclusive", "max_inclusive", "condition_kind", "aliases", "description"],
   characters: ["name", "element_1", "element_2", "species_id", "evasion_percent", "image", "passive_id",
     "hp", "phy_atk", "phy_def", "sp_atk", "sp_def", "speed", "regen_value", "cost_charge", "slot",
     "skill_1", "skill_2", "skill_3", "skill_4"],
@@ -212,6 +215,8 @@ function validateGeneOrderData(tables, imageExists) {
   }
 
   const statusIds = geneOrderStatusIds(tables.effects);
+  const passiveTypes = geneOrderPassives.readTypes(tables.passiveTypes);
+  for (const issue of passiveTypes.issues) add("種別定義不正", "passiveTypes", issue.id, issue.field, issue.value);
   for (const row of tables.passives) {
     const id = row.passive_id;
     numeric("passives", id, row, ["value1", "value2", "value3"]);
@@ -219,7 +224,7 @@ function validateGeneOrderData(tables, imageExists) {
       add("予約行", "passives", id, "name");
       continue;
     }
-    const passive = geneOrderPassives.normalize(row, elements, statusIds);
+    const passive = geneOrderPassives.normalize(row, elements, statusIds, passiveTypes);
     if (passive.status === "pending" && !passive.issues.length) {
       add("効果未設定", "passives", id, "passive_type", row.name);
     }

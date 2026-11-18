@@ -406,10 +406,7 @@ const geneOrderPassives = (() => {
   const STAT_ALIASES = new Map([
     ["pa", "phy_atk"], ["pd", "phy_def"], ["sa", "sp_atk"], ["sd", "sp_def"], ["sp", "speed"],
   ]);
-  const TYPE_ALIASES = new Map([["start_energy", "starting_en"]]);
   const integer = (value) => Number.isInteger(value);
-  const positive = (value) => value > 0;
-  const limit = (value) => integer(value) && positive(value);
   const stat = (id) => STAT_ALIASES.get(id) ?? ([...STAT_ALIASES.values()].includes(id) ? id : null);
   const element = (id, elements) => {
     const canonical = ELEMENT_ALIASES.get(id) ?? id;
@@ -428,36 +425,81 @@ const geneOrderPassives = (() => {
     return ability ? { stat: ability } : null;
   };
   const literalTarget = (target) => (id) => id === target ? {} : null;
-  const stage = (phase, target = statTarget) => ({ phase, target, value: integer });
-  const enabled = (value) => value >= 0;
   const definitions = new Map([
-    ["starting_en", { phase: "battle-start", target: (id) => ["en", "none"].includes(id) ? {} : null,
-      value: (value) => integer(value) && value >= 0 }],
-    ["element_immunity", { phase: "element-immunity", target: elementalTarget, value: (value) => value >= 0 }],
-    ["element_power_multiplier", { phase: "power", target: elementalTarget, value: positive }],
-    ["on_use_element_stat_stage", stage("after-use", elementalStage)],
-    ["turn_end_stat_stage", stage("turn-end")],
-    ["on_hit_element_stat_stage", stage("body-hit", elementalStage)],
-    ["on_entry_enemy_stat_stage", stage("entry")],
-    ["on_dodge_action_stat_stage", stage("dodge-action")],
-    ["on_evade_stat_stage", stage("evaded")],
-    ["conditional_stat_multiplier", { phase: "stat-multiplier", target: statTarget, value: positive, condition: statCondition }],
-    ["priority_move_hp_cost", { phase: "move-cost", target: literalTarget("hp"),
-      value: (value) => value <= 0 && value >= -1, condition: (raw) => {
+    ["starting_en", { phase: "battle-start", target: (id) => ["en", "none"].includes(id) ? {} : null, targetKind: "energy" }],
+    ["element_immunity", { phase: "element-immunity", target: elementalTarget, targetKind: "element" }],
+    ["element_damage_multiplier", { phase: "incoming-damage", target: elementalTarget, targetKind: "element" }],
+    ["element_power_multiplier", { phase: "power", target: elementalTarget, targetKind: "element" }],
+    ["on_use_element_stat_stage", { phase: "after-use", target: elementalStage, targetKind: "element_stat" }],
+    ["turn_end_stat_stage", { phase: "turn-end", target: statTarget, targetKind: "stat" }],
+    ["on_hit_element_stat_stage", { phase: "body-hit", target: elementalStage, targetKind: "element_stat" }],
+    ["on_entry_enemy_stat_stage", { phase: "entry", target: statTarget, targetKind: "stat" }],
+    ["on_dodge_action_stat_stage", { phase: "dodge-action", target: statTarget, targetKind: "stat" }],
+    ["on_evade_stat_stage", { phase: "evaded", target: statTarget, targetKind: "stat" }],
+    ["conditional_stat_multiplier", { phase: "stat-multiplier", target: statTarget, targetKind: "stat",
+      conditionKind: "stat_condition", condition: statCondition }],
+    ["priority_move_hp_cost", { phase: "move-cost", target: literalTarget("hp"), targetKind: "hp",
+      conditionKind: "priority", condition: (raw) => {
         const priority = Number(raw);
         return raw && integer(priority) ? { priority } : null;
       } }],
-    ["hostile_status_move_immunity", { phase: "before-status-effect", target: literalTarget("none"), value: enabled }],
+    ["hostile_status_move_immunity", { phase: "before-status-effect", target: literalTarget("none"), targetKind: "none" }],
     ["on_hit_inflict_status", { phase: "body-hit-status", target: (id, elements, statuses) =>
-      statuses.has(id) ? { statusId: id } : null, value: (value) => value >= 0 && value <= 1,
+      statuses.has(id) ? { statusId: id } : null, targetKind: "status", conditionKind: "attack_type",
       condition: (raw) => ["physical", "special"].includes(raw) ? { attackType: raw } : null }],
     ["debuff_immunity", { phase: "before-stage", target: (id) => {
       const ability = id.endsWith("_down") && stat(id.slice(0, -5));
       return ability ? { stat: ability } : null;
-    }, value: (value) => value >= 0 }],
-    ["survive_once", { phase: "before-hp-damage", target: (id) => id === "hp_full_once" ? {} : null, value: limit }],
+    }, targetKind: "debuff_stat" }],
+    ["survive_once", { phase: "before-hp-damage", target: literalTarget("hp_full_once"), targetKind: "hp_full_once" }],
   ]);
 
+  function readTypes(rows = []) {
+    const types = new Map();
+    const aliases = new Map();
+    const issues = [];
+    const issue = (row, field) => issues.push({ id: row.passive_type_id ?? "", field, value: row[field] ?? "" });
+    const declared = new Set(rows.map((row) => row.passive_type_id));
+    for (const row of rows) {
+      const before = issues.length;
+      const id = row.passive_type_id;
+      if (!id || id === "none" || types.has(id)) issue(row, "passive_type_id");
+      if (!row.name?.trim()) issue(row, "name");
+      if (!row.description?.trim()) issue(row, "description");
+      const handler = definitions.get(row.handler);
+      if (!handler) issue(row, "handler");
+      else {
+        if (row.phase !== handler.phase) issue(row, "phase");
+        if (row.target_kind !== handler.targetKind) issue(row, "target_kind");
+        if (row.condition_kind !== (handler.conditionKind ?? "none")) issue(row, "condition_kind");
+      }
+      if (!["integer", "number"].includes(row.value_type)) issue(row, "value_type");
+      const bound = (field) => String(row[field] ?? "").trim() === "" ? null : Number(row[field]);
+      const min = bound("value_min");
+      const max = bound("value_max");
+      for (const [field, value] of [["value_min", min], ["value_max", max]]) {
+        if (value !== null && !Number.isFinite(value)) issue(row, field);
+      }
+      if (min !== null && max !== null && (min > max || (min === max &&
+        (row.min_inclusive !== "TRUE" || row.max_inclusive !== "TRUE")))) issue(row, "value_max");
+      for (const field of ["min_inclusive", "max_inclusive"]) {
+        if (!["TRUE", "FALSE"].includes(row[field])) issue(row, field);
+      }
+      if (issues.length !== before) continue;
+      types.set(id, { ...row, target: handler.target, condition: handler.condition,
+        value: (value) => (row.value_type !== "integer" || integer(value)) &&
+          (min === null || (row.min_inclusive === "TRUE" ? value >= min : value > min)) &&
+          (max === null || (row.max_inclusive === "TRUE" ? value <= max : value < max)) });
+      for (const alias of String(row.aliases ?? "").split("|").filter(Boolean)) {
+        if (alias === "none" || declared.has(alias) || aliases.has(alias)) issue(row, "aliases");
+        else aliases.set(alias, id);
+      }
+    }
+    for (const id of definitions.keys()) {
+      if (!types.has(id)) issues.push({ id, field: "passive_type_id", value: "種別定義がありません" });
+    }
+    return { types, aliases, issues };
+  }
   function elementalTarget(id, elements) {
     const canonical = element(id, elements);
     return canonical ? { element: canonical } : null;
@@ -473,14 +515,14 @@ const geneOrderPassives = (() => {
       ? { kind: match[1], numerator, denominator } : null;
   }
 
-  function normalize(row, elements, statuses = new Set()) {
+  function normalize(row, elements, statuses = new Set(), catalog = readTypes()) {
     const passive = normalizePassive(row);
     const issues = [];
     const effects = [];
     for (const original of passive.effects) {
       const { slot, target_id } = original;
-      const type = TYPE_ALIASES.get(original.type) ?? original.type;
-      const definition = definitions.get(type);
+      const type = catalog.aliases.get(original.type) ?? original.type;
+      const definition = catalog.types.get(type);
       if (!definition) {
         issues.push({ field: "passive_type" + slot, value: original.type });
         continue;
@@ -566,5 +608,5 @@ const geneOrderPassives = (() => {
       slot: effect.slot, text: title + (message ? "：" + message : "が発動"), ...details });
   }
 
-  return { normalize, matching, first, used, survive, blocksStage, hasStatus, statModifiers, moveCosts, statusMoveBlock, activate };
+  return { readTypes, normalize, matching, first, used, survive, blocksStage, hasStatus, statModifiers, moveCosts, statusMoveBlock, activate };
 })();

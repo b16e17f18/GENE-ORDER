@@ -264,20 +264,18 @@ test("official CSV integration: current ミズアメネバムシ and メトロ�
     .map((row) => [row.character_id, normalizeCharacter(row, elements, species)]));
   const skills = csv(read("data/skill.csv")).filter((row) => row.category).map((row) => normalizeSkill(row, elements));
   const match = battle({ player: [characters.get("character_007")], enemy: [characters.get("character_021")], skills });
-  for (let turn = 1; turn <= 9; turn++) {
+  for (let turn = 1; turn <= 10; turn++) {
     const [a, b] = fighters(match);
     const expected = go.calculateDamage(a, b, match.skills.get("skill_026"), chart);
     const { events, winner } = go.resolveTurn(match, { player: select("skill_026"), enemy: select("skill_026") });
-    assert.equal(events[0].damage, 21);
+    assert.equal(events[0].damage, 10);
     assert.equal(events[0].side, "enemy");
-    if (turn < 9) {
-      assert.equal(events[1].damage, 17);
-      assert.equal(events[1].damage, expected.damage);
-    }
-    assert.equal(winner, turn === 9 ? "enemy" : null);
+    assert.equal(events[1].damage, 16);
+    assert.equal(events[1].damage, expected.damage);
+    assert.equal(winner, turn === 10 ? "player" : null);
   }
-  assert.equal(active(match).hp, 0);
-  assert.equal(active(match, "enemy").hp, 19);
+  assert.equal(active(match).hp, 75);
+  assert.equal(active(match, "enemy").hp, 0);
 });
 
 const officialCharacters = new Map(csv(read("data/character.csv")).filter((row) => row.name)
@@ -1137,8 +1135,8 @@ test("normalization re-reads CSV tuning for status probability, damage, duration
     return [first.events.find(e => e.type === "residual").damage, active(match).statuses[0].turns,
       first.events.find(e => e.category === "attack").damage, second.damage];
   }
-  assert.deepEqual(simulate(false), [40, 6, 70, 140]);
-  assert.deepEqual(simulate(true), [80, 2, 105, 105]);
+  assert.deepEqual(simulate(false), [40, 6, 67, 134]);
+  assert.deepEqual(simulate(true), [80, 2, 100, 100]);
   const raw = csv(read("data/skill.csv")).find(row => row.skill_id === "skill_027");
   const move = normalizeSkill({ ...raw, effect_chance1: "50" }, elements);
   const failure = battle({ ...assets, skills: [move], player: official("character_007"), random: () => 0.5 });
@@ -1464,7 +1462,10 @@ test("official GO replay creates, passes and sheds decoys and targets the post-a
   assert.equal(active(match).decoy, null);
 });
 
-const normalizeGoPassive = vm.runInContext("geneOrderPassives.normalize", context);
+const passiveTypes = vm.runInContext("geneOrderPassives.readTypes", context)(csv(read("data/passive_type.csv")));
+assert.deepEqual(Array.from(passiveTypes.issues), []);
+const normalizeGoPassive = (row, elements, statuses) =>
+  vm.runInContext("geneOrderPassives.normalize", context)(row, elements, statuses, passiveTypes);
 const officialStatusIds = vm.runInContext("geneOrderStatusIds", context)([...officialEffects.values()]);
 const officialPassives = new Map(csv(read("data/passive.csv")).filter((row) => row.name)
   .map((row) => [row.passive_id, normalizeGoPassive(row, elements, officialStatusIds)]));
@@ -1511,8 +1512,55 @@ test("starting EN is capped and applies once to every fighter including the benc
   assert.equal(active(passiveBattle({ player: team, passives: new Map([["passive_003", capped]]) })).energy, 7);
 });
 
-test("elemental immunity blocks water, neutral and fire before dodge, absorption, reflection or decoy", () => {
-  for (const [id, element] of [["002", "water"], ["007", "none"], ["024", "fire"]]) {
+test("Fluid Body halves neutral physical and special damage and preserves hit effects", () => {
+  for (const attack_type of ["physical", "special"]) {
+    const move = { ...strike, attack_type, element: "none", cost: 0,
+      effect1: "bf_pd_down1", effect_target1: "enemy", effect_chance1: 100 };
+    const match = passiveBattle({ skills: [move], enemy: [withPassive("007", { hp: 600, element_1: "water" })] });
+    const [attacker, defender] = fighters(match);
+    const unprotected = { ...defender, passiveEffects: [] };
+    const expected = go.calculateDamage(attacker, unprotected, move, chart, { finalMultiplier: 0.5 });
+    const snapshot = JSON.stringify(defender);
+    const preview = go.previewDamage(match, "player", move);
+    const candidate = ai.evaluate(ai.observe(match, "player")).find((entry) => entry.move?.skill_id === move.skill_id);
+    assert.equal(preview.reason, "hit");
+    assert.equal(preview.damage, expected.damage);
+    assert.equal(candidate.damage, preview.actualDamage);
+    assert.equal(JSON.stringify(defender), snapshot);
+    assert.equal(defender.passiveState.uses.size, 0);
+    const hp = defender.hp;
+    const round = action(match);
+    assert.equal(hp - defender.hp, preview.actualDamage);
+    assert.equal(defender.stages.phy_def, -1);
+    assert.equal(passivesIn(round, "element-immunity").length, 0);
+    assert.equal(passivesIn(round, "incoming-damage").length, 1);
+    defender.halfGuard = 50;
+    assert.equal(go.previewDamage(match, "player", move).damage,
+      go.calculateDamage(attacker, { ...defender, passiveEffects: [] }, move, chart, { finalMultiplier: 0.25 }).damage);
+    const water = { ...move, element: "water" };
+    assert.equal(go.calculateDamage(attacker, defender, water, chart).damage,
+      go.calculateDamage(attacker, { ...defender, passiveEffects: [] }, water, chart).damage);
+  }
+});
+
+test("Fluid Body allows neutral status moves and keeps evasion and minimum damage", () => {
+  const status = { ...skill("skill_001"), cost: 0 };
+  const move = { ...strike, element: "none", cost: 0 };
+  const match = passiveBattle({ skills: [status, move],
+    player: [character({ skillIds: [status.skill_id, move.skill_id] })], enemy: [withPassive("007")] });
+  const target = active(match, "enemy");
+  const round = action(match, status.skill_id);
+  assert.equal(target.stages.phy_atk, -1);
+  assert.equal(passivesIn(round, "incoming-damage").length, 0);
+  target.dodgeActive = true;
+  assert.equal(go.previewDamage(match, "player", move).reason, "evaded");
+  assert.equal(passivesIn(action(match), "incoming-damage").length, 0);
+  assert.equal(go.calculateDamage(active(match), target, { ...move, power: 1, hit_type: "ignore_dodge" }, chart,
+    { finalMultiplier: 0.001 }).damage, 1);
+});
+
+test("elemental immunity blocks water and fire before dodge, absorption, reflection or decoy", () => {
+  for (const [id, element] of [["002", "water"], ["024", "fire"]]) {
     const move = { ...strike, element, attack_type: "special", effect1: "bf_pd_down1", effect_target1: "enemy", effect_chance1: 100 };
     const match = passiveBattle({ skills: [move], enemy: [withPassive(id, { element_1: "earth", element_2: "dark" })] });
     const target = active(match, "enemy");
@@ -1536,7 +1584,7 @@ test("all elemental use-stage passives apply to status, hit, evade or immunity o
   for (const [id, element, stat, delta, mode] of [
     ["004", "wind", "speed", 1, "evaded"], ["009", "ice", "phy_def", 1, "hit"],
     ["011", "light", "phy_atk", 1, "status"], ["012", "fire", "phy_atk", 1, "hit"],
-    ["013", "fire", "phy_atk", 1, "hit"], ["006", "none", "phy_atk", -1, "immune"],
+    ["013", "fire", "phy_atk", 1, "hit"], ["006", "none", "phy_atk", -1, "hit"],
   ]) {
     const move = { ...(mode === "status" ? { ...skill("skill_060"), skill_id: "strike" } : strike), element, cost: 0 };
     const enemyPassive = mode === "immune" ? (element === "water" ? "002" : "007") : "";

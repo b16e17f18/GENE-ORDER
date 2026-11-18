@@ -1,6 +1,7 @@
 const DATA_PATHS = {
   characters: "./data/character.csv",
   passives: "./data/passive.csv",
+  passiveTypes: "./data/passive_type.csv",
   skills: "./data/skill.csv",
   animations: "./data/animation.csv",
   effects: "./data/effect.csv",
@@ -3961,8 +3962,12 @@ async function loadGameData() {
     normalizeCharacter(row, elementNames, speciesNames)
   ));
   const statusIds = geneOrderStatusIds(tables.effects);
+  const passiveTypes = geneOrderPassives.readTypes(tables.passiveTypes);
+  if (passiveTypes.issues.length) {
+    throw new Error("./data/passive_type.csv: " + passiveTypes.issues.map((issue) => issue.id + " " + issue.field).join(" / "));
+  }
   const passives = new Map(tables.passives.filter((row) => row.passive_id && row.name).map((row) => (
-    [row.passive_id, geneOrderPassives.normalize(row, elementNames, statusIds)]
+    [row.passive_id, geneOrderPassives.normalize(row, elementNames, statusIds, passiveTypes)]
   )));
   for (const character of characters) {
     character.passive = passives.get(character.passive_id) ?? null;
@@ -3988,6 +3993,7 @@ async function loadGameData() {
     characters: characters.filter((character) => character.content_scope !== "tutorial"),
     characterMap: new Map(characters.map((character) => [character.character_id, character])),
     passives,
+    passiveTypes: passiveTypes.types,
     skills: new Map(tables.skills.map((row) => normalizeSkill(row, elementNames)).filter((row) => row.skill_id && row.name && row.category)
       .map((row) => [row.skill_id, row])),
     effects: new Map(tables.effects.map(normalizeEffect).filter((row) => row.effect_id && row.name)
@@ -9446,7 +9452,7 @@ function describeGeneOrderEvent(event) {
   const sideName = (side) => side === "player" ? "自分側" : "相手側";
   const describe = {
     passive: (event) => {
-      const detail = event.multiplier ? '（' + statLabels[event.stat] + ' ×' + event.multiplier + '）' :
+      const detail = event.multiplier ? '（' + (statLabels[event.stat] ?? "被ダメージ") + ' ×' + event.multiplier + '）' :
         event.damage ? '（HP −' + event.damage + '）' : '';
       return event.text + detail;
     },

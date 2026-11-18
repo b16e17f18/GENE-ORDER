@@ -20,6 +20,7 @@ py -3 -m http.server 8000 --bind 127.0.0.1
 | `go-ui.js`, `go-ui.css`, `styles.css` | 正式対戦の操作・表示とMHB由来のスタイル |
 | `data-validation.js` | ID・データ型・相性組・素材参照の診断 |
 | `data/*.csv` | UTF-8の正式マスタ（技とアニメーション定義を含む） |
+| `data/passive_type.csv` | パッシブ16種の種別ID・名称・発動タイミング・対象形式・効果量条件・別名 |
 | `data/reference/` | 旧10属性資料とMHB由来の敵編成 |
 | `asset/character/` | キャラクター画像 |
 | `asset/battle-animation/`, `asset/bgm/`, `asset/element/` | 対戦アニメーション、BGM、属性アイコン |
