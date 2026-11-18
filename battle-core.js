@@ -169,7 +169,7 @@ const geneOrderBattle = (() => {
     if (effect.effect_group === "clear_buff") return "clear-buff";
     if (effect.effect_group === "recoil" && effect.damage_type === "actual_damage_percent" && value > 0) return "recoil";
     if (effect.effect_group !== "heal" || value < 0) return null;
-    if (effect.target_stat === "hp" && effect.damage_type === "percent_maxhp") return "heal";
+    if (effect.target_stat === "hp" && ["percent_maxhp", "fixed_hp"].includes(effect.damage_type)) return "heal";
     if (effect.target_stat === "hp" && effect.damage_type === "actual_damage_percent") return "drain";
     if (effect.target_stat === "en" && effect.damage_type === "none" && Number.isInteger(value)) return "recover-en";
     return null;
@@ -424,9 +424,10 @@ const geneOrderBattle = (() => {
     return { ...charge, hpCosts, nextPower, damage: 0, decoyDamage: 0, response: null, heal: 0, reason: "charging" };
   }
 
-  function hpEffectAmount(kind, recipient, damage, percent) {
+  function hpEffectAmount(kind, recipient, damage, value, damageType) {
+    if (kind === "heal" && damageType === "fixed_hp") return Math.floor(value);
     const base = kind === "heal" ? recipient.maxHp : damage;
-    return Math.floor(base * percent / 100);
+    return Math.floor(base * value / 100);
   }
 
   // Forecast this move against the current field. Other actions and upkeep are separate.
@@ -457,7 +458,7 @@ const geneOrderBattle = (() => {
         if (!["heal", "drain", "recoil"].includes(kind)) continue;
         const recipient = self ? actor : defender;
         const hp = self ? actorHp : targetHp;
-        const amount = hpEffectAmount(kind, recipient, actualDamage + (result.decoyDamage ?? 0), definition.damage_value);
+        const amount = hpEffectAmount(kind, recipient, actualDamage + (result.decoyDamage ?? 0), definition.damage_value, definition.damage_type);
         const delta = kind === "recoil" ? -Math.min(hp, amount) : Math.min(recipient.maxHp - hp, amount);
         if (!delta) continue;
         hpEffects.push({ id, kind, target: self ? "self" : "enemy", chance, delta });
@@ -586,7 +587,7 @@ const geneOrderBattle = (() => {
       } else {
         if (kind === "drain" && actualDamage === 0) continue;
         const before = recipient.hp;
-        recipient.hp = Math.min(recipient.maxHp, before + hpEffectAmount(kind, recipient, actualDamage, value));
+        recipient.hp = Math.min(recipient.maxHp, before + hpEffectAmount(kind, recipient, actualDamage, value, effect.damage_type));
         events.push({ ...event, type: "heal", recovered: recipient.hp - before });
       }
     }

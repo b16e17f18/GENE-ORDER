@@ -58,6 +58,23 @@ async function verify(browser, width) {
     await page.goto("http://127.0.0.1:" + server.address().port);
     const ui = page.locator("#go-app");
     const byId = (id) => ui.locator("#" + id);
+    const verifySpriteSizing = async (limit, scale) => {
+      const images = await ui.locator(".fighter-sprite img").evaluateAll((nodes) => nodes.map((image) => {
+        const box = image.getBoundingClientRect();
+        return { width: box.width, height: box.height, naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight,
+          available: image.parentElement.clientWidth, maximum: parseFloat(getComputedStyle(image).maxHeight) };
+      }));
+      assert.equal(images.length, 2);
+      for (const image of images) {
+        assert.ok(image.naturalWidth > 0 && image.naturalHeight > 0);
+        assert.ok(Math.abs(image.maximum - limit) < 1);
+        const expectedWidth = Math.min(image.naturalWidth * scale, limit, image.available);
+        const expectedHeight = Math.min(image.naturalHeight * expectedWidth / image.naturalWidth, limit);
+        assert.ok(Math.abs(image.width - expectedWidth) < 1, "source width and device scale");
+        assert.ok(Math.abs(image.height - expectedHeight) < 1, "source proportions and device scale");
+        assert.ok(image.width <= image.naturalWidth + 1 && image.height <= image.naturalHeight + 1, "never enlarge the source");
+      }
+    };
     const shot = async (name, overlay = false) => {
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), width, name + " overflows");
       await page.screenshot({ path: resolve(artifacts, width + "-" + name + ".png"), fullPage: !overlay });
@@ -66,6 +83,37 @@ async function verify(browser, width) {
     assert.equal(await page.locator(".go-preview").isHidden(), true);
     assert.equal(await ui.locator("#titleView").getByText("v0.66", { exact: true }).count(), 1);
     await shot("title");
+    await ui.locator('#titleView [data-go-random-battle]').click();
+    assert.ok(await byId("moveGrid").isVisible());
+    assert.match(await byId("moveGrid").textContent(), /自分の行動を選択/);
+    assert.equal(await byId("playerHud").locator(".party-pips .pip").count(), 3);
+    assert.equal(await byId("enemyHud").locator(".party-pips .pip").count(), 3);
+    const leadingNames = [await byId("playerHud").locator(".hud-character-name").textContent(),
+      await byId("enemyHud").locator(".hud-character-name").textContent()];
+    await ui.locator('.go-battle-footer [data-go-page="setup"]').click();
+    assert.equal(await byId("go-official-mode").inputValue(), "enemy");
+    const parties = ui.locator(".setup-party-slots");
+    for (let i = 0; i < 2; i++) {
+      const party = parties.nth(i);
+      const ids = await party.locator("[data-go-lead]").evaluateAll((buttons) => buttons.map((button) => button.dataset.goLead));
+      assert.equal(ids.length, 3);
+      assert.equal(new Set(ids).size, 3);
+      const minimum = await page.evaluate((team) => Math.min(...team.map((id) => state.characterMap.get(id).slot)), ids);
+      const lead = await party.locator("[data-go-lead]:disabled").getAttribute("data-go-lead");
+      const base = await page.evaluate((id) => ({ slot: state.characterMap.get(id).slot, name: state.characterMap.get(id).name }), lead);
+      assert.equal(base.slot, minimum);
+      assert.equal(base.name, leadingNames[i]);
+    }
+    await byId("randomBattleButton").click();
+    assert.ok(await byId("moveGrid").isVisible());
+    assert.equal(await byId("playerHud").locator(".party-pips .pip").count(), 3);
+    await ui.locator('.go-battle-footer [data-go-page="setup"]').click();
+    await byId("setupPlayerModeButton").click();
+    await byId("clearTeamButton").click();
+    await byId("setupEnemyModeButton").click();
+    await byId("clearTeamButton").click();
+    await byId("setupPlayerModeButton").click();
+    await ui.locator('#setupView [data-go-page="title"]').click();
     await ui.locator('#titleView [data-go-page="dex"]').click();
     const chaiHp = ui.locator(".dex-content .detail-stat-hp");
     assert.equal(await chaiHp.locator(".detail-stat-value").textContent(), "125");
@@ -192,6 +240,11 @@ async function verify(browser, width) {
     }
     assert.ok(await byId("playerHud").locator(".go-attribute-icon").count());
     assert.ok(await byId("playerSprite").locator(".go-attribute-icon").count());
+    await verifySpriteSizing(width < 600 ? 140 : 240, width < 600 ? 140 / 240 : 1);
+    await page.locator("#go-app").evaluate((root) => root.setAttribute("data-go-sprite-sizing", "legacy"));
+    assert.equal(await byId("playerSprite").locator("img").evaluate((image) => getComputedStyle(image).maxHeight), width < 600 ? "110px" : "228px");
+    await page.locator("#go-app").evaluate((root) => root.setAttribute("data-go-sprite-sizing", "native-pc"));
+    await verifySpriteSizing(width < 600 ? 140 : 240, width < 600 ? 140 / 240 : 1);
     assert.equal(await byId("playerHud").locator(".hp-line > span").first().textContent(), "体力");
     assert.deepEqual(await ui.locator(".command-tabs .tab-button:visible").allTextContents(), ["回避", "入替", "相性"]);
     if (width < 600) {
@@ -231,11 +284,13 @@ async function verify(browser, width) {
       for (const viewport of [{ width: 320, height: 640 }, { width: 375, height: 812 }, { width: 430, height: 932 }]) {
         await page.setViewportSize(viewport);
         await layout();
+        await verifySpriteSizing(140, 140 / 240);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), viewport.width);
       }
       await page.setViewportSize({ width: 844, height: 390 });
       assert.ok(await ui.locator(".go-mobile-battle-header").isHidden());
       assert.ok(await detail.isHidden());
+      await verifySpriteSizing(180, .75);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 844);
       await page.setViewportSize({ width, height: 844 });
     } else {

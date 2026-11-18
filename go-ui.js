@@ -5,6 +5,7 @@ const geneOrderUI = (() => {
   const MODES = { enemy: "プレイヤー対AI", manual: "手動対手動", auto: "AI対AI" };
   const SWITCHES = { "tail-purge": "テールパージ", relay: "パワーリレー", "post-attack": "燕返し", replacement: "戦闘不能後の補充" };
   const TEAM_LIMIT = 4;
+  const RANDOM_TEAM_SIZE = 3;
   const DODGE = "skill_000";
   const BATTLE_BGM = "go_free_battle";
   // MHB pause() doubles its source delays. These values are the actual milliseconds.
@@ -62,6 +63,27 @@ const geneOrderUI = (() => {
       if (issue) throw new Error(issue);
       return base;
     });
+  }
+
+  function randomBattleSettings(data, random = aiRandom) {
+    const roster = [...new Map(data.characters.filter((base) => base.character_id && base.name &&
+      Number.isSafeInteger(base.slot) && base.slot > 0 && !fighterIssue(base, data))
+      .map((base) => [base.character_id, base])).values()];
+    if (roster.length < RANDOM_TEAM_SIZE) throw new Error("ランダムバトルには使用可能なキャラクターが3体以上必要です。");
+    const team = {};
+    const lead = {};
+    for (const side of SIDES) {
+      const available = [...roster];
+      const picked = [];
+      for (let i = 0; i < RANDOM_TEAM_SIZE; i++) {
+        const roll = random();
+        if (!Number.isFinite(roll) || roll < 0 || roll >= 1) throw new Error("抽選用の乱数が無効です。");
+        picked.push(available.splice(Math.floor(roll * available.length), 1)[0]);
+      }
+      team[side] = picked.map((base) => base.character_id);
+      lead[side] = picked.reduce((first, base) => base.slot < first.slot ? base : first).character_id;
+    }
+    return { team, lead, mode: "enemy" };
   }
 
   function captureFrame(battle) {
@@ -135,6 +157,8 @@ const geneOrderUI = (() => {
       <div class="team-panel go-title-panel">
         <h1>GENE ORDER</h1><p>v0.66</p>
         <button class="primary-button" id="battleModeButton" type="button">バトルモード</button>
+        <button class="primary-button" type="button" data-go-random-battle>ランダムバトル（3対3）</button>
+        <p id="go-random-notice" role="status"></p>
         <div class="setup-actions">
           <button class="small-button" data-go-page="dex" type="button">図鑑</button>
           <button class="small-button" data-go-chart type="button">属性相性表</button>
@@ -144,7 +168,8 @@ const geneOrderUI = (() => {
     setup.querySelector(".brand-mark").textContent = "GO";
     setup.querySelector(".brand-sub").textContent = "GENE ORDER";
     setup.querySelector(".roster-panel .panel-title").textContent = "キャラクター";
-    setup.querySelector("#randomBattleButton").remove();
+    setup.querySelector("#randomBattleButton").textContent = "ランダムバトル（3対3）";
+    setup.querySelector("#randomBattleButton").setAttribute("data-go-random-battle", "");
     setup.querySelector(".team-panel").insertAdjacentHTML("beforeend", `
       <label class="go-mode">対戦モード<select id="go-official-mode">
         ${Object.entries(MODES).map(([key, label]) => `<option value="${key}">${label}</option>`).join("")}
@@ -201,6 +226,7 @@ const geneOrderUI = (() => {
     let side = "player";
     let returnFocus;
     let match;
+    let randomBattle = false;
     let phase = "choice";
     let turnSide = "player";
     let selected = {};
@@ -463,6 +489,14 @@ const geneOrderUI = (() => {
           sprite.dataset.renderedFighterKey = key;
           sprite.innerHTML = renderSprite({ id: fighter.base.character_id, name: fighter.base.name, base: fighter.base }, candidate, index,
             attributes(fighter.base), '<span class="go-missing-image">画像未設定</span>');
+          const image = sprite.querySelector("img");
+          if (image) {
+            const setSourceSize = () => {
+              if (image.naturalWidth > 0) image.style.setProperty("--go-source-width", image.naturalWidth + "px");
+            };
+            if (image.complete) setSourceSize();
+            else image.addEventListener("load", setSourceSize, { once: true });
+          }
         }
         sprite.classList.toggle("is-position-hidden", !fighter.fainted && fighter.pending?.definition.battle_effect_group === "position");
         sprite.classList.toggle("go-fainted", fighter.fainted);
@@ -561,7 +595,8 @@ const geneOrderUI = (() => {
       if (phase === "finished") {
         const label = battle.winner === "draw" ? "引き分け" : battle.winner === "player" ? "勝利" : "敗北";
         $("enemyInfoPanel").innerHTML = `<div class="battle-inspect-header"><strong class="detail-title">${label}</strong></div>
-          <div class="setup-actions"><button class="primary-button" type="button" data-go-replay>再戦</button>
+          <div class="setup-actions"><button class="primary-button" type="button" data-go-replay>${randomBattle ? "同じ編成で再戦" : "再戦"}</button>
+            ${randomBattle ? '<button class="primary-button" type="button" data-go-random-battle>再抽選して対戦</button>' : ""}
             <button class="small-button" type="button" data-go-page="setup">編成画面へ</button>
             <button class="small-button" type="button" data-go-page="title">タイトルへ</button></div>`;
         return;
@@ -610,7 +645,7 @@ const geneOrderUI = (() => {
       $("moveGrid").innerHTML = `<div class="command-note">${LABELS[candidate]}の行動を選択</div>${buttons.join("")}`;
     }
 
-    function start() {
+    function start({ random = false } = {}) {
       try {
         match = createMatch(data, settings, { limit });
       } catch (error) {
@@ -618,6 +653,7 @@ const geneOrderUI = (() => {
         return;
       }
       epoch++;
+      randomBattle = random;
       finishWait?.();
       motion?.cancel();
       phase = "choice";
@@ -632,6 +668,20 @@ const geneOrderUI = (() => {
       message("");
       drawBoard(captureFrame(match.battle));
       renderCommands();
+    }
+
+    function startRandomBattle() {
+      try {
+        if (limit < RANDOM_TEAM_SIZE) throw new Error("現在の編成人数上限では3対3を開始できません。");
+        const next = randomBattleSettings(data);
+        Object.assign(settings, next);
+        $("go-random-notice").textContent = "";
+        renderSetup();
+        start({ random: true });
+      } catch (error) {
+        $("go-random-notice").textContent = error.message;
+        $("go-team-notice").textContent = error.message;
+      }
     }
 
     function effectMotion(event) {
@@ -773,9 +823,10 @@ const geneOrderUI = (() => {
       const control = event.target.closest("button");
       if (!control || control.disabled) return;
       const command = control.dataset;
-      const battleAction = ["goMove", "goSwitch", "goTurn", "goReplay"].some((key) => Object.hasOwn(command, key));
+      const battleAction = ["goMove", "goSwitch", "goTurn", "goReplay", "goRandomBattle"].some((key) => Object.hasOwn(command, key));
       if (battleAction && event.detail > 1) return;
       if (command.goPage) return showPage(command.goPage);
+      if (Object.hasOwn(command, "goRandomBattle")) return startRandomBattle();
       if (command.goSkillDetail) {
         const move = data.skills.get(command.goSkillDetail);
         if (!move || !["choice", "switch"].includes(phase)) return;
@@ -821,7 +872,7 @@ const geneOrderUI = (() => {
       } else if (control.id === "battleModeButton") {
         showPage("setup");
       } else if (control.id === "startButton" || Object.hasOwn(command, "goReplay")) {
-        start();
+        start({ random: Object.hasOwn(command, "goReplay") && randomBattle });
       } else if (control.id === "switchTab" || control.id === "fightTab" || Object.hasOwn(command, "goInspectBack")) {
         if (phase !== "choice") return;
         inspectSide = null;
@@ -853,5 +904,5 @@ const geneOrderUI = (() => {
     setPage("title");
   }
 
-  return { mount, createMatch, fighterIssue, captureFrame, PLAYBACK_TIMING, eventHold };
+  return { mount, createMatch, randomBattleSettings, fighterIssue, captureFrame, PLAYBACK_TIMING, eventHold };
 })();

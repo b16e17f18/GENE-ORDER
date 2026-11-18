@@ -345,6 +345,69 @@ test("drain uses actual HP loss, including overkill and zero", () => {
   assert.equal(active(immune).hp, 100);
 });
 
+test("imported fixed HP heals preserve MHB amounts independently of maximum HP", () => {
+  for (const [id, amount] of [["heal_hp1", 300], ["heal_hp2", 250], ["heal_hp3", 150]]) {
+    for (const maxHp of [1000, 2000]) {
+      const move = statusMove({ skill_id: "test-heal", effect1: id, effect_target1: "self", effect_chance1: 100 });
+      const match = battle({ ...assets, skills: [move], player: [character({ hp: maxHp, skillIds: [move.skill_id] })] });
+      const actor = active(match);
+      actor.hp = 1;
+      const preview = go.previewDamage(match, "player", move);
+      assert.equal(preview.actorHp, 1 + amount);
+      assert.equal(actor.hp, 1);
+      const turn = action(match, move.skill_id);
+      assert.equal(actor.hp, 1 + amount);
+      assert.equal(turn.events.find((event) => event.type === "heal").recovered, amount);
+      actor.hp = maxHp - 20;
+      assert.equal(go.previewDamage(match, "player", move).actorHp, maxHp);
+      action(match, move.skill_id);
+      assert.equal(actor.hp, maxHp);
+      action(match, move.skill_id);
+      assert.equal(actor.hp, maxHp);
+    }
+  }
+});
+
+test("imported guards cover all nine elements and physical or special attacks", () => {
+  const ids = [...chart.keys()].map((element) => element + "_protect")
+    .concat("phy_protect", "phy_protect2", "sp_protect2");
+  for (const id of ids) {
+    const definition = officialDefense.get(id);
+    assert.ok(definition, id);
+    const attack_type = id.startsWith("sp_") ? "special" : "physical";
+    const element = definition.guard_type.endsWith("_damage") && !["phy_damage", "sp_damage"].includes(definition.guard_type)
+      ? definition.guard_type.slice(0, -7) : "fire";
+    const attack = { ...strike, element, attack_type, cost: 0 };
+    const setup = statusMove({ skill_id: "test-guard", battle_effect1: id, battle_effect_chance1: 100 });
+    const match = battle({ ...assets, skills: [setup, attack],
+      player: [character({ hp: 1000, skillIds: [setup.skill_id] })] });
+    action(match, setup.skill_id);
+    assert.equal(match.fields.player.size, 1);
+    const expected = go.calculateDamage(active(match, "enemy"), active(match), attack, chart,
+      { finalMultiplier: 1 - definition.damage_cut / 100 });
+    const preview = go.previewDamage(match, "enemy", attack);
+    assert.equal(preview.damage, expected.damage, id);
+    const other = id.startsWith("phy_") ? { ...attack, attack_type: "special" }
+      : id.startsWith("sp_") ? { ...attack, attack_type: "physical" }
+      : { ...attack, element: element === "none" ? "fire" : "none" };
+    assert.equal(go.previewDamage(match, "enemy", other).damage,
+      go.calculateDamage(active(match, "enemy"), active(match), other, chart).damage, id + " unrelated attack");
+    const hp = active(match).hp;
+    go.resolveTurn(match, { player: wait, enemy: select() });
+    assert.equal(hp - active(match).hp, preview.actualDamage, id);
+    const timed = match.fields.player.get(id);
+    assert.equal(timed.expires - timed.starts, definition.turn);
+  }
+});
+
+test("imported definitions stay unassigned to the existing formal skills", () => {
+  const unused = new Set(["heal_hp1", "heal_hp2", "heal_hp3", "phy_protect", "phy_protect2", "sp_protect2",
+    "fire_protect", "thunder_protect", "ice_protect", "wind_protect", "earth_protect", "light_protect", "dark_protect", "none_protect"]);
+  for (const move of officialSkills) {
+    assert.equal(go.moveEffects(move).some((effect) => unused.has(effect.id)), false, move.skill_id);
+  }
+});
+
 test("EN recovery and guard from 大地の恵み are independent and capped", () => {
   const move = skill("skill_032");
   const match = battle({ ...assets, skills: [strike, move], player: [character({ skillIds: [move.skill_id] })] });
@@ -661,7 +724,7 @@ test("追い討ち reads the actual target's condition after a switch, excluding
   const match = battle({ ...assets, skills: [pursuit], player: official("character_022"),
     enemy: [character({element_1: "light"}), character({element_1: "light", name: "Incoming"})] });
   const [source, target] = fighters(match);
-  target.bind = { source, turns: 2, definition: officialEffects.get("しめつける") };
+  target.bind = { source, turns: 2, definition: officialEffects.get("bind") };
   go.changeStage(target, "sp_def", -1);
   assert.equal(go.previewDamage(match, "player", pursuit).power, 70);
   target.bind = null;
@@ -1350,7 +1413,7 @@ test("Power Relay passes positive and negative stages and existing decoy, preser
   go.changeEnergy(incoming, 3);
   incoming.hp = 80;
   match.fields.player.set("test", { id: "test", definition: officialDefense.get("sp_protect"), starts: 1, expires: 4 });
-  outgoing.timedEffects.set("test", { starts: 1, expires: 3, definition: officialEffects.get("回避率UP") });
+  outgoing.timedEffects.set("test", { starts: 1, expires: 3, definition: officialEffects.get("evasion_up") });
   specialWait(match, "skill_042", 1);
   assert.deepEqual([incoming.stages.phy_atk, incoming.stages.speed, incoming.decoy.hp], [2, -3, 10]);
   assert.deepEqual([incoming.hp, incoming.energy, incoming.statuses[0], ownPoison.turns], [67, 5, incomingPoison, 5]);
@@ -1367,7 +1430,7 @@ test("MHB-style special switches bypass bind, normal switching stays locked", ()
     const match = setupSpecial({ player: [...official(user), character()] });
     const fighter = active(match);
     full(fighter);
-    fighter.bind = { source: active(match, "enemy"), turns: 3, definition: officialEffects.get("しめつける") };
+    fighter.bind = { source: active(match, "enemy"), turns: 3, definition: officialEffects.get("bind") };
     assert.match(go.checkAction(match, "player", voluntary(1)), /締め付け/);
     const after = specialWait(match, id, 1);
     assert.ok(after.events.some(e => e.type === "switch"));
@@ -1378,7 +1441,7 @@ test("MHB-style special switches bypass bind, normal switching stays locked", ()
 test("post-attack switch needs a hit and a surviving user; a decoy hit still qualifies", () => {
   for (const mode of ["evaded", "immune", "no-bench", "decoy", "ko", "counter", "recoil"]) {
     const original = skill("skill_045");
-    const move = mode === "recoil" ? { ...original, effect1: "反動ダメージ1/4", effect_target1: "self", effect_chance1: 100 } : original;
+    const move = mode === "recoil" ? { ...original, effect1: "recoil_25", effect_target1: "self", effect_chance1: 100 } : original;
     const field = new Map(chart);
     if (mode === "immune") field.set("wind", new Map(chart.get("wind")).set("fire", 0));
     const match = setupSpecial({ skills: [move], effectiveness: field,
@@ -1705,7 +1768,7 @@ test("poison and binding precede living active fighters' two end stages and EN, 
     enemy: [withPassive("014"), withPassive("005")], manualSwitches: true });
   const [holder, foe] = fighters(match);
   holder.statuses.push({ definition: officialEffects.get("poison"), turns: 1 });
-  holder.bind = { source: foe, turns: 1, definition: officialEffects.get("しめつける") };
+  holder.bind = { source: foe, turns: 1, definition: officialEffects.get("bind") };
   foe.hp = 1;
   foe.statuses.push({ definition: officialEffects.get("poison"), turns: 1 });
   const result = idle(match);
@@ -1962,7 +2025,7 @@ test("metabolism uses only the live status collection and multiplies each stat o
   const match = passiveBattle({ enemy: [withPassive("019")] });
   const [, foe] = fighters(match);
   const poison = officialEffects.get("poison");
-  foe.bind = { turns: 1, definition: officialEffects.get("しめつける") };
+  foe.bind = { turns: 1, definition: officialEffects.get("bind") };
   foe.halfGuard = 50;
   go.changeStage(foe, "phy_def", -1);
   assert.equal(go.statValue(foe, "phy_def"), 66);
@@ -2484,7 +2547,7 @@ test("GO AI accepts all six MHB profiles, safely defaults, and honors only usabl
 test("AI uses the same HP projection for KO, immunity, Revive, decoy, reflection and recoil", () => {
   const light = aiMove("light", { attack_type: "special", element: "light", power: 500, cost: 0 });
   const water = aiMove("water", { attack_type: "special", element: "water", power: 500, cost: 0 });
-  const recoil = { ...light, skill_id: "recoil", effect1: "反動ダメージ1/4", effect_target1: "self", effect_chance1: 100 };
+  const recoil = { ...light, skill_id: "recoil", effect1: "recoil_25", effect_target1: "self", effect_chance1: 100 };
   for (const mode of ["ko", "revive", "immune", "decoy", "reflection", "revenge", "recoil", "hp-cost"]) {
     const moves = mode === "hp-cost" ? [{ ...light, priority: 1 }, water] : [light, water, recoil];
     const match = passiveBattle({ skills: moves, player: [withPassive(mode === "hp-cost" ? "020" : "",
@@ -2540,7 +2603,7 @@ test("AI uses the reservation without paying twice and chooses valid special or 
   const forced = ai.choose(ai.observe(match, "player")).action;
   assert.equal(forced.moveId, charge.skill_id);
   action(match, charge.skill_id);
-  active(match).bind = { turns: 2, definition: officialEffects.get("しめつける"), source: active(match, "enemy") };
+  active(match).bind = { turns: 2, definition: officialEffects.get("bind"), source: active(match, "enemy") };
   assert.ok(!ai.evaluate(ai.observe(match, "player")).some((entry) => entry.action.type === "switch"));
   const pause = action(match, relay.skill_id);
   const incoming = ai.choose(ai.observe(match, "player")).action;

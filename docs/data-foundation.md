@@ -6,6 +6,24 @@
 
 ## 確定したデータ契約
 
+### MHBから追加した効果定義
+
+移植元は `C:/Users/b16e1/Documents/MHB/MHB/data/effect.csv`、`battle_effect.csv` および `battle-core.js`。追加した定義は今後の技設定用とし、既存の技・キャラクター・パッシブへの参照を追加しない。
+
+| CSV | ID | 内容・出典 |
+|---|---|---|
+| effect.csv | `heal_hp1`、`heal_hp2`、`heal_hp3` | MHBと同じ固定HP300・250・150回復 |
+| battle_effect.csv | `phy_protect`、`phy_protect2` | MHBと同じ物理25％・50％軽減、当ターンから4ターン |
+| battle_effect.csv | `sp_protect2` | MHBと同じ特殊50％軽減、当ターンから4ターン |
+| battle_effect.csv | `fire_protect`、`thunder_protect`、`ice_protect` | MHBと同じ対象属性50％軽減、当ターンから4ターン |
+| battle_effect.csv | `wind_protect`、`earth_protect`、`light_protect`、`dark_protect`、`none_protect` | MHBの属性軽減定義をGOの風・地・光・闇・無へ展開。50％軽減、当ターンから4ターン |
+
+既存の `water_protect` と合わせて9属性を扱える。既存の `sp_protect` はGOの翌ターン開始・3ターンという定義を維持する。EN1回復は既存の `bf_heal_en` がMHBの `heal_en` と同じ挙動であり、既存の別名解決を継続利用する。
+
+MHBの `heal_hp1`〜`3` はCSV上の `damage_type` が `percent_maxhp` だが、`applyHealEffect()`（移植元 `battle-core.js:1417`）は `damage_value` を固定HPとして加算する。GOでは単位を `fixed_hp` に明記して移植し、最大HPで上限を処理する。GOの既存割合回復は `percent_maxhp` を維持する。予測と実行は共通の回復量計算を参照し、CSVの値を読み直すと新しい戦闘に反映される。MHBの0回復予約行、GOに存在しない龍属性の軽減は追加しない。
+
+自動テストでは全9属性・物理・特殊の対象判定、対象外への非適用、期間、固定回復量・回復上限、プレビューと実戦の一致、CSV変更後の反映、既存技に追加定義の参照がないことを確認する。
+
 - 実行時に参照する正式マスタは `data/` 直下のUTF-8 CSV 11表。追加の `passive_type.csv` はパッシブ16種の入力条件と処理対応を管理する。
 - 属性マスタは **火 fire、水 water、風 wind、地 earth、光 light、闇 dark、無 none**。指示の7 IDと一致。CSVセルは維持し、日本語表示名とIDの両方をマスタから引いて実行時に正規化する。未定義値・空欄は `null`、明示的な無は `none`。技の第2属性欄の `none` は第2属性なしを表す現行データ表記として扱う。
 - 種族は図鑑分類。属性と同様に、マスタの表示名からIDを解決する。
@@ -46,7 +64,7 @@ CP932から厳密にデコードしたキャラ・技と、ワークブックの
 
 未解決ID一覧
 
-- 通常効果 — `burn`, `clear_buff`, `drain_50`, `heal_en`, `heal_half`, `pa_down1`, `pa_up1`, `pa_up2`, `pd_down1`, `pd_up1`, `sa_down1`, `sa_down4`, `sa_up1`, `sa_up2`, `sd_down1`, `sd_up2`, `sp_down2`, `sp_up1`, `しめつける`, `どろぼう`, `反動ダメージ1/4`, `回避率UP`, `場リセット`
+- 通常効果 — `burn`, `clear_buff`, `drain_50`, `heal_en`, `heal_half`, `pa_down1`, `pa_up1`, `pa_up2`, `pd_down1`, `pd_up1`, `sa_down1`, `sa_down4`, `sa_up1`, `sa_up2`, `sd_down1`, `sd_up2`, `sp_down2`, `sp_up1`, `bind`, `どろぼう`, `recoil_25`, `evasion_up`, `clear_field`
 - 戦闘効果 — `charge_attack`, `dodge_guard`, `ghost_phase`, `next_fire_power_150`, `protect`, `reflection`, `revenge`, `shed_tail`, `sp_protect`, `switch_after_attack`, `switch_lock`, `water_absorb_guard`, `water_protect`, `water_super_effective`, `みがわり`, `ゆきなだれ`, `バトンタッチ`, `追い風`
 - 威力ルール — `en_value`, `hp_exact_1`, `speed_advantage`, `target_status`
 - 参照先未設定のパッシブ — `passive_025`～`passive_044`、`passive_047`、`passive_064`
@@ -73,7 +91,7 @@ CP932から厳密にデコードしたキャラ・技と、ワークブックの
 
 | 分類 | 残件 | 未解決ID |
 |---|---:|---|
-| 通常効果 | 9 | burn、clear_buff、しめつける、どろぼう、反動ダメージ1/4、回避率UP、場リセット |
+| 通常効果 | 9 | burn、clear_buff、bind、どろぼう、recoil_25、evasion_up、clear_field |
 | 戦闘効果 | 13 | charge_attack、ghost_phase、reflection、revenge、sp_protect、switch_after_attack、switch_lock、water_protect、みがわり、ゆきなだれ、バトンタッチ、追い風 |
 | 威力ルール | 4 | en_value、speed_advantage、target_status |
 
@@ -81,11 +99,11 @@ CP932から厳密にデコードしたキャラ・技と、ワークブックの
 
 ## v0.31の参照整合性
 
-v0.30の26箇所から10箇所を解消し、16箇所が残る。技CSVは保持。通常効果に回避率UP・場リセット・しめつける、戦闘効果にsp_protect・water_protect・追い風・switch_lock、威力表にtarget_statusの真偽2行を追加。sp_protectの翌ターン開始を記録する start_delay 列を加え、既存行は空欄のまま保持。
+v0.30の26箇所から10箇所を解消し、16箇所が残る。技CSVは保持。通常効果にevasion_up・clear_field・bind、戦闘効果にsp_protect・water_protect・追い風・switch_lock、威力表にtarget_statusの真偽2行を追加。sp_protectの翌ターン開始を記録する start_delay 列を加え、既存行は空欄のまま保持。
 
 | 分類 | 残件 | 未解決ID |
 |---|---:|---|
-| 通常効果 | 4 | burn、clear_buff、どろぼう、反動ダメージ1/4 |
+| 通常効果 | 4 | burn、clear_buff、どろぼう、recoil_25 |
 | 戦闘効果 | 9 | charge_attack、ghost_phase、reflection、revenge、switch_after_attack、みがわり、ゆきなだれ、バトンタッチ |
 | 威力ルール | 3 | en_value、speed_advantage |
 

@@ -1,4 +1,16 @@
 /* GO adjustments for the reused MHB template. */
+/* Set data-go-sprite-sizing="legacy" on #go-app to restore the previous sizing. */
+#go-app[data-go-sprite-sizing="native-pc"] {
+  --go-character-reference-size: 240px;
+  --go-character-scale: 1;
+  --go-character-box-size: calc(var(--go-character-reference-size) * var(--go-character-scale));
+}
+@media (max-width: 900px) and (orientation: landscape) {
+  #go-app[data-go-sprite-sizing="native-pc"] { --go-character-scale: .75; }
+}
+@media (max-width: 600px) and (orientation: portrait) {
+  #go-app[data-go-sprite-sizing="native-pc"] { --go-character-scale: .5833333333; }
+}
 .go-mobile-battle-header, .go-move-detail { display: none; }
 .go-move-card { display: contents; }
 .go-skill-dialog { width: min(560px, calc(100vw - 24px)); border: 3px solid #111; }
@@ -6,6 +18,8 @@
 #go-app .go-title-panel { margin-inline: auto; max-width: 540px; text-align: center; }
 #go-app .go-title-panel h1 { font-size: clamp(2rem, 8vw, 5rem); margin: 16px 0 0; }
 #go-app .go-title-panel .setup-actions { justify-content: center; }
+#go-app .go-title-panel > [data-go-random-battle] { margin-top: 8px; }
+#go-app #go-random-notice:empty { display: none; }
 #go-app .go-mode { display: grid; gap: 6px; margin-top: 14px; }
 #go-app .go-mode select { min-width: 0; max-width: 100%; }
 #go-app .go-missing-image { display: grid; place-items: center; min-height: 72px; padding: 8px; text-align: center; }
@@ -310,4 +324,18 @@
   #go-app .go-battle-footer details { font-size: .8rem; }
   #go-app .go-battle-footer summary { min-height: 36px; padding-block: 8px; }
   #go-app .go-skill-dialog { max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow-y: auto; }
+}
+
+/* Keep native proportions, cap at the reference box, and shrink to fit the stage. */
+#go-app[data-go-sprite-sizing="native-pc"] .battle-view .sprite-image-wrap .sprite-image {
+  width: min(100%, var(--go-character-box-size), calc(var(--go-source-width, 240px) * var(--go-character-scale)));
+  height: auto;
+  max-width: min(100%, var(--go-character-box-size));
+  max-height: var(--go-character-box-size);
+  object-fit: contain;
+}
+@media (max-width: 600px) and (orientation: portrait) {
+  #go-app[data-go-sprite-sizing="native-pc"] .battle-view .battle-field {
+    grid-template-rows: auto clamp(152px, 18svh, 172px) auto;
+  }
 }

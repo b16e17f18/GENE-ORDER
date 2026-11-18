@@ -64,8 +64,11 @@ poison,毒,damage,percent_maxhp,10,7,TRUE,none,{target}は{name}状態になっ�
 burn,火やられ,damage,percent_maxhp,15,5,TRUE,none,{target}は{name}状態になった！,
 bf_drain_50,与ダメージの50%回復,heal,actual_damage_percent,50,0,TRUE,hp,{actor}は体力を吸収した！,
 bf_heal_en,EN1回復,heal,none,1,0,TRUE,en,{target}のENが回復した！,
-回避率UP,回避率上昇,evasion,multiplier,2,1,TRUE,evasion_percent,,1
-場リセット,フィールド解除,clear_field,none,0,0,TRUE,none,,
-しめつける,締め付け,bind,percent_maxhp,10,3,TRUE,none,,
-反動ダメージ1/4,反動ダメージ,recoil,actual_damage_percent,25,0,TRUE,hp,,
+evasion_up,回避率上昇,evasion,multiplier,2,1,TRUE,evasion_percent,,1
+clear_field,フィールド解除,clear_field,none,0,0,TRUE,none,,
+bind,締め付け,bind,percent_maxhp,10,3,TRUE,none,,
+recoil_25,反動ダメージ,recoil,actual_damage_percent,25,0,TRUE,hp,,
 clear_buff,能力上昇解除,clear_buff,none,0,0,TRUE,none,,
+heal_hp1,体力回復,heal,fixed_hp,300,0,TRUE,hp,{target}の{stat}が{changed}回復する！,
+heal_hp2,体力回復,heal,fixed_hp,250,0,TRUE,hp,{target}の{stat}が{changed}回復する！,
+heal_hp3,体力回復,heal,fixed_hp,150,0,TRUE,hp,{target}の{stat}が{changed}回復する！,

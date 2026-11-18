@@ -83,6 +83,52 @@ test("reads only the official UTF-8 tables", () => {
   assert.equal(go.run("state.rankBattles.size"), 0);
 });
 
+test("normal effect IDs use snake_case and renamed references resolve with unchanged definitions", () => {
+  assert.equal(go.run('[...state.effects.keys()].every((id) => /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/.test(id))'), true);
+  for (const [id, name, value, turns] of [
+    ["evasion_up", "回避率上昇", 2, 1],
+    ["clear_field", "フィールド解除", 0, 0],
+    ["bind", "締め付け", 10, 3],
+    ["recoil_25", "反動ダメージ", 25, 0],
+  ]) {
+    const effect = go.run(`state.effects.get("${id}")`);
+    assert.equal(effect.name, name);
+    assert.equal(effect.damage_value, value);
+    assert.equal(effect.turn, turns);
+    assert.ok(go.run(`geneOrderBattle.effectKind(state.effects.get("${id}"))`));
+    assert.equal(go.run(`state.dataDiagnostics.some((issue) => issue.level === "参照不一致" && issue.value === "${id}")`), false);
+  }
+  assert.equal(go.run('state.effects.get("evasion_up").start_delay'), 1);
+  assert.equal(go.run('state.effects.get("clear_buff").name'), "能力上昇解除");
+  for (const [skill, effect] of [["034", "evasion_up"], ["039", "clear_field"], ["046", "recoil_25"],
+    ["052", "bind"], ["059", "bind"]]) {
+    assert.equal(go.run(`state.skills.get("skill_${skill}").effect1`), effect);
+    assert.ok(go.run(`state.effects.has(state.skills.get("skill_${skill}").effect1)`));
+  }
+});
+
+test("imported fixed heal tuning reloads from CSV and matches actual healing", async () => {
+  const revised = runtime({ transforms: {
+    "./data/effect.csv": (csv) => csv.replace("heal_hp1,体力回復,heal,fixed_hp,300", "heal_hp1,体力回復,heal,fixed_hp,125"),
+  } });
+  await revised.boot();
+  const scenario = `(() => {
+    const go = geneOrderBattle;
+    const move = { ...state.skills.get("skill_003"), effect1: "heal_hp1", effect2: "none", effect3: "none", cost: 0 };
+    const actor = { ...state.characterMap.get("character_001"), hp: 1000, skillIds: [move.skill_id] };
+    const match = go.createBattle({ player: [actor], enemy: [actor], skills: new Map([[move.skill_id, move]]),
+      effects: state.effects, effectiveness: state.effectiveness });
+    const fighter = go.activeFighter(match, "player");
+    fighter.hp = 1;
+    const predicted = go.previewDamage(match, "player", move).actorHp;
+    go.resolveTurn(match, { player: { type: "move", moveId: move.skill_id }, enemy: { type: "wait" } });
+    return JSON.stringify([predicted, fighter.hp]);
+  })()`;
+  assert.deepEqual(JSON.parse(go.run(scenario)), [301, 301]);
+  assert.deepEqual(JSON.parse(revised.run(scenario)), [126, 126]);
+  assert.equal(go.run('state.dataDiagnostics.some((issue) => ["heal_hp1", "heal_hp2", "heal_hp3", "phy_protect", "phy_protect2", "sp_protect2", "fire_protect", "thunder_protect", "ice_protect", "wind_protect", "earth_protect", "light_protect", "dark_protect", "none_protect"].includes(issue.id))'), false);
+});
+
 test("passive type master covers the handlers, configured effects and legacy alias", () => {
   assert.equal(go.run("state.passiveTypes.size"), 16);
   assert.equal(go.run('state.passives.size'), 24);
@@ -519,8 +565,8 @@ test("existing CSVs configure both bind moves, attack reference, and evasion tim
   const revised = runtime({ transforms: {
     "./data/skill.csv": (csv) => csv.replace(/(^skill_033,.*),phy_def\r?$/m, "$1,sp_def"),
     "./data/effect.csv": (csv) => csv
-      .replace("しめつける,締め付け,bind,percent_maxhp,10,3", "しめつける,締め付け,bind,percent_maxhp,20,2")
-      .replace(/(^回避率UP,.*),1\r?$/m, "$1,0"),
+      .replace("bind,締め付け,bind,percent_maxhp,10,3", "bind,締め付け,bind,percent_maxhp,20,2")
+      .replace(/(^evasion_up,.*),1\r?$/m, "$1,0"),
   } });
   await revised.boot();
   const result = revised.run(`
@@ -705,6 +751,53 @@ const formalMatch = (mode = "manual") => `
     lead: { player: "character_015", enemy: "character_009" }, mode: "${mode}"
   }, { random: () => 0.1, aiRoll: () => 0 })
 `;
+
+test("random battle draws three distinct usable fighters per side and leads with the minimum slot", () => {
+  assert.equal(go.run(`(() => {
+    for (let seed = 1; seed <= 100; seed++) {
+      let value = seed;
+      const random = () => ((value = (Math.imul(value, 1664525) + 1013904223) >>> 0) / 4294967296);
+      const settings = geneOrderUI.randomBattleSettings(state, random);
+      if (settings.mode !== "enemy") return false;
+      const match = geneOrderUI.createMatch(state, settings, { random: () => 0, aiRoll: () => 0 });
+      if (match.isAI("player") || !match.isAI("enemy")) return false;
+      for (const side of ["player", "enemy"]) {
+        const ids = settings.team[side];
+        if (ids.length !== 3 || new Set(ids).size !== 3) return false;
+        const selected = ids.map((id) => state.characterMap.get(id));
+        if (selected.some((base) => geneOrderUI.fighterIssue(base, state))) return false;
+        const minimum = Math.min(...selected.map((base) => base.slot));
+        if (state.characterMap.get(settings.lead[side]).slot !== minimum) return false;
+        if (match.battle.teams[side][0].base.slot !== minimum) return false;
+      }
+    }
+    return true;
+  })()`), true);
+});
+
+test("random battle excludes placeholders and invalid slots, preserves data and handles ties", () => {
+  const scenario = `(() => {
+    const bases = ["001", "002", "003"].map((id) => state.characterMap.get("character_" + id));
+    const characters = bases.map((base) => ({ ...base, slot: 2 }));
+    const data = { ...state, characters: characters.concat(
+      { ...bases[0], character_id: "blank", name: "" },
+      { ...bases[0], character_id: "bad-slot", slot: -1 },
+      { ...bases[0], character_id: "unready", skillIds: [] }, characters[0]) };
+    const before = JSON.stringify(data.characters);
+    const selected = geneOrderUI.randomBattleSettings(data, () => 0);
+    return JSON.stringify([selected.team.player, selected.team.enemy, selected.lead, before === JSON.stringify(data.characters)]);
+  })()`;
+  const [player, enemy, lead, unchanged] = JSON.parse(go.run(scenario));
+  assert.deepEqual(player, ["character_001", "character_002", "character_003"]);
+  assert.deepEqual(enemy, player);
+  assert.deepEqual(lead, { player: "character_001", enemy: "character_001" });
+  assert.equal(unchanged, true);
+  assert.throws(() => go.run('geneOrderUI.randomBattleSettings({ ...state, characters: state.characters.slice(0, 2) })'), /3体以上/);
+  for (const invalid of ["1", "-0.1", "NaN", "Infinity"]) {
+    assert.throws(() => go.run(`geneOrderUI.randomBattleSettings(state, () => ${invalid})`), /乱数/);
+  }
+  assert.equal(go.run('geneOrderUI.randomBattleSettings(state, () => 0.999999).team.player.length'), 3);
+});
 
 test("official UI rejects unready, invalid, duplicate and oversized teams using the formal roster", () => {
   assert.equal(go.run('geneOrderUI.fighterIssue(state.characterMap.get("character_047"), state)'), "習得技未設定");
