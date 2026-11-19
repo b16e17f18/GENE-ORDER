@@ -259,7 +259,7 @@ test("fainting cancels the queued move, replaces at end of turn and decides the 
   assert.throws(() => go.resolveTurn(match, { player: select(), enemy: wait }), /行動できません/);
 });
 
-test("official CSV integration: current ミズアメネバムシ and メトロシーザ stats decide the duel", () => {
+test("official CSV integration: natural recovery offsets weak water attacks", () => {
   const characters = new Map(csv(read("data/character.csv")).filter((row) => row.name)
     .map((row) => [row.character_id, normalizeCharacter(row, elements, species)]));
   const skills = csv(read("data/skill.csv")).filter((row) => row.category).map((row) => normalizeSkill(row, elements));
@@ -272,10 +272,11 @@ test("official CSV integration: current ミズアメネバムシ and メトロ�
     assert.equal(events[0].side, "enemy");
     assert.equal(events[1].damage, 16);
     assert.equal(events[1].damage, expected.damage);
-    assert.equal(winner, turn === 10 ? "player" : null);
+    assert.equal(winner, null);
+    assert.equal(events.filter((event) => event.source === "natural").length, 2);
   }
-  assert.equal(active(match).hp, 75);
-  assert.equal(active(match, "enemy").hp, 0);
+  assert.equal(active(match).hp, active(match).maxHp);
+  assert.equal(active(match, "enemy").hp, 145);
 });
 
 const officialCharacters = new Map(csv(read("data/character.csv")).filter((row) => row.name)
@@ -531,7 +532,7 @@ test("formal data battle includes status, evasion, guard, heal, ranks, EN, switc
   turn(select("skill_003"));
   for (let i = 0; i < 15 && !match.winner; i++) {
     const player = active(match);
-    turn(player.energy >= 2 ? select("skill_004") : wait, wait);
+    turn(player.energy >= 1 ? select("skill_007") : wait, wait);
   }
   for (const type of ["move", "dodge-attempt", "evaded", "switch", "half-guard", "heal", "stage", "energy", "faint", "win"]) {
     assert.ok(allEvents.some((e) => e.type === type), type);
@@ -583,6 +584,134 @@ test("poison is retained and paused on the bench, and is blocked by evasion or i
   go.changeEnergy(active(match), 6);
   assert.ok(run(select("skill_000")).events.some(e => e.type === "evaded"));
   assert.equal(poisoned.statuses.length, 0);
+});
+
+test("natural recovery heals only living active fighters, caps HP, and captures the healed frame", () => {
+  const match = battle({ player: [character({ regen_value: 25 }), character({ regen_value: 90 })],
+    enemy: [character({ regen_value: 0 })], captureFrame: (battle) => ({ playerHp: active(battle).hp }) });
+  const actor = active(match);
+  const bench = match.teams.player[1];
+  actor.hp = 100;
+  bench.hp = 50;
+  active(match, "enemy").hp = 100;
+  const turn = go.resolveTurn(match, { player: wait, enemy: wait });
+  const healing = turn.events.filter((event) => event.source === "natural");
+  assert.equal(healing.length, 1);
+  assert.equal(healing[0].recovered, 25);
+  assert.equal(actor.hp, 125);
+  assert.equal(bench.hp, 50);
+  assert.equal(active(match, "enemy").hp, 100);
+  const index = turn.events.indexOf(healing[0]);
+  assert.equal(turn.frames[index].playerHp, 125);
+  actor.hp = actor.maxHp - 10;
+  assert.equal(go.resolveTurn(match, { player: wait, enemy: wait }).events.find((event) => event.source === "natural").recovered, 10);
+  assert.equal(actor.hp, actor.maxHp);
+  assert.equal(go.resolveTurn(match, { player: wait, enemy: wait }).events.some((event) => event.source === "natural"), false);
+});
+
+test("natural recovery follows poison, bind and end passives, before EN and replacements", () => {
+  const match = passiveBattle({ player: [withPassive("014", { regen_value: 25 }), character({ regen_value: 100 })],
+    enemy: [character({ regen_value: 100 })] });
+  const actor = active(match);
+  const target = active(match, "enemy");
+  actor.hp = 100;
+  actor.statuses = [{ definition: officialEffects.get("poison"), turns: 3 }];
+  actor.bind = { definition: officialEffects.get("bind"), turns: 3, source: target };
+  target.hp = 1;
+  target.statuses = [{ definition: officialEffects.get("poison"), turns: 3 }];
+  // Keep another enemy alive so end-of-turn processing proceeds after the active KO.
+  match.teams.enemy.push(go.createBattle({ player: [character({ regen_value: 100 })], enemy: [character()] }).teams.player[0]);
+  const result = go.resolveTurn(match, { player: wait, enemy: wait });
+  const events = result.events;
+  const residual = events.findLastIndex((event) => event.type === "residual");
+  const passive = events.findIndex((event) => event.type === "passive" && event.phase === "turn-end");
+  const recovered = events.findIndex((event) => event.source === "natural");
+  const energy = events.findIndex((event) => event.type === "energy");
+  const replacement = events.findIndex((event) => event.type === "replacement");
+  assert.ok(residual < passive && passive < recovered && recovered < energy && energy < replacement);
+  assert.equal(actor.hp, 85);
+  assert.equal(target.hp, 0);
+  assert.equal(target.fainted, true);
+  assert.equal(events.some((event) => event.source === "natural" && event.side === "enemy"), false);
+  assert.equal(active(match, "enemy").hp, active(match, "enemy").maxHp);
+});
+
+test("natural recovery cannot revive residual KOs or run after victory", () => {
+  const match = battle({ player: [character({ regen_value: 100 })], enemy: [character({ regen_value: 100 })] });
+  for (const fighter of fighters(match)) {
+    fighter.hp = 1;
+    fighter.statuses = [{ definition: officialEffects.get("poison"), turns: 3 }];
+  }
+  const draw = go.resolveTurn(match, { player: wait, enemy: wait });
+  assert.equal(draw.winner, "draw");
+  assert.equal(draw.events.some((event) => event.source === "natural"), false);
+  const won = battle({ player: [character({ regen_value: 100 })], enemy: [character({ hp: 1 })] });
+  active(won).hp = 100;
+  const victory = action(won);
+  assert.equal(victory.winner, "player");
+  assert.equal(active(won).hp, 100);
+  assert.equal(victory.events.some((event) => event.source === "natural"), false);
+});
+
+test("natural recovery occurs once across replacement selection and follows the incoming fighter on normal switches", () => {
+  const move = { ...strike, power: 1000, priority: 1 };
+  const match = battle({ skills: [move], player: [character({ regen_value: 25 })],
+    enemy: [character({ hp: 1, regen_value: 100 }), character({ regen_value: 100 })], manualSwitches: true });
+  active(match).hp = 50;
+  const round = action(match);
+  assert.equal(round.pendingSwitch.reason, "replacement");
+  assert.equal(active(match).hp, 75);
+  const continuation = go.continueSwitch(match, "enemy", 1);
+  assert.equal(continuation.events.some((event) => event.source === "natural"), false);
+  assert.equal(active(match).hp, 75);
+  const switched = battle({ player: [character({ regen_value: 25 }), character({ regen_value: 40 })] });
+  switched.teams.player[0].hp = 50;
+  switched.teams.player[1].hp = 60;
+  go.resolveTurn(switched, { player: { type: "switch", index: 1 }, enemy: wait });
+  assert.equal(switched.teams.player[0].hp, 50);
+  assert.equal(active(switched).hp, 100);
+});
+
+test("natural recovery preview and AI use regen without mutating state or rescuing lethal HP", () => {
+  const move = { ...strike, cost: 0 };
+  const match = battle({ skills: [move], player: [character({ regen_value: 25 })], enemy: [character({ regen_value: 30 })] });
+  const actor = active(match);
+  const target = active(match, "enemy");
+  actor.hp = 100;
+  target.hp = 100;
+  actor.statuses = [{ definition: officialEffects.get("poison"), turns: 3 }];
+  const snapshot = JSON.stringify(match);
+  const board = ai.observe(match, "player");
+  assert.equal(board.teams.player[0].base.regen_value, 25);
+  assert.equal(board.teams.enemy[0].base.regen_value, 30);
+  const candidate = ai.evaluate(board).find((entry) => entry.move?.skill_id === move.skill_id);
+  const preview = go.previewTurnEndRecovery(actor);
+  assert.deepEqual([preview.hp, preview.recovered], [105, 25]);
+  assert.equal(go.previewTurnEndRecovery(actor, 1).recovered, 0);
+  assert.equal(JSON.stringify(match), snapshot);
+  const result = action(match);
+  assert.equal(actor.hp, candidate.forecast.actorEndHp);
+  assert.equal(target.hp, candidate.forecast.targetEndHp);
+  assert.equal(result.events.filter((event) => event.source === "natural").length, 2);
+});
+
+test("AI values natural recovery when choosing healing or waiting", () => {
+  const heal = statusMove({ skill_id: "heal", effect1: "bf_heal_half", effect_target1: "self", effect_chance1: 100 });
+  const scores = (regen_value) => {
+    const match = battle({ ...assets, skills: [strike, heal], player: [character({ regen_value, skillIds: ["strike", "heal"] })],
+      enemy: [character({ hp: 1000 })] });
+    active(match).hp = 80;
+    const candidates = ai.evaluate(ai.observe(match, "player"));
+    return {
+      heal: candidates.find((entry) => entry.move?.skill_id === "heal").score,
+      attack: candidates.find((entry) => entry.move?.skill_id === "strike").score,
+      wait: candidates.find((entry) => entry.action.type === "wait").score,
+    };
+  };
+  const none = scores(0);
+  const high = scores(120);
+  assert.ok(high.wait > none.wait);
+  assert.ok(high.heal - high.attack < none.heal - none.attack);
 });
 
 test("residual KO cancels EN recovery and simultaneous residual KOs draw", () => {
@@ -1273,7 +1402,7 @@ test("Decoy checks HP, uses exact thirds, and rejects duplicate creation without
   assert.equal(fighter.energy, 7);
   fighter.hp = 73;
   specialWait(match, "skill_041");
-  assert.deepEqual([fighter.hp, fighter.decoy.hp, fighter.decoy.maxHp], [1, 72, 72]);
+  assert.deepEqual([fighter.hp, fighter.decoy.hp, fighter.decoy.maxHp], [23, 72, 72]);
   assert.throws(() => specialWait(match, "skill_041"), /すでに存在/);
   go.resolveTurn(match, { player: voluntary(1), enemy: wait });
   assert.equal(fighter.decoy, null);
@@ -1296,7 +1425,9 @@ test("Decoy takes capped damage without overflow, blocks a debuff, and poison st
   assert.equal(turn.events.find(e => e.type === "move").decoyDamage, 72);
   assert.equal(turn.events.find(e => e.type === "move").actualDamage, 0);
   assert.ok(turn.events.some(e => e.type === "decoy-broken"));
-  assert.equal(fighter.hp, hp - 22);
+  assert.equal(fighter.hp, hp);
+  assert.equal(turn.events.find((event) => event.type === "residual").damage, 22);
+  assert.equal(turn.events.find((event) => event.source === "natural").recovered, 22);
   assert.equal(fighter.tookDirectDamage, false);
   assert.equal(fighter.stages.phy_atk, 0);
 });
@@ -1416,7 +1547,7 @@ test("Power Relay passes positive and negative stages and existing decoy, preser
   outgoing.timedEffects.set("test", { starts: 1, expires: 3, definition: officialEffects.get("evasion_up") });
   specialWait(match, "skill_042", 1);
   assert.deepEqual([incoming.stages.phy_atk, incoming.stages.speed, incoming.decoy.hp], [2, -3, 10]);
-  assert.deepEqual([incoming.hp, incoming.energy, incoming.statuses[0], ownPoison.turns], [67, 5, incomingPoison, 5]);
+  assert.deepEqual([incoming.hp, incoming.energy, incoming.statuses[0], ownPoison.turns], [92, 5, incomingPoison, 5]);
   assert.equal(outgoing.stages.phy_atk, 0);
   assert.equal(outgoing.timedEffects.size, 0);
   assert.equal(match.fields.player.size, 1);

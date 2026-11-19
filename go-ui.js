@@ -7,7 +7,6 @@ const geneOrderUI = (() => {
   const TEAM_LIMIT = 4;
   const RANDOM_TEAM_SIZE = 3;
   const DODGE = "skill_000";
-  const BATTLE_BGM = "go_free_battle";
   // MHB pause() doubles its source delays. These values are the actual milliseconds.
   const PLAYBACK_TIMING = Object.freeze({
     input: 300,
@@ -40,6 +39,19 @@ const geneOrderUI = (() => {
   }
   const aiRandom = () => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32;
   const otherSide = (side) => side === "player" ? "enemy" : "player";
+
+  // Attribute matchup only: deliberately excludes STAB, guards and power modifiers.
+  function moveMatchup(move, defender, data) {
+    if (move.category !== "attack") return null;
+    const go = geneOrderBattle;
+    const override = go.moveEffects(move).filter(({ table, chance }) => table === "battleEffects" && chance > 0)
+      .map(({ id }) => data.battleEffects.get(id)).find((effect) => effect && go.battleEffectKind(effect) === "type-override");
+    return {
+      multiplier: go.effectivenessFor(move.element, defender.base, data.effectiveness, override),
+      passiveImmune: Boolean(geneOrderPassives.first(defender, "element-immunity",
+        (effect) => effect.element === move.element && effect.value > 0)),
+    };
+  }
 
   function fighterIssue(base, data) {
     if (!base) return "キャラクター未設定";
@@ -143,7 +155,7 @@ const geneOrderUI = (() => {
     const debug = document.querySelector(".go-preview");
     const go = geneOrderBattle;
     const esc = escapeHtml;
-    data.bgmMap.set(BATTLE_BGM, { bgm_path: "./asset/bgm/free-battle.mp3" });
+    registerGoBattleBgm(data.bgmMap);
     const clone = (selector) => template.content.querySelector(selector).cloneNode(true);
     const shell = document.createElement("main");
     shell.className = "app-shell";
@@ -227,11 +239,13 @@ const geneOrderUI = (() => {
     let returnFocus;
     let match;
     let randomBattle = false;
+    let currentBattleBgm = "";
     let phase = "choice";
     let turnSide = "player";
     let selected = {};
     let switchOpen = false;
     let inspectSide = null;
+    let expandedMoveId = null;
     let epoch = 0;
     let motion;
     let finishWait;
@@ -266,6 +280,7 @@ const geneOrderUI = (() => {
         showDex(data.characters[0]?.character_id);
         return;
       }
+      expandedMoveId = null;
       epoch++;
       if (skillDialog.open) skillDialog.close();
       finishWait?.();
@@ -521,6 +536,7 @@ const geneOrderUI = (() => {
 
     function openInspect(candidate) {
       if (phase !== "choice" || !match) return;
+      expandedMoveId = null;
       inspectSide = candidate;
       switchOpen = false;
       renderCommands();
@@ -627,20 +643,40 @@ const geneOrderUI = (() => {
         $("moveGrid").innerHTML = '<button class="move-button" type="button" data-go-turn>AIのターンを実行</button>';
         return;
       }
+      const moveIds = [...new Set(actor.base.skillIds)].filter((id) => id !== DODGE);
+      const expanded = moveIds.includes(expandedMoveId) ? data.skills.get(expandedMoveId) : null;
+      if (expanded) {
+        const issue = go.checkAction(battle, candidate, { type: "move", moveId: expandedMoveId });
+        const releasing = actor.pending?.moveId === expandedMoveId;
+        const kind = expanded.category === "attack" ? attackTypeLabel(expanded.attack_type) : "変化";
+        const matchup = moveMatchup(expanded, go.activeFighter(battle, otherSide(candidate)), data);
+        const affinity = matchup ? '<span class="go-move-matchup">相手への属性相性 ×' + matchup.multiplier +
+          (matchup.passiveImmune ? ' ／ パッシブで無効' : '') + '</span>' : '';
+        $("moveGrid").innerHTML = '<div class="command-note">' + LABELS[candidate] + 'の技を確認</div>' +
+          '<div class="go-expanded-move"><button class="move-button move-element-' + esc(expanded.element ?? '') +
+          '" type="button" data-go-move="' + esc(expandedMoveId) + '" ' + (issue ? 'disabled' : '') +
+          ' aria-label="' + esc(expanded.name) + 'を使う">' +
+          '<span class="move-name">' + esc(expanded.name) + '</span>' +
+          '<span class="move-cost">' + energyBadge(releasing ? 0 : expanded.cost) + '</span>' +
+          '<span class="move-element">' + moveAttributes(expanded) + '</span>' +
+          '<span class="move-kind">' + esc(kind) + '</span>' +
+          '<span class="move-power power-chip">威力 ' + (expanded.category === 'attack' ? releasing ? actor.pending.power : expanded.power : '—') + '</span>' +
+          affinity + '<span class="move-text">' + esc(goStatText(expanded.text)) + '</span>' +
+          (issue ? '<span class="go-move-issue">' + esc(goStatText(issue)) + '</span>' : '') +
+          '</button><button class="small-button go-move-back" type="button" data-go-move-back>戻る</button></div>';
+        return;
+      }
       const buttons = [...new Set(actor.base.skillIds)].filter((id) => id !== DODGE).map((id) => {
         const move = data.skills.get(id);
         if (!move) return "";
         const issue = go.checkAction(battle, candidate, { type: "move", moveId: id });
         const releasing = actor.pending?.moveId === id;
         const kind = move.category === "attack" ? attackTypeLabel(move.attack_type) : "変化";
-        return `<div class="go-move-card"><button class="move-button move-element-${esc(move.element ?? "")}" type="button" data-go-move="${esc(id)}"
-          ${issue ? "disabled" : ""} title="${esc(goStatText(issue || move.text))}">
-          <span class="move-name">${esc(move.name)}</span>
-          <span class="move-cost">${energyBadge(releasing ? 0 : move.cost)}</span>
-          <span class="move-element">${moveAttributes(move)}</span><span class="move-kind">${esc(kind)}</span>
-          <span class="move-power power-chip">威力 ${move.category === "attack" ? releasing ? actor.pending.power : move.power : "—"}</span>
-          <span class="move-text">優先度 ${move.priority} · ${esc(goStatText(move.text))}${issue ? ` · ${esc(goStatText(issue))}` : ""}</span></button>
-          <button class="go-move-detail" type="button" data-go-skill-detail="${esc(id)}" aria-label="${esc(move.name)}の詳細" aria-haspopup="dialog">詳細</button></div>`;
+        return `<div class="go-move-card"><button class="move-button move-element-${esc(move.element ?? "")} ${issue ? "go-move-unavailable" : ""}"
+          type="button" data-go-open-move="${esc(id)}" aria-label="${esc(move.name)}の詳細" aria-expanded="false">
+          <span class="move-name">${esc(move.name)}</span><span class="move-cost">${energyBadge(releasing ? 0 : move.cost)}</span>
+          <span class="move-element">${moveAttributes(move)}</span><span class="move-kind">${esc(kind)}</span></button></div>`;
+
       });
       $("moveGrid").innerHTML = `<div class="command-note">${LABELS[candidate]}の行動を選択</div>${buttons.join("")}`;
     }
@@ -653,6 +689,7 @@ const geneOrderUI = (() => {
         return;
       }
       epoch++;
+      expandedMoveId = null;
       randomBattle = random;
       finishWait?.();
       motion?.cancel();
@@ -663,7 +700,8 @@ const geneOrderUI = (() => {
       inspectSide = null;
       $("go-official-log").replaceChildren();
       setPage("battle");
-      if ($("go-battle-bgm").checked) playBgm(BATTLE_BGM);
+      currentBattleBgm = randomBattleModeBgmId(aiRandom);
+      if ($("go-battle-bgm").checked && currentBattleBgm) playBgm(currentBattleBgm);
       for (const entry of match.battle.startEvents) appendLog(describeGeneOrderEvent(entry));
       message("");
       drawBoard(captureFrame(match.battle));
@@ -791,6 +829,7 @@ const geneOrderUI = (() => {
       if (phase !== "choice" || !match) return;
       if (!match.isAI(turnSide)) {
         if (go.checkAction(match.battle, turnSide, action)) return;
+        expandedMoveId = null;
         selected[turnSide] = action;
         inspectSide = null;
         if (settings.mode === "manual" && turnSide === "player") {
@@ -809,6 +848,17 @@ const geneOrderUI = (() => {
         event.preventDefault();
         openInspect(sprite.dataset.fighterSide);
       }
+      if (event.repeat && event.target.closest("[data-go-move], [data-go-open-move], [data-go-move-back]")) {
+        event.preventDefault();
+        return;
+      }
+      if (event.key === "Escape" && expandedMoveId && !chartDialog.open) {
+        const id = expandedMoveId;
+        expandedMoveId = null;
+        renderCommands();
+        $("moveGrid").querySelector('[data-go-open-move="' + id + '"]')?.focus();
+        return;
+      }
       if (event.key === "Escape") {
         const overlay = [$("dexOverlay"), $("detailOverlay")].find((node) => node && !node.classList.contains("is-hidden"));
         if (overlay) {
@@ -823,10 +873,24 @@ const geneOrderUI = (() => {
       const control = event.target.closest("button");
       if (!control || control.disabled) return;
       const command = control.dataset;
-      const battleAction = ["goMove", "goSwitch", "goTurn", "goReplay", "goRandomBattle"].some((key) => Object.hasOwn(command, key));
+      const battleAction = ["goMove", "goOpenMove", "goSwitch", "goTurn", "goReplay", "goRandomBattle"].some((key) => Object.hasOwn(command, key));
       if (battleAction && event.detail > 1) return;
       if (command.goPage) return showPage(command.goPage);
       if (Object.hasOwn(command, "goRandomBattle")) return startRandomBattle();
+      if (command.goOpenMove) {
+        if (phase !== "choice") return;
+        expandedMoveId = command.goOpenMove;
+        renderCommands();
+        $("moveGrid").querySelector("[data-go-move-back]")?.focus({ preventScroll: true });
+        return;
+      }
+      if (Object.hasOwn(command, "goMoveBack")) {
+        const id = expandedMoveId;
+        expandedMoveId = null;
+        renderCommands();
+        $("moveGrid").querySelector('[data-go-open-move="' + id + '"]')?.focus({ preventScroll: true });
+        return;
+      }
       if (command.goSkillDetail) {
         const move = data.skills.get(command.goSkillDetail);
         if (!move || !["choice", "switch"].includes(phase)) return;
@@ -876,6 +940,7 @@ const geneOrderUI = (() => {
       } else if (control.id === "switchTab" || control.id === "fightTab" || Object.hasOwn(command, "goInspectBack")) {
         if (phase !== "choice") return;
         inspectSide = null;
+        expandedMoveId = null;
         switchOpen = control.id === "switchTab";
         renderCommands();
       } else if (command.goSwitch !== undefined) {
@@ -897,12 +962,12 @@ const geneOrderUI = (() => {
       }
     });
     $("go-battle-bgm").addEventListener("change", (event) => {
-      if (event.target.checked && match) playBgm(BATTLE_BGM);
+      if (event.target.checked && match && currentBattleBgm) playBgm(currentBattleBgm);
       else stopBgm();
     });
     $("go-official-mode").addEventListener("change", (event) => { settings.mode = event.target.value; });
     setPage("title");
   }
 
-  return { mount, createMatch, randomBattleSettings, fighterIssue, captureFrame, PLAYBACK_TIMING, eventHold };
+  return { moveMatchup, mount, createMatch, randomBattleSettings, fighterIssue, captureFrame, PLAYBACK_TIMING, eventHold };
 })();

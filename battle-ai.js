@@ -1195,7 +1195,7 @@ const geneOrderAI = (() => {
   function publicFighter(fighter, skillIds, own) {
     const { base } = fighter;
     const publicBase = Object.fromEntries(["character_id", "name", "element_1", "element_2", "energy_charge",
-      "evasion_percent", ...STATS].map((key) => [key, base[key]]));
+      "evasion_percent", "regen_value", ...STATS].map((key) => [key, base[key]]));
     if (own) Object.assign(publicBase, { ai_type: base.ai_type, ai_setup_skill: base.ai_setup_skill, ai_main_skill: base.ai_main_skill });
     publicBase.skillIds = skillIds;
     const { hp, maxHp, energy, fainted, dodgeActive, halfGuard, tookDirectDamage, pending, decoy } = fighter;
@@ -1273,6 +1273,7 @@ const geneOrderAI = (() => {
     const rankValue = STATS.reduce((sum, stat) => sum + fighter.stages[stat], 0) * config.STAGE_WEIGHT / 3;
     const residual = [...fighter.statuses, fighter.bind].filter(Boolean).reduce((sum, status) =>
       sum + Math.min(config.STATUS_HORIZON, status.turns) * go.residualDamage(fighter, status.definition), 0);
+    const recovery = go.previewTurnEndRecovery(fighter, Math.max(0, fighter.hp - predictedIncoming)).recovered;
     const revive = geneOrderPassives.survive(fighter, fighter.hp) ? config.REVIVE_VALUE : 0;
     const speed = go.effectiveSpeed(board, side);
     const otherSpeed = go.effectiveSpeed(board, other);
@@ -1280,7 +1281,7 @@ const geneOrderAI = (() => {
       - danger / Math.max(1, fighter.hp) * config.SWITCH_INCOMING_HP_RATIO_WEIGHT
       + fighter.hp / fighter.maxHp * config.SWITCH_HP_RATIO_WEIGHT + fighter.energy * config.EN_WEIGHT / 4
       + go.evasionRate(fighter, board.turn) / 100 * config.FIELD_VALUE + rankValue + revive
-      - residual * config.SWITCH_THREAT_WEIGHT + (fighter.decoy?.hp ?? 0) * config.DECOY_WEIGHT
+      - residual * config.SWITCH_THREAT_WEIGHT + recovery * config.HEAL_BASE_WEIGHT + (fighter.decoy?.hp ?? 0) * config.DECOY_WEIGHT
       + (speed > otherSpeed ? config.FIELD_VALUE : 0);
     return { best, incoming, danger, score, speed, otherSpeed,
       attacks: new Map(outgoing.map(({ move, preview }) => [move.skill_id, preview])) };
@@ -1445,6 +1446,13 @@ const geneOrderAI = (() => {
     const healing = result.hpEffects.reduce((sum, effect) => sum +
       (effect.target === "self" ? 1 : -1) * effect.delta * effect.chance / 100, 0);
     const healWeight = config.HEAL_BASE_WEIGHT + (1 - actor.hp / actor.maxHp) * config.HEAL_MISSING_HP_WEIGHT;
+    const survivingSide = (candidate, hp) => hp > 0 || board.teams[candidate].some((fighter, index) =>
+      index !== board.active[candidate] && !fighter.fainted && fighter.hp > 0);
+    const recoveryAllowed = survivingSide(side, forecast.actorHp) && survivingSide(otherSide(side), forecast.targetHp);
+    const actorEnd = recoveryAllowed ? go.previewTurnEndRecovery(actor, forecast.actorHp) : { hp: forecast.actorHp, recovered: 0 };
+    const targetEnd = recoveryAllowed ? go.previewTurnEndRecovery(target, forecast.targetHp) : { hp: forecast.targetHp, recovered: 0 };
+    const recoveryValue = actorEnd.recovered * healWeight * enemyAiTypeMultiplier(config, "HEAL_SCORE_MULTIPLIER")
+      - targetEnd.recovered * config.BODY_WEIGHT;
     const toxic = result.actualDamage > 0 && result.targetHp > 0
       ? geneOrderPassives.matching(target, "body-hit-status", (effect) => effect.condition.attackType === move.attack_type)
         .reduce((sum, effect) => {
@@ -1456,7 +1464,7 @@ const geneOrderAI = (() => {
     const response = result.responseDamage + result.actualHeal;
     let score = damage * enemyAiTypeMultiplier(config, "ATTACK_SCORE_MULTIPLIER") * (1 - risk)
       + (result.survival ? config.REVIVE_VALUE : 0) + koConfidence * config.KO_BONUS
-      + healing * (healing > 0 ? healWeight * enemyAiTypeMultiplier(config, "HEAL_SCORE_MULTIPLIER") : config.RESPONSE_WEIGHT)
+      + healing * (healing > 0 ? healWeight * enemyAiTypeMultiplier(config, "HEAL_SCORE_MULTIPLIER") : config.RESPONSE_WEIGHT) + recoveryValue
       - response * config.RESPONSE_WEIGHT - result.hpCost - toxic * config.STATUS_DAMAGE_WEIGHT
       - cost * config.ENERGY_COST_PENALTY;
     if (cost > 0 && actor.energy - cost <= 0) score -= config.EMPTY_ENERGY_PENALTY;
@@ -1483,6 +1491,8 @@ const geneOrderAI = (() => {
     return { action, move, score, fatal, koConfidence, damage: result.actualDamage, decoyDamage: result.decoyDamage ?? 0,
       label: move.name, reason: release ? "予約威力・次の攻撃" : result.reason, forecast: {
         targetHp, actorHp: result.actorHp, hpCost: result.hpCost, response: result.responseDamage, power: result.power,
+        actorEndHp: actorEnd.hp, targetEndHp: targetEnd.hp,
+        actorNaturalRecovery: actorEnd.recovered, targetNaturalRecovery: targetEnd.recovered,
       } };
   }
 
@@ -1518,7 +1528,9 @@ const geneOrderAI = (() => {
         sum + go.stageDelta(actor, effect.stat, effect.value), 0);
       const score = (nextEN > actor.energy ? config.WAIT_BASE : -config.WAITING_PENALTY) +
         (gain >= config.MIN_FUTURE_GAIN ? Math.max(0, gain - config.WAITING_PENALTY) : 0) +
-        upkeep * config.STAGE_WEIGHT / 3 - position.danger * config.SUPPORT_RISK;
+        upkeep * config.STAGE_WEIGHT / 3 - position.danger * config.SUPPORT_RISK +
+        go.previewTurnEndRecovery(actor).recovered * (config.HEAL_BASE_WEIGHT +
+          (1 - actor.hp / actor.maxHp) * config.HEAL_MISSING_HP_WEIGHT) * enemyAiTypeMultiplier(config, "HEAL_SCORE_MULTIPLIER");
       candidates.push({ action: { type: "wait" }, score, label: "待機", reason: gain > 0 ? "EN温存" : "行動保留" });
     }
     return candidates;

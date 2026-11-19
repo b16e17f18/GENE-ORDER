@@ -124,9 +124,40 @@ test("imported fixed heal tuning reloads from CSV and matches actual healing", a
     go.resolveTurn(match, { player: { type: "move", moveId: move.skill_id }, enemy: { type: "wait" } });
     return JSON.stringify([predicted, fighter.hp]);
   })()`;
-  assert.deepEqual(JSON.parse(go.run(scenario)), [301, 301]);
-  assert.deepEqual(JSON.parse(revised.run(scenario)), [126, 126]);
+  assert.deepEqual(JSON.parse(go.run(scenario)), [301, 326]);
+  assert.deepEqual(JSON.parse(revised.run(scenario)), [126, 151]);
   assert.equal(go.run('state.dataDiagnostics.some((issue) => ["heal_hp1", "heal_hp2", "heal_hp3", "phy_protect", "phy_protect2", "sp_protect2", "fire_protect", "thunder_protect", "ice_protect", "wind_protect", "earth_protect", "light_protect", "dark_protect", "none_protect"].includes(issue.id))'), false);
+});
+
+test("natural recovery reloads from character CSV and emits the actual recovered HP", async () => {
+  const revised = runtime({ transforms: {
+    "./data/character.csv": (csv) => {
+      const lines = csv.split(/\r?\n/);
+      const column = lines[0].split(",").indexOf("regen_value");
+      const index = lines.findIndex((line) => line.startsWith("character_001,"));
+      const cells = lines[index].split(",");
+      cells[column] = "30";
+      lines[index] = cells.join(",");
+      return lines.join("\n");
+    },
+  } });
+  await revised.boot();
+  const scenario = `(() => {
+    const go = geneOrderBattle;
+    const match = go.createBattle({ player: [state.characterMap.get("character_001")],
+      enemy: [state.characterMap.get("character_002")], skills: state.skills, effectiveness: state.effectiveness });
+    const actor = go.activeFighter(match, "player");
+    actor.hp = 50;
+    const result = go.resolveTurn(match, { player: { type: "wait" }, enemy: { type: "wait" } });
+    const event = result.events.find((entry) => entry.source === "natural");
+    return JSON.stringify([actor.hp, event.recovered, describeGeneOrderEvent(event)]);
+  })()`;
+  const normal = JSON.parse(go.run(scenario));
+  const changed = JSON.parse(revised.run(scenario));
+  assert.deepEqual(normal.slice(0, 2), [75, 25]);
+  assert.deepEqual(changed.slice(0, 2), [80, 30]);
+  assert.match(normal[2], /自然回復.*25/);
+  assert.match(changed[2], /自然回復.*30/);
 });
 
 test("passive type master covers the handlers, configured effects and legacy alias", () => {
@@ -160,8 +191,8 @@ test("a new passive type ID and alias reuse an existing handler through CSV", as
     go.changeEnergy(go.activeFighter(battle, "player"), 7);
     const preview = go.previewDamage(battle, "player", skill);
     const hp = go.activeFighter(battle, "enemy").hp;
-    go.resolveTurn(battle, { player: { type: "move", moveId: skill.skill_id }, enemy: { type: "wait" } });
-    return JSON.stringify([preview.damage, hp - go.activeFighter(battle, "enemy").hp]);
+    const result = go.resolveTurn(battle, { player: { type: "move", moveId: skill.skill_id }, enemy: { type: "wait" } });
+    return JSON.stringify([preview.damage, result.events.find((event) => event.type === "move" && event.side === "player").actualDamage]);
   })()`;
   const original = JSON.parse(go.run(scenario));
   const updated = JSON.parse(revised.run(scenario));
@@ -424,8 +455,8 @@ test("the HTTP loader re-reads decoy cost, durability, use cap, EN and proc rate
       })()
     `));
   }
-  assert.deepEqual(simulate(go, 0.9), [42, 41, 6, 0, false]);
-  assert.deepEqual(simulate(revised, 0.4), [84, 62, 7, 0, true]);
+  assert.deepEqual(simulate(go, 0.9), [67, 41, 6, 0, false]);
+  assert.deepEqual(simulate(revised, 0.4), [109, 62, 7, 0, true]);
   assert.deepEqual(simulate(revised, 0.5), [125, 0, 7, 0, true]);
 });
 
@@ -506,8 +537,8 @@ test("the HTTP loader re-reads v0.41 thresholds, multipliers, priority HP costs 
         active(cost).hp, active(toxic).statuses.length]);
     })()
   `;
-  assert.deepEqual(JSON.parse(go.run(scenario)), [77, 96, 122, 1]);
-  assert.deepEqual(JSON.parse(revised.run(scenario)), [107, 144, 122, 0]);
+  assert.deepEqual(JSON.parse(go.run(scenario)), [77, 96, 152, 1]);
+  assert.deepEqual(JSON.parse(revised.run(scenario)), [107, 144, 137, 0]);
 });
 
 test("diagnoses invalid passive conditions and missing status targets", async () => {
@@ -956,4 +987,82 @@ test("GO matchup chart renders all official CSV multipliers and shared attribute
   assert.match(html, /data-attack="earth" data-defense="wind" aria-label="0倍">×/);
   assert.match(html, /data-attack="fire" data-defense="none" aria-label="2倍">○/);
   assert.match(html, /data-attack="water" data-defense="dark" aria-label="0.5倍">△/);
+});
+
+
+test("move card matchups use all 81 CSV pairs without STAB or guard adjustments", () => {
+  const result = JSON.parse(go.run(`(() => {
+    const defender = geneOrderBattle.createBattle({ ...state,
+      player: [state.characterMap.get("character_001")], enemy: [state.characterMap.get("character_001")] }).teams.enemy[0];
+    defender.passive = null;
+    defender.halfGuard = 100;
+    const move = { ...state.skills.get("skill_002"), category: "attack", battle_effect1: "none", battle_effect2: "none", battle_effect3: "none" };
+    const pairs = [];
+    for (const attack of state.elements.keys()) for (const defense of state.elements.keys()) {
+      defender.base = { ...defender.base, element_1: defense, element_2: null };
+      const info = geneOrderUI.moveMatchup({ ...move, element: attack }, defender, state);
+      pairs.push([info.multiplier, state.effectiveness.get(attack).get(defense), info.passiveImmune]);
+    }
+    return JSON.stringify(pairs);
+  })()`));
+  assert.equal(result.length, 81);
+  for (const [actual, expected, immune] of result) {
+    assert.equal(actual, expected);
+    assert.equal(immune, false);
+  }
+});
+
+test("move card matchups multiply dual types, preserve zero, and omit status skills", () => {
+  const result = JSON.parse(go.run(`(() => {
+    const defender = { base: { element_1: "thunder", element_2: "wind" }, passive: null };
+    const move = { ...state.skills.get("skill_002"), category: "attack", element: "ice" };
+    const dual = geneOrderUI.moveMatchup(move, defender, state).multiplier;
+    const zero = geneOrderUI.moveMatchup({ ...move, element: "earth" }, defender, state).multiplier;
+    const status = geneOrderUI.moveMatchup({ ...move, category: "status" }, defender, state);
+    defender.base.element_2 = "thunder";
+    const duplicate = geneOrderUI.moveMatchup(move, defender, state).multiplier;
+    return JSON.stringify([dual, zero, status, duplicate]);
+  })()`));
+  assert.deepEqual(result, [4, 0, null, 2]);
+});
+
+test("move card passive immunity is separate and inspection does not mutate battle or consume RNG", () => {
+  const result = JSON.parse(go.run(`(() => {
+    let calls = 0;
+    const base = { ...state.characterMap.get("character_001"), passive_id: "passive_002" };
+    const battle = geneOrderBattle.createBattle({ ...state, player: [base], enemy: [base], random: () => { calls++; return .5; } });
+    const defender = geneOrderBattle.activeFighter(battle, "enemy");
+    const before = JSON.stringify(battle);
+    const move = { ...state.skills.get("skill_002"), category: "attack" };
+    const water = geneOrderUI.moveMatchup({ ...move, element: "water" }, defender, state);
+    const none = geneOrderUI.moveMatchup({ ...move, element: "none" }, defender, state);
+    return JSON.stringify([water.passiveImmune, none.passiveImmune, before === JSON.stringify(battle), calls]);
+  })()`));
+  assert.deepEqual(result, [true, false, true, 0]);
+});
+
+
+test("MHB-style random BGM includes all 26 copied battle tracks and excludes non-battle or unset paths", async () => {
+  const local = runtime();
+  await local.boot();
+  const result = JSON.parse(local.run(`(() => {
+    registerGoBattleBgm(state.bgmMap);
+    state.bgmMap.set("title", { bgm_id: "title", name: "title", bgm_path: "./title.mp3" });
+    state.bgmMap.set("empty", { bgm_id: "empty", name: "arena_empty", bgm_path: "" });
+    const tracks = GO_BATTLE_BGM_TRACKS.map((name, index) => {
+      const id = randomBattleModeBgmId(() => (index + .5) / GO_BATTLE_BGM_TRACKS.length);
+      return [id, state.bgmMap.get(id).bgm_path, "go_" + name];
+    });
+    const last = randomBattleModeBgmId(() => 1 - Number.EPSILON);
+    state.bgmMap.clear();
+    return JSON.stringify([tracks, last, randomBattleModeBgmId(() => 0)]);
+  })()`));
+  assert.equal(result[0].length, 26);
+  assert.equal(new Set(result[0].map(([id]) => id)).size, 26);
+  for (const [id, path, expected] of result[0]) {
+    assert.equal(id, expected);
+    assert.ok(existsSync(join(root, path)), path);
+  }
+  assert.equal(result[1], "go_arena_x_1");
+  assert.equal(result[2], "");
 });

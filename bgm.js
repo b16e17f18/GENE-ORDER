@@ -157,3 +157,40 @@ function handleBgmPlayRejected(audio, bgmId, error) {
   }
   console.warn("[BGM] playback was blocked or failed", { bgmId, error });
 }
+
+// Same eligible battle_/arena_ tracks as the MHB battle mode; GO owns these copies.
+const GO_BATTLE_BGM_TRACKS = Object.freeze([
+  "battle_f_1",
+  "battle_f_2",
+  "battle_e_1",
+  "battle_e_2",
+  "battle_d_1",
+  "battle_d_2",
+  "battle_c_1",
+  "battle_c_2",
+  "battle_b_1",
+  "battle_b_2",
+  "battle_a_1",
+  "battle_a_2",
+  "battle_s_1",
+  "battle_s_2",
+  "battle_ss_1",
+  "battle_ss_2",
+  "arena_g_1",
+  "arena_g_2",
+  "arena_g_3",
+  "arena_g_4",
+  "arena_g_5",
+  "arena_g_6",
+  "arena_g_7",
+  "arena_m_1",
+  "arena_m_2",
+  "arena_x_1"
+]);
+
+function registerGoBattleBgm(map) {
+  for (const name of GO_BATTLE_BGM_TRACKS) {
+    const id = "go_" + name;
+    map.set(id, { bgm_id: id, name, bgm_path: "./asset/bgm/" + name + ".mp3" });
+  }
+}

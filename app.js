@@ -911,13 +911,13 @@ function playRankBattleBgm(rankBattleId) {
   if (bgmId) playBgm(bgmId, { audibleDelayMs: BATTLE_BGM_AUDIBLE_DELAY_MS });
 }
 
-function randomBattleModeBgmId() {
+function randomBattleModeBgmId(random = Math.random) {
   const candidates = [...state.bgmMap.values()].filter((bgm) => {
     const battleId = safeText(bgm.name);
     return bgm.bgm_path && (battleId.startsWith("battle_") || battleId.startsWith("arena_"));
   });
   if (!candidates.length) return "";
-  return candidates[Math.floor(Math.random() * candidates.length)].bgm_id;
+  return candidates[Math.floor(random() * candidates.length)].bgm_id;
 }
 
 function playBattleModeBgm() {
@@ -9481,7 +9481,7 @@ function describeGeneOrderEvent(event) {
     "defense-expired": (e) => `${e.actor}の${[e.dodge && "回避状態", e.guard && "半減防御"].filter(Boolean).join("・")}が終了した`,
     stage: (e) => e.delta === 0 ? `${e.actor}の${statLabels[e.stat]}ランクは変化しなかった`
       : `${e.actor}の${statLabels[e.stat]} ${e.delta > 0 ? "+" : ""}${e.delta}${e.stage ? `（現在 ${e.stage}）` : ""}`,
-    heal: (e) => `${e.actor}のHP +${e.recovered}`,
+    heal: (e) => `${e.actor}の${e.source === "natural" ? "自然回復で" : ""}HP +${e.recovered}`,
     "effect-energy": (e) => `${e.actor}のEN +${e.recovered}（技効果）`,
     switch: (e) => `${e.actor}から${e.target}に交代` +
       (e.inheritedStages ? "（能力ランクを引き継いだ）" : "") + (e.decoyHp ? `（デコイHP ${e.decoyHp}を引き継いだ）` : ""),

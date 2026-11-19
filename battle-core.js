@@ -861,6 +861,21 @@ const geneOrderBattle = (() => {
     return Math.max(1, Math.round(fighter.maxHp * definition.damage_value / 100));
   }
 
+  function naturalRecovery(fighter, hp = fighter.hp) {
+    const value = fighter.base.regen_value;
+    if (fighter.fainted || hp <= 0 || !Number.isFinite(value) || value <= 0) return 0;
+    return Math.max(0, Math.min(fighter.maxHp - hp, value));
+  }
+
+  // Current statuses only. Other actions, newly applied effects and switches are not assumed.
+  function previewTurnEndRecovery(fighter, hp = fighter.hp) {
+    const damage = [...fighter.statuses, fighter.bind].filter(Boolean)
+      .reduce((sum, effect) => sum + residualDamage(fighter, effect.definition), 0);
+    const afterResidual = fighter.fainted ? 0 : Math.max(0, hp - damage);
+    const recovered = naturalRecovery(fighter, afterResidual);
+    return { hp: afterResidual + recovered, recovered, residualDamage: Math.min(hp, damage) };
+  }
+
   function finishResiduals(battle, events) {
     const defeated = [];
     // Defer faint cleanup until both active fighters have resolved residual damage.
@@ -1089,6 +1104,11 @@ const geneOrderBattle = (() => {
         const fighter = activeFighter(battle, side);
         if (fighter.fainted) continue;
         applyPassiveStages(fighter, side, "turn-end", events);
+        const recovered = naturalRecovery(fighter);
+        if (recovered > 0) {
+          fighter.hp += recovered;
+          events.push({ type: "heal", source: "natural", side, actor: fighter.base.name, recovered });
+        }
         const before = fighter.energy;
         changeEnergy(fighter, fighter.base.energy_charge);
         events.push({ type: "energy", side, recovered: fighter.energy - before });
@@ -1107,6 +1127,7 @@ const geneOrderBattle = (() => {
 
   return { START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, stageDelta, statValue, effectiveStat, changeEnergy,
     calculateDamage, effectivenessFor, previewDamage, previewRelease, previewSwitch, moveEffects, decoyValues, residualDamage,
+    naturalRecovery, previewTurnEndRecovery,
     guardApplies, activeTimed, effectiveSpeed, evasionRate, moveAvailability, unsupportedMoveReason, validAttackStat, effectKind, battleEffectKind, createBattle, activeFighter, switchTargets, checkAction, resolveTurn, continueSwitch };
 })();
 
