@@ -131,7 +131,15 @@ async function verify(browser, width) {
     const attackGrade = chaiAttack.getByRole("img", { name: "種族値ランク D" });
     assert.equal(await attackGrade.evaluate((letter) => getComputedStyle(letter).color), "rgb(255, 255, 0)");
     await ui.locator('[data-go-dex="character_047"]').click();
-    assert.match(await ui.locator(".dex-content").textContent(), /画像未設定.*習得技.*未設定/s);
+    const dexContent = ui.locator(".dex-content");
+    assert.match(await dexContent.textContent(), /習得技.*未設定/s);
+    assert.doesNotMatch(await dexContent.textContent(), /画像未設定/);
+    const image047 = dexContent.locator(".detail-image");
+    assert.equal(await image047.getAttribute("src"), "./asset/character/character_047.png");
+    assert.ok(await image047.evaluate((image) => image.complete && image.naturalHeight > 0));
+    await ui.locator('[data-go-dex="character_064"]').click();
+    assert.equal(await dexContent.locator(".go-missing-image").textContent(), "画像未設定");
+    assert.equal(await dexContent.locator(".detail-image").count(), 0);
     await ui.locator('[data-go-dex="character_019"]').click();
     assert.match(await ui.locator(".dex-content").textContent(), /異常代謝.*毒牙/s);
     const dualEntry = ui.locator('[data-go-dex="character_003"]');
@@ -512,7 +520,8 @@ async function verify(browser, width) {
     assert.deepEqual(legacyRequests, []);
     assert.deepEqual(errors, []);
     assert.equal(new Set(masters).size, 11);
-    assert.ok(images.every((path) => ["/asset/character/character_047.png", "/asset/character/character_064.png"].includes(path)));
+    assert.ok(images.includes("/asset/character/character_064.png"));
+    assert.ok(images.every((path) => path === "/asset/character/character_064.png"));
     console.log(`Edge ${width}px: official flow, all modes, replay, double-click, 11 CSVs. Image probes: ${images.join(", ")}`);
   } finally {
     await page.close();
