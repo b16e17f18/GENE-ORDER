@@ -105,7 +105,7 @@ const geneOrderBattle = (() => {
     }
 
     const baseDamage = Math.floor(22 * power * attack / (50 * defense)) + 2;
-    const stab = [attacker.base.element_1, attacker.base.element_2].includes(move.element) ? 1.5 : 1;
+    const stab = [attacker.base.element_1, attacker.base.element_2].includes(move.element) ? 1.25 : 1;
     const afterStab = roundHalfDown(baseDamage * stab);
     const effectiveness = effectivenessFor(move.element, defender.base, chart, override);
     const afterEffectiveness = Math.floor(afterStab * effectiveness);
