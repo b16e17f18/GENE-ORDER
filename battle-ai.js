@@ -1394,7 +1394,8 @@ const geneOrderAI = (() => {
           value = effect.damage_value * Math.max(0, horizon - Math.min(horizon, remaining)) * config.EN_WEIGHT * (self ? -1 : 1);
         }
       } else if (["status-damage", "status", "bind-damage"].includes(kind)) {
-        const current = kind === "bind-damage" ? recipient.bind : recipient.statuses.find((status) => status.definition.effect_id === id);
+        const current = kind === "bind-damage" ? recipient.bind :
+          (!self && id === "sleep" && result.wakesTarget) ? null : recipient.statuses.find((status) => status.definition.effect_id === id);
         const turns = Math.max(0, Math.min(effect.turn - (current?.turns ?? 0), config.STATUS_HORIZON));
         const metabolism = geneOrderPassives.matching(recipient, "stat-multiplier", (entry) => entry.condition.kind === "status").length;
         const damage = Math.min(recipient.hp, go.residualDamage(recipient, effect) * turns);
@@ -1523,7 +1524,8 @@ const geneOrderAI = (() => {
       damage: result.actualDamage, expectedDamage: result.actualDamage * executionChance, decoyDamage: result.decoyDamage ?? 0,
       label: move.name, reason: release ? "予約威力・次の攻撃" : result.reason, forecast: {
         targetHp, actorHp: result.actorHp, hpCost: result.hpCost, energyCost: result.energyCost, response: result.responseDamage, power: result.power,
-        executionChance, actionFailureChance: result.actionFailureChance, expectedDamage: result.actualDamage * executionChance,
+        executionChance, actionFailureChance: result.actionFailureChance, wakesTarget: result.wakesTarget,
+        targetActionFailureChanceAfterDamage: result.targetActionFailureChanceAfterDamage, expectedDamage: result.actualDamage * executionChance,
         actorEndHp: actorEnd.hp, targetEndHp: targetEnd.hp,
         actorNaturalRecovery: actorEnd.recovered, targetNaturalRecovery: targetEnd.recovered,
       } };

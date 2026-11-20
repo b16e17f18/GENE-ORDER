@@ -117,8 +117,9 @@ async function verify(browser, device, mode, probe = false) {
         await page.evaluate(id => { window.__statusFixture = id; Math.random = () => id === 'paralysis' ? 0 : .99; }, status);
         await start();
         const definition = await page.evaluate(id => state.effects.get(id), status);
-        assert.ok((await id('playerHud').textContent()).includes(definition.name + '（5）'));
+        assert.equal(await id('playerHud').locator('.go-hud-flags').count(),0);
         await press(id('playerSprite').locator('[data-fighter-side]'));
+        assert.ok((await id('enemyInfoPanel').textContent()).includes(definition.name + '（5）'));
         if (definition.stat_modifier_target !== 'none') {
           const expected = await page.evaluate(({ stat, mult }) => Math.floor(state.characterMap.get('character_015')[stat] * mult),
             { stat: definition.stat_modifier_target, mult: definition.stat_modifier_multiplier });

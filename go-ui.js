@@ -170,6 +170,21 @@ const geneOrderUI = (() => {
     };
   }
 
+  function stageMarks(stage) {
+    const count = Math.min(6, Math.abs(stage));
+    return (stage > 0 ? "▲" : "▼").repeat(count) + "・".repeat(6 - count);
+  }
+
+  function battleStatMarkup(stat, value, stage, hideValue = false) {
+    const grade = goStatRank(stat, value);
+    const marks = Number.isInteger(stage) ? stageMarks(stage) : "";
+    return '<div class="detail-stat detail-stat-' + stat + ' go-battle-stat' + (hideValue ? ' go-stat-hidden' : '') + '">' +
+      '<span class="detail-stat-label">' + escapeHtml(STAT_LABELS[stat]) + '</span>' +
+      '<span class="go-battle-stage" aria-label="能力変化 ' + marks + '">' + marks + '</span>' +
+      '<span class="detail-stat-grade"' + (grade ? ' style="--stat-rank-color:' + grade.color + '"' : '') + '>' + (grade?.letter ?? '') + '</span>' +
+      (hideValue ? '' : '<strong class="detail-stat-value">' + escapeHtml(value) + '</strong>') + '</div>';
+  }
+
   function mount(root, data, { limit = TEAM_LIMIT } = {}) {
     const template = document.getElementById("legacy-screens");
     const debug = document.querySelector(".go-preview");
@@ -493,14 +508,12 @@ const geneOrderUI = (() => {
 
     function drawBoard(frame) {
       $("go-mobile-turn").textContent = `${frame.turn}ターン`;
-      const status = [];
       for (const candidate of SIDES) {
         const index = frame.active[candidate];
         const team = frame.teams[candidate];
         const fighter = team[index];
         const hud = $(candidate + "Hud");
         const sprite = $(candidate + "Sprite");
-        const activeFlags = flags(fighter, frame, candidate);
         const meterWidth = 100 * fighter.hp / fighter.maxHp;
         const key = fighter.base.character_id + "/" + index;
         if (hud.dataset.renderedFighterKey !== key) {
@@ -513,7 +526,7 @@ const geneOrderUI = (() => {
             <span class="hud-value go-en-value"></span></div>
           <div class="battle-info-stack"><div class="battle-info-line go-hud-rank-line is-hidden"><span>ランク</span>
             <span class="battle-info-chips go-hud-ranks"></span></div>
-          <div class="battle-info-line"><span>状態</span><span class="battle-info-chips go-hud-flags"></span></div></div>
+          </div>
           <div class="party-pips"></div>`;
         }
         const bar = hud.querySelector(".hp-fill");
@@ -525,8 +538,7 @@ const geneOrderUI = (() => {
         const ranks = Object.entries(fighter.stages).filter(([, rank]) => rank !== 0);
         hud.querySelector(".go-hud-rank-line").classList.toggle("is-hidden", ranks.length === 0);
         hud.querySelector(".go-hud-ranks").innerHTML = ranks
-          .map(([stat, rank]) => `<span>${esc(STATS[stat])}${rank > 0 ? "+" : ""}${rank}</span>`).join(" ");
-        hud.querySelector(".go-hud-flags").textContent = activeFlags.join(" / ") || "なし";
+          .map(([stat, rank]) => `<span>${esc(STATS[stat])}${stageMarks(rank)}</span>`).join(" ");
         hud.querySelector(".party-pips").innerHTML = team.map((member, i) =>
           `<span class="pip ${member.fainted ? "is-fainted" : "is-alive"} ${index === i ? "is-active" : ""}"></span>`).join("");
         if (sprite.dataset.renderedFighterKey !== key) {
@@ -544,9 +556,9 @@ const geneOrderUI = (() => {
         }
         sprite.classList.toggle("is-position-hidden", !fighter.fainted && fighter.pending?.definition.battle_effect_group === "position");
         sprite.classList.toggle("go-fainted", fighter.fainted);
-        status.push(...activeFlags.map((label) => `<div class="battle-status-line">${LABELS[candidate]}:${esc(label)}</div>`));
       }
-      $("battleStatusPanel").innerHTML = status.join("") || '<div class="battle-status-empty">状態効果なし</div>';
+      $("battleStatusPanel").replaceChildren();
+      $("battleStatusPanel").classList.add("is-hidden");
       $("commandLights").innerHTML = frame.teams.player.map((fighter, i) =>
         `<span class="command-light ${fighter.fainted ? "is-fainted" : i === frame.active.player ? "is-active" : "is-ready"}"></span>`).join("");
     }
@@ -574,20 +586,18 @@ const geneOrderUI = (() => {
     function inspectMarkup(battle, side) {
       const fighter = go.activeFighter(battle, side);
       const opponent = go.activeFighter(battle, otherSide(side));
+      const hidden = side === "enemy";
       const conditions = flags(fighter, battle, side);
+      const statusClasses = new Map(fighter.statuses.map(({ definition, turns }) =>
+        [definition.name + "（" + turns + "）", effectChipClass(definition.effect_id)]));
       const chips = conditions.length
-        ? conditions.map((label) => `<span class="effect-chip">${esc(label)}</span>`).join("")
+        ? conditions.map(label => '<span class="effect-chip ' + (statusClasses.get(label) ?? 'effect-other') + '">' + esc(label) + '</span>').join("")
         : '<span class="effect-chip effect-none">なし</span>';
-      const stats = BATTLE_INSPECT_GRAPH_STAT_KEYS.map((stat) => {
+      const stats = BATTLE_INSPECT_GRAPH_STAT_KEYS.map(stat => {
         const value = stat === "speed" ? go.effectiveSpeed(battle, side) : go.statValue(fighter, stat, { opponent });
-        const rank = fighter.stages[stat];
-        return goCharacterStat(stat, value, {
-          baseValue: fighter.base[stat],
-          displayValue: rank ? `${value} (${rank > 0 ? "+" : ""}${rank})` : value,
-          showPenalty: true,
-        });
+        return battleStatMarkup(stat, value, fighter.stages[stat], hidden);
       });
-      stats.push(goCharacterStat("regen_value", fighter.base.regen_value, { graphMax: 140 }));
+      if (!hidden) stats.push(battleStatMarkup("regen_value", fighter.base.regen_value));
       const passive = fighter.passive ? renderDexPassiveSection({
         passive: { ...fighter.passive, text: goStatText(fighter.passive.text) },
       }) : "";
@@ -607,8 +617,8 @@ const geneOrderUI = (() => {
       </div>
       <div class="battle-inspect-body">
         <div class="dex-data-row battle-inspect-row"><span>状態</span><strong class="battle-info-chips">${chips}</strong></div>
-        <div class="dex-data-row battle-inspect-row"><span>回避率</span><strong>${go.evasionRate(fighter, battle.turn)}%</strong></div>
-        <div class="dex-data-row battle-inspect-row"><span>EN回復</span><strong>${geneOrderBattle.effectiveEnergyCharge(fighter, battle.turn)} EN / ターン</strong></div>
+        ${hidden ? "" : `<div class="dex-data-row battle-inspect-row"><span>回避率</span><strong>${go.evasionRate(fighter, battle.turn)}%</strong></div>
+        <div class="dex-data-row battle-inspect-row"><span>EN回復</span><strong>${go.effectiveEnergyCharge(fighter, battle.turn)} EN / ターン</strong></div>`}
         <div class="battle-inspect-stats">
           <div class="detail-section-title">能力値</div>
           <div class="detail-stats battle-inspect-stat-list">${stats.join("")}</div>
@@ -1017,5 +1027,5 @@ const geneOrderUI = (() => {
     setPage("title");
   }
 
-  return { moveMatchup, mount, createMatch, randomOpponentSettings, randomBattleSettings, fighterIssue, captureFrame, PLAYBACK_TIMING, eventHold };
+  return { stageMarks, battleStatMarkup, moveMatchup, mount, createMatch, randomOpponentSettings, randomBattleSettings, fighterIssue, captureFrame, PLAYBACK_TIMING, eventHold };
 })();

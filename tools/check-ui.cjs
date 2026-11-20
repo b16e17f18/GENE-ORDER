@@ -453,11 +453,12 @@ async function verify(browser, width) {
     assert.equal(await inspect.locator(".detail-title").textContent(), "相手情報");
     assert.equal(await inspect.locator(".detail-subtitle").textContent(), "ヒョウカイツムツム");
     assert.equal(await inspect.locator(".battle-inspect-row .effect-chip").textContent(), "なし");
-    assert.match(await inspect.locator(".battle-inspect-body").textContent(), /回避率\s*30%/);
+    assert.doesNotMatch(await inspect.locator(".battle-inspect-body").textContent(), /回避率|EN回復|回復力/);
     assert.match(await inspect.locator(".battle-inspect-body").textContent(), /EN回復\s*1 EN \/ ターン/);
     assert.deepEqual(await inspect.locator(".detail-stat-label").allTextContents(),
-      ["物理攻撃", "物理防御", "特殊攻撃", "特殊防御", "敏捷", "回復力"]);
-    assert.equal(await inspect.locator(".detail-stat-phy_def .detail-stat-value").textContent(), "143");
+      ["物理攻撃", "物理防御", "特殊攻撃", "特殊防御", "敏捷"]);
+    assert.equal(await inspect.locator(".detail-stat-value").count(), 0);
+    assert.equal(await inspect.locator(".detail-stat-track").count(), 0);
     assert.equal(await inspect.locator(".detail-stat-phy_def .detail-stat-grade").textContent(), "A");
     assert.equal(await inspect.locator(".detail-stat-grade").count(), 5);
     assert.match(await inspect.locator(".detail-passive").textContent(), /特性.*氷棚形成/s);
@@ -516,9 +517,9 @@ async function verify(browser, width) {
     assert.doesNotMatch(await byId("go-official-log").textContent(), /勝利/);
     await byId("go-fast-battle").check();
     await chooseMove("skill_043"); await pass();
-    assert.deepEqual(await byId("playerHud").locator(".go-hud-ranks > span").allTextContents(), ["物理攻撃+1"]);
+    assert.deepEqual(await byId("playerHud").locator(".go-hud-ranks > span").allTextContents(), ["物理攻撃▲・・・・・"]);
     await chooseMove("skill_002"); await pass();
-    assert.deepEqual(await byId("enemyHud").locator(".go-hud-ranks > span").allTextContents(), ["物理防御-1"]);
+    assert.deepEqual(await byId("enemyHud").locator(".go-hud-ranks > span").allTextContents(), ["物理防御▼・・・・・"]);
     await inspectEnemy();
     assert.match(await inspect.locator(".detail-stat-phy_def .detail-stat-value").textContent(), / \(-1\)$/);
     assert.equal(await inspect.locator(".detail-stat-phy_def .detail-stat-grade").textContent(), "A");

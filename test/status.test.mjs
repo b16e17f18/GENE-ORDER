@@ -32,8 +32,8 @@ const attach = (fighter,id,turns=effects.get(id).turn,patch={}) => fighter.statu
 const round = b => go.resolveTurn(b,{player:wait,enemy:wait});
 const statusMove = id => ({ ...strike,skill_id:'give-'+id,name:id,category:'status',power:0,cost:0,effect1:id,effect_target1:'enemy',effect_chance1:100 });
 
-test('CSV declares four supported statuses and blank new columns retain neutral defaults',()=>{
-  assert.deepEqual([...statusIds].sort(),['burn','frostbite','paralysis','poison']);
+test('CSV declares five supported statuses and blank new columns retain neutral defaults',()=>{
+  assert.deepEqual([...statusIds].sort(),['burn','frostbite','paralysis','poison','sleep']);
   assert.equal(go.effectKind(effects.get('paralysis')),'status');
   for(const id of ['burn','frostbite','poison']) assert.equal(go.effectKind(effects.get(id)),'status-damage');
   const old=get('normalizeEffect')({effect_id:'old',effect_group:'status',damage_type:'none',damage_value:0,turn:5});

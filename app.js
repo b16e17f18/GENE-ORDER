@@ -9513,6 +9513,7 @@ function describeGeneOrderEvent(event) {
     win: (e) => `${sideName(e.side)}の勝利`,
     draw: () => "引き分け",
     residual: (e) => `${e.actor}は${e.name}で ${e.damage} ダメージ`,
+    awakened: (e) => `${e.actor}は目を覚ました！`,
     "status-applied": (e) => `${e.actor}は${e.name}状態（${e.turns}ターン）`,
     bind: (e) => `${e.actor}は締め付けで交代できない（${e.turns}ターン）`,
     "bind-ended": (e) => `${e.actor}の締め付けが解除された`,

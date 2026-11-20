@@ -196,7 +196,7 @@ const geneOrderBattle = (() => {
       ((effect.effect_group === "buff" && value > 0) || (effect.effect_group === "debuff" && value < 0))) return "stage";
     const duration = Number(effect.turn);
     const lasting = Number.isSafeInteger(duration) && duration > 0;
-    if (effect.effect_group === "status" && effect.damage_type === "none" && value === 0 && lasting) return "status";
+    if (["status", "control"].includes(effect.effect_group) && effect.damage_type === "none" && value === 0 && lasting) return "status";
     if (effect.damage_type === "percent_maxhp" && value > 0 && lasting) {
       if (effect.effect_group === "damage") return "status-damage";
       if (effect.effect_group === "bind") return "bind-damage";
@@ -513,9 +513,12 @@ const geneOrderBattle = (() => {
         }
       }
     }
+    const wakesTarget = wakesOnAttackDamage(defender, actualDamage);
+    const targetAfterDamage = wakesTarget ? { ...defender, statuses: defender.statuses.filter(({ definition }) => definition.effect_id !== "sleep") } : defender;
     const failureChance = actionFailureChance(actor);
     const executionChance = 1 - failureChance / 100;
     return { ...result, energyCost: effectiveMoveCost(actor, move, battle.turn), hpCost, actualDamage, actualHeal, responseDamage, hpEffects, actorHp, targetHp,
+      wakesTarget, targetActionFailureChanceAfterDamage: actionFailureChance(targetAfterDamage),
       actionFailureChance: failureChance, executionChance, expectedDamage: actualDamage * executionChance,
       expectedDecoyDamage: (result.decoyDamage ?? 0) * executionChance, expectedHpCost: hpCost * executionChance };
   }
@@ -539,6 +542,17 @@ const geneOrderBattle = (() => {
     }
     team[index] = charging;
     return previewDamage({ ...battle, teams: { ...battle.teams, [side]: team } }, side, move);
+  }
+
+  // MHB sleep wakes only on direct attack damage to the body, before secondary effects.
+  function wakesOnAttackDamage(fighter, damage) {
+    return damage > 0 && activeStatuses(fighter).some(({ definition }) => definition.effect_id === "sleep");
+  }
+
+  function clearSleepOnAttackDamage(fighter, damage, side, events) {
+    if (!wakesOnAttackDamage(fighter, damage)) return;
+    fighter.statuses = fighter.statuses.filter(({ definition }) => definition.effect_id !== "sleep");
+    if (fighter.hp > 0) events.push({ type: "awakened", side, actor: fighter.base.name, effect: "sleep" });
   }
 
   function applyStatus(recipient, definition, event, events) {
@@ -1128,7 +1142,10 @@ const geneOrderBattle = (() => {
         events.push({ type: "evaded", side: other, actor: defender.base.name, move: move.name });
         applyPassiveStages(defender, other, "evaded", events);
       }
-      if (actualDamage > 0) applyBodyHitPassives(battle, side, actor, defender, move, events);
+      if (actualDamage > 0) {
+        applyBodyHitPassives(battle, side, actor, defender, move, events);
+        clearSleepOnAttackDamage(defender, actualDamage, other, events);
+      }
       if (result.reason === "absorbed") {
         const recovered = Math.min(result.heal, defender.maxHp - defender.hp);
         defender.hp += recovered;

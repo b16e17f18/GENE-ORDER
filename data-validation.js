@@ -268,7 +268,7 @@ function validateGeneOrderData(tables, imageExists) {
             add("項目未設定", table, id, "stat_modifier_target");
           }
         }
-        if (["status", "damage", "en_charge_modifier", "en_cost_modifier"].includes(row.effect_group)) range(table, id, row, ["turn"], 1, Infinity, true);
+        if (["status", "control", "damage", "en_charge_modifier", "en_cost_modifier"].includes(row.effect_group)) range(table, id, row, ["turn"], 1, Infinity, true);
       }
       if (table === "effects" && !geneOrderBattle.effectKind(row)) {
         add("効果未対応", table, id, "damage_type", row.damage_type);
