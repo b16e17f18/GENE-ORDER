@@ -1088,3 +1088,68 @@ test("MHB-style random BGM includes all 26 copied battle tracks and excludes non
   assert.equal(result[1], "go_arena_x_1");
   assert.equal(result[2], "");
 });
+
+
+test("selected player party gets three distinct random AI opponents with minimum-slot leads", () => {
+  assert.equal(go.run(`(() => {
+    const ids = Object.freeze(["character_016", "character_015", "character_019"]);
+    const before = JSON.stringify(state.characters);
+    for (let seed = 1; seed <= 100; seed++) {
+      let value = seed;
+      const random = () => ((value = (Math.imul(value, 1664525) + 1013904223) >>> 0) / 4294967296);
+      const settings = geneOrderUI.randomOpponentSettings(state, ids, random);
+      if (JSON.stringify(settings.team.player) !== JSON.stringify(ids) || settings.team.player === ids) return false;
+      if (settings.mode !== "enemy" || settings.team.enemy.length !== 3 || new Set(settings.team.enemy).size !== 3) return false;
+      if (settings.team.enemy.some(id => ids.includes(id) || geneOrderUI.fighterIssue(state.characterMap.get(id), state))) return false;
+      const match = geneOrderUI.createMatch(state, settings, { random: () => .1, aiRoll: () => 0 });
+      if (match.isAI("player") || !match.isAI("enemy")) return false;
+      if (seed === 1) {
+        const result = match.resolve({ player: { type: "wait" } });
+        if (!result.events.some(event => event.side === "enemy" && ["move", "wait", "charge", "switch"].includes(event.type))) return false;
+      }
+      for (const side of ["player", "enemy"]) {
+        const minimum = Math.min(...settings.team[side].map(id => state.characterMap.get(id).slot));
+        if (match.battle.teams[side][0].base.slot !== minimum) return false;
+      }
+    }
+    return before === JSON.stringify(state.characters);
+  })()`), true);
+});
+
+test("random opponent selection rejects incomplete, duplicate and placeholder player parties before drawing", () => {
+  for (const ids of [[], ["character_001"], ["character_001", "character_002"],
+    ["character_001", "character_002", "character_003", "character_004"],
+    ["character_001", "character_001", "character_003"], ["character_001", "character_002", "character_047"],
+    ["character_001", "character_002", "unknown"]]) {
+    assert.throws(() => go.run('geneOrderUI.randomOpponentSettings(state, ' + JSON.stringify(ids) +
+      ', () => { throw new Error("draw must not happen"); })'), /3体/);
+  }
+  for (const invalid of ["1", "-1", "NaN", "Infinity"]) {
+    assert.throws(() => go.run('geneOrderUI.randomOpponentSettings(state, ["character_001", "character_002", "character_003"], () => ' + invalid + ')'), /乱数/);
+  }
+});
+
+test("random opponents fall back to the usable roster when fewer than three non-player fighters exist", () => {
+  const value = JSON.parse(go.run(`(() => {
+    const ids = ["character_001", "character_002", "character_003"];
+    const characters = ids.map(id => ({ ...state.characterMap.get(id), slot: 2 }));
+    const data = { ...state, characters, characterMap: new Map(characters.map(base => [base.character_id, base])) };
+    const picked = geneOrderUI.randomOpponentSettings(data, ids, () => 0);
+    return JSON.stringify([picked.team.enemy, picked.lead]);
+  })()`));
+  assert.deepEqual(value, [["character_001", "character_002", "character_003"], { player: "character_001", enemy: "character_001" }]);
+});
+
+test("saved random-opponent settings replay both parties without carrying HP or passive state", () => {
+  const value = JSON.parse(go.run(`(() => {
+    const settings = geneOrderUI.randomOpponentSettings(state, ["character_016", "character_015", "character_019"], () => .1);
+    const before = JSON.stringify(settings);
+    const first = geneOrderUI.createMatch(state, settings, { random: () => .1, aiRoll: () => 0 });
+    first.battle.teams.player[0].hp = 1;
+    first.battle.teams.enemy[0].hp = 0;
+    const replay = geneOrderUI.createMatch(state, settings, { random: () => .1, aiRoll: () => 0 });
+    return JSON.stringify([before === JSON.stringify(settings), replay.battle.teams.player[0].hp === replay.battle.teams.player[0].maxHp,
+      replay.battle.teams.enemy[0].hp === replay.battle.teams.enemy[0].maxHp, replay.battle.turn]);
+  })()`));
+  assert.deepEqual(value, [true, true, true, 1]);
+});

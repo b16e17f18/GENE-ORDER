@@ -3,6 +3,7 @@ const geneOrderUI = (() => {
   const LABELS = { player: "自分", enemy: "相手" };
   const STATS = { hp: "体力", phy_atk: "物理攻撃", phy_def: "物理防御", sp_atk: "特殊攻撃", sp_def: "特殊防御", speed: "敏捷" };
   const MODES = { enemy: "プレイヤー対AI", manual: "手動対手動", auto: "AI対AI" };
+  const SETUP_MODES = { "random-enemy": "自分の3体 対 ランダムAI", ...MODES };
   const SWITCHES = { "tail-purge": "テールパージ", relay: "パワーリレー", "post-attack": "燕返し", replacement: "戦闘不能後の補充" };
   const TEAM_LIMIT = 4;
   const RANDOM_TEAM_SIZE = 3;
@@ -77,24 +78,43 @@ const geneOrderUI = (() => {
     });
   }
 
-  function randomBattleSettings(data, random = aiRandom) {
-    const roster = [...new Map(data.characters.filter((base) => base.character_id && base.name &&
+  function usableRandomRoster(data) {
+    return [...new Map(data.characters.filter((base) => base.character_id && base.name &&
       Number.isSafeInteger(base.slot) && base.slot > 0 && !fighterIssue(base, data))
       .map((base) => [base.character_id, base])).values()];
+  }
+
+  function drawRandomTeam(roster, random) {
     if (roster.length < RANDOM_TEAM_SIZE) throw new Error("ランダムバトルには使用可能なキャラクターが3体以上必要です。");
-    const team = {};
-    const lead = {};
-    for (const side of SIDES) {
-      const available = [...roster];
-      const picked = [];
-      for (let i = 0; i < RANDOM_TEAM_SIZE; i++) {
-        const roll = random();
-        if (!Number.isFinite(roll) || roll < 0 || roll >= 1) throw new Error("抽選用の乱数が無効です。");
-        picked.push(available.splice(Math.floor(roll * available.length), 1)[0]);
-      }
-      team[side] = picked.map((base) => base.character_id);
-      lead[side] = picked.reduce((first, base) => base.slot < first.slot ? base : first).character_id;
+    const available = [...roster];
+    return Array.from({ length: RANDOM_TEAM_SIZE }, () => {
+      const roll = random();
+      if (!Number.isFinite(roll) || roll < 0 || roll >= 1) throw new Error("抽選用の乱数が無効です。");
+      return available.splice(Math.floor(roll * available.length), 1)[0].character_id;
+    });
+  }
+
+  function minimumSlotLead(ids, data) {
+    return ids.reduce((first, id) => !first || data.characterMap.get(id).slot < data.characterMap.get(first).slot ? id : first, null);
+  }
+
+  function randomBattleSettings(data, random = aiRandom) {
+    const roster = usableRandomRoster(data);
+    const team = Object.fromEntries(SIDES.map((side) => [side, drawRandomTeam(roster, random)]));
+    const rosterMap = new Map(roster.map(base => [base.character_id, base]));
+    const lead = Object.fromEntries(SIDES.map(side => [side, minimumSlotLead(team[side], { characterMap: rosterMap })]));
+    return { team, lead, mode: "enemy" };
+  }
+
+  function randomOpponentSettings(data, playerIds, random = aiRandom) {
+    if (playerIds.length !== RANDOM_TEAM_SIZE) throw new Error("自分のチームを3体選択してください。");
+    const roster = usableRandomRoster(data);
+    if (new Set(playerIds).size !== RANDOM_TEAM_SIZE || playerIds.some(id => !roster.some(base => base.character_id === id))) {
+      throw new Error("使用可能なキャラクターを重複なしで3体選択してください。");
     }
+    const opponents = roster.filter(base => !playerIds.includes(base.character_id));
+    const team = { player: [...playerIds], enemy: drawRandomTeam(opponents.length >= RANDOM_TEAM_SIZE ? opponents : roster, random) };
+    const lead = Object.fromEntries(SIDES.map(side => [side, minimumSlotLead(team[side], data)]));
     return { team, lead, mode: "enemy" };
   }
 
@@ -168,27 +188,27 @@ const geneOrderUI = (() => {
     title.querySelector(".title-stage").innerHTML = `
       <div class="team-panel go-title-panel">
         <h1>GENE ORDER</h1><p>v0.66</p>
-        <button class="primary-button" id="battleModeButton" type="button">バトルモード</button>
-        <button class="primary-button" type="button" data-go-random-battle>ランダムバトル（3対3）</button>
+        <button class="primary-button" id="battleModeButton" type="button">BattleMode</button>
+        <button class="primary-button" type="button" data-go-random-battle>Random(3vs3)</button>
         <p id="go-random-notice" role="status"></p>
         <div class="setup-actions">
-          <button class="small-button" data-go-page="dex" type="button">図鑑</button>
+          <button class="small-button" data-go-page="dex" type="button">GENE名鑑</button>
           <button class="small-button" data-go-chart type="button">属性相性表</button>
-          <button class="small-button" data-go-page="debug" type="button">デバッグ</button>
+          <button class="small-button" data-go-page="debug" type="button">Debug</button>
         </div>
       </div>`;
     setup.querySelector(".brand-mark").textContent = "GO";
     setup.querySelector(".brand-sub").textContent = "GENE ORDER";
-    setup.querySelector(".roster-panel .panel-title").textContent = "キャラクター";
-    setup.querySelector("#randomBattleButton").textContent = "ランダムバトル（3対3）";
+    setup.querySelector(".roster-panel .panel-title").textContent = "GENE";
+    setup.querySelector("#randomBattleButton").textContent = "Random(3vs3)";
     setup.querySelector("#randomBattleButton").setAttribute("data-go-random-battle", "");
     setup.querySelector(".team-panel").insertAdjacentHTML("beforeend", `
       <label class="go-mode">対戦モード<select id="go-official-mode">
-        ${Object.entries(MODES).map(([key, label]) => `<option value="${key}">${label}</option>`).join("")}
+        ${Object.entries(SETUP_MODES).map(([key, label]) => `<option value="${key}">${label}</option>`).join("")}
       </select></label>
       <p class="command-note" id="go-team-notice" aria-live="polite"></p>
       <button type="button" class="small-button" data-go-chart>属性相性表</button>
-      <button type="button" class="small-button" data-go-page="title">タイトルへ</button>`);
+      <button type="button" class="small-button" data-go-page="title">Title</button>`);
     arena.querySelector("#battleTutorialOverlay").remove();
     arena.querySelector("#exchangePanel").remove();
     arena.querySelector("#dexButton").remove();
@@ -199,10 +219,10 @@ const geneOrderUI = (() => {
       '<button id="go-battle-chart" class="tab-button" type="button" data-go-chart aria-haspopup="dialog">相性</button>';
     arena.querySelector(".battle-card").insertAdjacentHTML("beforeend", `
       <div class="go-battle-footer">
-        <label><input type="checkbox" id="go-fast-battle"> 演出をスキップ</label>
+        <label><input type="checkbox" id="go-fast-battle"> 演出Skip</label>
         <label><input type="checkbox" id="go-battle-bgm" checked> BGM</label>
-        <button type="button" class="small-button" data-go-page="setup">編成へ</button>
-        <button type="button" class="small-button" data-go-page="title">タイトルへ</button>
+        <button type="button" class="small-button" data-go-page="setup">編成</button>
+        <button type="button" class="small-button" data-go-page="title">Title</button>
         <details><summary>戦闘ログ</summary><ol id="go-official-log"></ol></details>
       </div>`);
     arena.querySelector("#battleLog").setAttribute("role", "status");
@@ -212,7 +232,7 @@ const geneOrderUI = (() => {
     chartDialog.className = "detail-panel go-chart-panel";
     chartDialog.setAttribute("aria-label", "属性相性一覧表");
     chartDialog.innerHTML = `<div class="detail-header"><strong>GENE ORDER</strong>
-      <form method="dialog"><button class="small-button" autofocus>閉じる</button></form></div>${goAttributeChart(data)}`;
+      <form method="dialog"><button class="small-button" autofocus>閉</button></form></div>${goAttributeChart(data)}`;
     chartDialog.addEventListener("click", (event) => {
       if (event.target !== chartDialog) return;
       const { left, right, top, bottom } = chartDialog.getBoundingClientRect();
@@ -234,11 +254,13 @@ const geneOrderUI = (() => {
     debugBack.addEventListener("click", () => showPage("title"));
     debug.prepend(debugBack);
 
-    const settings = { team: { player: [], enemy: [] }, lead: {}, mode: "enemy" };
+    const settings = { team: { player: [], enemy: [] }, lead: {}, mode: "random-enemy" };
     let side = "player";
     let returnFocus;
     let match;
     let randomBattle = false;
+    let randomOpponent = false;
+    let lastMatchSettings = null;
     let currentBattleBgm = "";
     let phase = "choice";
     let turnSide = "player";
@@ -370,6 +392,10 @@ const geneOrderUI = (() => {
     }
 
     function renderSetup() {
+      const automaticEnemy = settings.mode === "random-enemy";
+      const teamLimit = automaticEnemy ? RANDOM_TEAM_SIZE : limit;
+      if (automaticEnemy) side = "player";
+      $("setupEnemyModeButton").classList.toggle("is-hidden", automaticEnemy);
       $("setupPanelTitle").textContent = LABELS[side] + "チーム";
       for (const candidate of SIDES) {
         const tab = $(candidate === "player" ? "setupPlayerModeButton" : "setupEnemyModeButton");
@@ -377,10 +403,10 @@ const geneOrderUI = (() => {
         tab.setAttribute("aria-pressed", String(side === candidate));
       }
       $("go-official-mode").value = settings.mode;
-      $("selectedSlots").innerHTML = SIDES.map((candidate) => `
+      $("selectedSlots").innerHTML = (automaticEnemy ? ["player"] : SIDES).map((candidate) => `
         <section class="setup-party-slots ${side === candidate ? "is-active" : ""}">
           <button type="button" class="team-slot-summary" data-go-side="${candidate}">
-            <span>${LABELS[candidate]}チーム</span><strong>${settings.team[candidate].length}/${limit}体</strong>
+            <span>${LABELS[candidate]}チーム</span><strong>${settings.team[candidate].length}/${teamLimit}体</strong>
           </button>
           ${settings.team[candidate].map((id) => {
             const base = data.characterMap.get(id);
@@ -388,7 +414,7 @@ const geneOrderUI = (() => {
             return `<div class="selected-slot is-filled"><div class="slot-name">${esc(base.name)}${leading ? "（先発）" : ""}</div>
               <div class="slot-meta">${attributes(base)} スロット ${esc(base.slot)}</div>
               <div class="setup-actions">
-                <button type="button" class="small-button" data-go-lead="${esc(id)}" data-go-team="${candidate}" ${leading ? "disabled" : ""}>先発にする</button>
+                <button type="button" class="small-button ${automaticEnemy ? "is-hidden" : ""}" data-go-lead="${esc(id)}" data-go-team="${candidate}" ${leading ? "disabled" : ""}>先発にする</button>
                 <button type="button" class="small-button" data-go-remove="${esc(id)}" data-go-team="${candidate}">外す</button>
               </div></div>`;
           }).join("") || '<div class="selected-slot">未編成</div>'}
@@ -397,7 +423,7 @@ const geneOrderUI = (() => {
         const id = base.character_id;
         const issue = fighterIssue(base, data);
         const chosen = settings.team[side].includes(id);
-        const full = settings.team[side].length >= limit && !chosen;
+        const full = settings.team[side].length >= teamLimit && !chosen;
         return `<article class="character-card ${chosen ? "is-selected" : ""}">
           <button class="card-select-button" type="button" data-go-pick="${esc(id)}" aria-pressed="${chosen}" ${issue || full ? "disabled" : ""}>
             <div class="card-topline"><span class="card-name">${esc(base.name)}</span><span class="go-card-attributes">${attributes(base)}</span></div>
@@ -407,14 +433,18 @@ const geneOrderUI = (() => {
           <button class="detail-button" type="button" data-go-detail="${esc(id)}">詳細</button>
         </article>`;
       }).join("");
-      const ready = SIDES.every((candidate) => settings.team[candidate].length && settings.lead[candidate]);
+      const ready = automaticEnemy ? limit >= RANDOM_TEAM_SIZE && settings.team.player.length === RANDOM_TEAM_SIZE
+        : SIDES.every((candidate) => settings.team[candidate].length && settings.lead[candidate]);
       $("startButton").disabled = !ready;
-      $("go-team-notice").textContent = ready ? `各側 最大${limit}体（暫定）` : "両チームにキャラクターを選択してください。";
+      $("go-team-notice").textContent = automaticEnemy
+        ? "自分の3体を選択してください。相手は開始時に3体をランダム編成します。先発は最小スロットです。"
+        : ready ? `各側 最大${limit}体（暫定）` : "両チームにキャラクターを選択してください。";
     }
 
     function updateTeam(candidate, ids) {
       settings.team[candidate] = ids;
-      if (!ids.includes(settings.lead[candidate])) settings.lead[candidate] = ids[0];
+      if (settings.mode === "random-enemy") settings.lead[candidate] = minimumSlotLead(ids, data);
+      else if (!ids.includes(settings.lead[candidate])) settings.lead[candidate] = ids[0];
       renderSetup();
     }
 
@@ -611,8 +641,9 @@ const geneOrderUI = (() => {
       if (phase === "finished") {
         const label = battle.winner === "draw" ? "引き分け" : battle.winner === "player" ? "勝利" : "敗北";
         $("enemyInfoPanel").innerHTML = `<div class="battle-inspect-header"><strong class="detail-title">${label}</strong></div>
-          <div class="setup-actions"><button class="primary-button" type="button" data-go-replay>${randomBattle ? "同じ編成で再戦" : "再戦"}</button>
+          <div class="setup-actions"><button class="primary-button" type="button" data-go-replay>${randomBattle || randomOpponent ? "同じ編成で再戦" : "再戦"}</button>
             ${randomBattle ? '<button class="primary-button" type="button" data-go-random-battle>再抽選して対戦</button>' : ""}
+            ${randomOpponent ? '<button class="primary-button" type="button" data-go-reroll-opponent>相手を再抽選して対戦</button>' : ""}
             <button class="small-button" type="button" data-go-page="setup">編成画面へ</button>
             <button class="small-button" type="button" data-go-page="title">タイトルへ</button></div>`;
         return;
@@ -683,9 +714,13 @@ const geneOrderUI = (() => {
       $("moveGrid").innerHTML = `<div class="command-note">${LABELS[candidate]}の行動を選択</div>${buttons.join("")}`;
     }
 
-    function start({ random = false } = {}) {
+    function start({ random = false, replay = false } = {}) {
       try {
-        match = createMatch(data, settings, { limit });
+        const next = replay ? lastMatchSettings : settings.mode === "random-enemy"
+          ? randomOpponentSettings(data, settings.team.player) : settings;
+        match = createMatch(data, next, { limit });
+        lastMatchSettings = { mode: next.mode, team: { player: [...next.team.player], enemy: [...next.team.enemy] }, lead: { ...next.lead } };
+        if (!replay) randomOpponent = settings.mode === "random-enemy";
       } catch (error) {
         $("go-team-notice").textContent = error.message;
         return;
@@ -875,10 +910,11 @@ const geneOrderUI = (() => {
       const control = event.target.closest("button");
       if (!control || control.disabled) return;
       const command = control.dataset;
-      const battleAction = ["goMove", "goOpenMove", "goSwitch", "goTurn", "goReplay", "goRandomBattle"].some((key) => Object.hasOwn(command, key));
+      const battleAction = ["goMove", "goOpenMove", "goSwitch", "goTurn", "goReplay", "goRandomBattle", "goRerollOpponent"].some((key) => Object.hasOwn(command, key));
       if (battleAction && event.detail > 1) return;
       if (command.goPage) return showPage(command.goPage);
       if (Object.hasOwn(command, "goRandomBattle")) return startRandomBattle();
+      if (Object.hasOwn(command, "goRerollOpponent")) return start();
       if (command.goOpenMove) {
         if (phase !== "choice") return;
         expandedMoveId = command.goOpenMove;
@@ -928,7 +964,7 @@ const geneOrderUI = (() => {
         const ids = settings.team[side];
         if (fighterIssue(data.characterMap.get(command.goPick), data)) return;
         if (ids.includes(command.goPick)) updateTeam(side, ids.filter((id) => id !== command.goPick));
-        else if (ids.length < limit) updateTeam(side, [...ids, command.goPick]);
+        else if (ids.length < (settings.mode === "random-enemy" ? RANDOM_TEAM_SIZE : limit)) updateTeam(side, [...ids, command.goPick]);
       } else if (control.id === "clearTeamButton") {
         updateTeam(side, []);
       } else if (control.id === "randomTeamButton") {
@@ -936,9 +972,12 @@ const geneOrderUI = (() => {
         const size = Math.min(limit, 3, roster.length);
         updateTeam(side, Array.from({ length: size }, () => roster.splice(Math.floor(aiRandom() * roster.length), 1)[0]));
       } else if (control.id === "battleModeButton") {
+        settings.mode = "random-enemy";
+        side = "player";
+        settings.lead.player = minimumSlotLead(settings.team.player, data);
         showPage("setup");
       } else if (control.id === "startButton" || Object.hasOwn(command, "goReplay")) {
-        start({ random: Object.hasOwn(command, "goReplay") && randomBattle });
+        start({ random: Object.hasOwn(command, "goReplay") && randomBattle, replay: Object.hasOwn(command, "goReplay") });
       } else if (control.id === "switchTab" || control.id === "fightTab" || Object.hasOwn(command, "goInspectBack")) {
         if (phase !== "choice") return;
         inspectSide = null;
@@ -967,9 +1006,13 @@ const geneOrderUI = (() => {
       if (event.target.checked && match && currentBattleBgm) playBgm(currentBattleBgm);
       else stopBgm();
     });
-    $("go-official-mode").addEventListener("change", (event) => { settings.mode = event.target.value; });
+    $("go-official-mode").addEventListener("change", (event) => {
+      settings.mode = event.target.value;
+      if (settings.mode === "random-enemy") settings.lead.player = minimumSlotLead(settings.team.player, data);
+      renderSetup();
+    });
     setPage("title");
   }
 
-  return { moveMatchup, mount, createMatch, randomBattleSettings, fighterIssue, captureFrame, PLAYBACK_TIMING, eventHold };
+  return { moveMatchup, mount, createMatch, randomOpponentSettings, randomBattleSettings, fighterIssue, captureFrame, PLAYBACK_TIMING, eventHold };
 })();
