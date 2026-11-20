@@ -41,7 +41,7 @@ test("physical and special damage use their own stats with an optional attack st
   const [a, b] = fighters(battle());
   b.base.element_1 = "thunder";
   const physical = go.calculateDamage(a, b, strike, chart);
-  assert.deepEqual([physical.attack, physical.defense, physical.baseDamage, physical.damage], [120, 100, 44, 66]);
+  assert.deepEqual([physical.attack, physical.defense, physical.baseDamage, physical.damage], [120, 100, 44, 55]);
   const special = go.calculateDamage(a, b, { ...strike, attack_type: "special" }, chart);
   assert.deepEqual([special.attack, special.defense, special.baseDamage], [160, 110, 53]);
   assert.equal(go.calculateDamage(a, b, strike, chart, { attackStat: "phy_def" }).attack, 100);
@@ -57,7 +57,7 @@ test("preview does not mutate state, use RNG, or roll critical hits", () => {
   try {
     const result = go.calculateDamage(a, b, strike, chart);
     for (let i = 0; i < 10; i++) assert.deepEqual(go.calculateDamage(a, b, strike, chart), result);
-    assert.equal(result.damage, 66);
+    assert.equal(result.damage, 55);
     assert.equal(JSON.stringify(match), snapshot);
   } finally {
     vm.runInContext("Math.random = originalRandom;", context);
@@ -69,22 +69,22 @@ test("GO rounding, STAB, resistance, weakness, zero, and minimum damage", () => 
     assert.equal(go.roundHalfDown(value), expected);
   }
   const [a, b] = fighters(battle());
-  for (const [type, expected] of [["thunder", 66], ["earth", 132], ["water", 33]]) {
+  for (const [type, expected] of [["thunder", 55], ["earth", 110], ["water", 27]]) {
     b.base.element_1 = type;
     assert.equal(go.calculateDamage(a, b, strike, chart).damage, expected);
   }
   b.base.element_1 = "thunder";
   go.changeStage(a, "phy_atk", 1);
   const boosted = go.calculateDamage(a, b, strike, chart);
-  assert.deepEqual([boosted.attack, boosted.baseDamage, boosted.damage], [180, 65, 97]);
-  assert.equal(go.calculateDamage(a, b, strike, chart, { finalMultiplier: 0.5 }).damage, 48);
+  assert.deepEqual([boosted.attack, boosted.baseDamage, boosted.damage], [180, 65, 81]);
+  assert.equal(go.calculateDamage(a, b, strike, chart, { finalMultiplier: 0.5 }).damage, 40);
   assert.equal(go.calculateDamage(a, b, strike, chart, { finalMultiplier: 0 }).damage, 0);
   assert.equal(go.calculateDamage(a, b, strike, chart, { blocked: true }).damage, 0);
   assert.equal(go.calculateDamage(a, b, strike, chart, { finalMultiplier: 0.001 }).damage, 1);
   a.base.element_1 = "water";
   assert.equal(go.calculateDamage(a, b, strike, chart).damage, 65);
   a.base.element_2 = "fire";
-  assert.equal(go.calculateDamage(a, b, strike, chart).damage, 97);
+  assert.equal(go.calculateDamage(a, b, strike, chart).damage, 81);
 });
 
 test("every one of the 81 official matchups is read directly from the chart", () => {
@@ -114,7 +114,7 @@ test("dual defense multiplies to 4, 1, 0.25 and 0, and STAB is applied once", ()
     assert.equal(result.damage, Math.floor(result.afterStab * factor));
   }
   a.base.element_2 = "fire";
-  assert.equal(go.calculateDamage(a, b, strike, chart).stab, 1.5);
+  assert.equal(go.calculateDamage(a, b, strike, chart).stab, 1.25);
 });
 
 test("all 324 dual defenses multiply, with Thunder and Ice STAB applied once", () => {
@@ -129,7 +129,7 @@ test("all 324 dual defenses multiply, with Thunder and Ice STAB applied once", (
         defender.base.element_1 = first;
         defender.base.element_2 = second;
         const result = go.calculateDamage(attacker, defender, { ...strike, element }, chart);
-        assert.equal(result.stab, 1.5);
+        assert.equal(result.stab, 1.25);
         assert.equal(result.effectiveness, row.get(first) * row.get(second));
         assert.equal(result.damage === 0, result.effectiveness === 0);
         count += 1;
@@ -143,7 +143,7 @@ test("neutral, blank, status and unsupported compound attacks remain distinct", 
   const [a, b] = fighters(battle());
   a.base.element_1 = "none";
   const neutral = { ...strike, element: "none" };
-  assert.equal(go.calculateDamage(a, b, neutral, chart).stab, 1.5);
+  assert.equal(go.calculateDamage(a, b, neutral, chart).stab, 1.25);
   a.base.element_1 = null;
   assert.equal(go.calculateDamage(a, b, neutral, chart).stab, 1);
   b.base.element_1 = "dark";
@@ -263,20 +263,22 @@ test("official CSV integration: natural recovery offsets weak water attacks", ()
   const characters = new Map(csv(read("data/character.csv")).filter((row) => row.name)
     .map((row) => [row.character_id, normalizeCharacter(row, elements, species)]));
   const skills = csv(read("data/skill.csv")).filter((row) => row.category).map((row) => normalizeSkill(row, elements));
-  const match = battle({ player: [characters.get("character_007")], enemy: [characters.get("character_021")], skills });
+  const match = battle({ ...assets, player: [characters.get("character_007")], enemy: [characters.get("character_021")], skills });
   for (let turn = 1; turn <= 10; turn++) {
     const [a, b] = fighters(match);
-    const expected = go.calculateDamage(a, b, match.skills.get("skill_026"), chart);
+    const move = match.skills.get("skill_026");
+    const expected = [go.calculateDamage(a, b, move, chart, assets).damage,
+      go.calculateDamage(b, a, move, chart, assets).damage].sort((left, right) => left - right);
     const { events, winner } = go.resolveTurn(match, { player: select("skill_026"), enemy: select("skill_026") });
-    assert.equal(events[0].damage, 10);
-    assert.equal(events[0].side, "enemy");
-    assert.equal(events[1].damage, 16);
-    assert.equal(events[1].damage, expected.damage);
+    const damages = events.filter((event) => event.category === "attack").map((event) => event.damage)
+      .sort((left, right) => left - right);
+    assert.deepEqual([...damages], [9, 13]);
+    assert.deepEqual([...damages], expected);
     assert.equal(winner, null);
     assert.equal(events.filter((event) => event.source === "natural").length, 2);
   }
   assert.equal(active(match).hp, active(match).maxHp);
-  assert.equal(active(match, "enemy").hp, 145);
+  assert.equal(active(match, "enemy").hp, active(match, "enemy").maxHp);
 });
 
 const officialCharacters = new Map(csv(read("data/character.csv")).filter((row) => row.name)
@@ -333,12 +335,12 @@ test("effect chances handle 0, 100 and a strict middle threshold", () => {
 
 test("drain uses actual HP loss, including overkill and zero", () => {
   const drain = { ...strike, effect1: "bf_drain_50", effect_target1: "self", effect_chance1: 100 };
-  const match = battle({ ...assets, skills: [drain], enemy: [character({ hp: 30, element_1: "light" })] });
+  const match = battle({ ...assets, skills: [drain], enemy: [character({ hp: 20, element_1: "light" })] });
   active(match).hp = 100;
   const result = action(match, "strike");
-  assert.equal(result.events[0].damage, 33);
-  assert.equal(result.events[0].actualDamage, 30);
-  assert.equal(active(match).hp, 115);
+  assert.equal(result.events[0].damage, 27);
+  assert.equal(result.events[0].actualDamage, 20);
+  assert.equal(active(match).hp, 110);
   const immune = battle({ ...assets, skills: [{ ...drain, element: "earth" }],
     enemy: [character({ element_1: "wind" })] });
   active(immune).hp = 100;
@@ -464,7 +466,7 @@ test("ignore_dodge bypasses evasion but not guard or type immunity", () => {
   b.dodgeActive = true;
   b.halfGuard = 50;
   assert.equal(go.calculateDamage(a, b, { ...ignore, element: "earth" }, chart).damage, 0);
-  assert.equal(go.calculateDamage(a, b, ignore, chart).damage, 16);
+  assert.equal(go.calculateDamage(a, b, ignore, chart).damage, 13);
 });
 
 test("evaded and immune attacks skip enemy effects, retain self penalties, and never debuff a KO", () => {
@@ -1008,13 +1010,14 @@ test("Claw Guard returns MHB's rounded damage from a surviving hit", () => {
   const counter = skill("skill_058");
   const match = battle({ ...assets, skills: [counter, strike],
     player: [character({ skillIds: [counter.skill_id] })] });
+  go.changeEnergy(active(match), counter.cost - active(match).energy);
   const result = action(match, counter.skill_id, select());
   assert.equal(active(match).hp, 189);
   assert.equal(active(match, "enemy").hp, 183);
   assert.equal(result.events.find(e => e.type === "revenge").damage, 17);
 });
 
-test("recoil uses actual damage, never poisons and can produce a draw", () => {
+test("Poison Needle uses actual damage for recoil, skips a KO target, and can produce a draw", () => {
   const recoil = skill("skill_046");
   for (const bench of [false, true]) {
     const match = battle({ ...assets, skills: [recoil], player: [character({ hp: 4, skillIds: [recoil.skill_id] }),
@@ -1027,6 +1030,17 @@ test("recoil uses actual damage, never poisons and can produce a draw", () => {
     assert.equal(turn.winner, bench ? "player" : "draw");
     assert.equal(active(match, "enemy").statuses.length, 0);
   }
+});
+
+test("Poison Needle poisons a surviving target", () => {
+  const needle = skill("skill_046");
+  const match = battle({ ...assets, skills: [needle], player: [character({ skillIds: [needle.skill_id] })],
+    enemy: [character({ hp: 500, element_1: "light" })] });
+  go.changeEnergy(active(match), needle.cost - active(match).energy);
+  const result = action(match, needle.skill_id);
+  const target = active(match, "enemy");
+  assert.ok(result.events.some((event) => event.type === "status-applied" && event.side === "enemy" && event.name === "毒"));
+  assert.equal(target.statuses.filter(({ definition }) => definition.effect_id === "poison").length, 1);
 });
 
 test("zero damage from immunity or evasion never produces recoil", () => {
@@ -1194,7 +1208,7 @@ test("all nine elements boost physical and special power, including neutral", ()
       const granted = action(match, setup.skill_id);
       assert.equal(powerEvents(granted, "ready")[0].element, element);
       const boosted = go.previewDamage(match, "player", attack);
-      assert.deepEqual([base.power, boosted.power, boosted.stab], [80, 120, 1.5]);
+      assert.deepEqual([base.power, boosted.power, boosted.stab], [80, 120, 1.25]);
       assert.equal(actor.nextElementPower.size, 1);
       const turn = action(match, attack.skill_id);
       assert.equal(powerEvents(turn).length, 1);
@@ -1327,8 +1341,8 @@ test("normalization re-reads CSV tuning for status probability, damage, duration
     return [first.events.find(e => e.type === "residual").damage, active(match).statuses[0].turns,
       first.events.find(e => e.category === "attack").damage, second.damage];
   }
-  assert.deepEqual(simulate(false), [40, 6, 67, 134]);
-  assert.deepEqual(simulate(true), [80, 2, 100, 100]);
+  assert.deepEqual(simulate(false), [40, 6, 56, 112]);
+  assert.deepEqual(simulate(true), [80, 2, 84, 84]);
   const raw = csv(read("data/skill.csv")).find(row => row.skill_id === "skill_027");
   const move = normalizeSkill({ ...raw, effect_chance1: "50" }, elements);
   const failure = battle({ ...assets, skills: [move], player: official("character_007"), random: () => 0.5 });
@@ -1345,7 +1359,9 @@ test("re-read CSV counter, absorb and EN power numbers control the same executio
   const counter = skill("skill_058"), absorb = skill("skill_012"), charge = skill("skill_054");
   const testBattle = (move, hit = strike, also = {}) => battle({ ...assets, battleEffects, skills: [move, hit],
     player: [character({ skillIds: [move.skill_id] })], ...also });
-  const response = action(testBattle(counter), counter.skill_id, select());
+  const counterBattle = testBattle(counter);
+  go.changeEnergy(active(counterBattle), counter.cost - active(counterBattle).energy);
+  const response = action(counterBattle, counter.skill_id, select());
   assert.equal(response.events.find(e => e.type === "revenge").damage, 22);
   const healing = testBattle(absorb, { ...strike, element: "water" });
   go.changeEnergy(active(healing), 1);
@@ -2018,8 +2034,8 @@ test("Revive tests lethality after half guard and the field multiplier", () => {
   const field = officialDefense.get("sp_protect");
   assert.ok(field);
   match.fields.player.set(field.battle_effect_id, { definition: field, starts: 1, expires: 3 });
-  const guarded = go.previewDamage(match, "enemy", { ...strike, power: 115, attack_type: "special" });
-  const unguarded = go.calculateDamage(active(match, "enemy"), holder, { ...strike, power: 115, attack_type: "special" }, chart);
+  const guarded = go.previewDamage(match, "enemy", { ...strike, power: 125, attack_type: "special" });
+  const unguarded = go.calculateDamage(active(match, "enemy"), holder, { ...strike, power: 125, attack_type: "special" }, chart);
   assert.ok(unguarded.survival);
   assert.equal(guarded.survival, null);
   assert.ok(guarded.damage < unguarded.damage);
@@ -2451,7 +2467,7 @@ test("Revive survives for toxic mucus and retaliation; a decoy consumes neither"
   const survival = officialPassives.get("passive_001").effects[0];
   const toxin = { ...officialPassives.get("passive_022").effects[0], slot: 2 };
   const passives = new Map([["passive_001", { effects: [survival, toxin] }]]);
-  const move = { ...strike, power: 130, cost: 0 };
+  const move = { ...strike, power: 150, cost: 0 };
   for (const decoy of [false, true]) {
     const match = passiveBattle({ skills: [move], enemy: [withPassive("001", { hp: 50 })], passives });
     const target = active(match, "enemy");
@@ -2540,7 +2556,7 @@ test("Tail Purge and Revive track independent per-fighter limits across a return
 });
 
 test("AI HP forecast is read-only and matches mitigation, absorb, reflect, decoy recoil and charge", () => {
-  const recoil = { ...skill("skill_046"), element: "water", attack_type: "special" };
+  const recoil = { ...skill("skill_046"), element: "water", attack_type: "special", effect2: "none", effect_chance2: 0 };
   for (const mode of ["hit", "absorb", "reflect", "decoy", "charge"]) {
     const move = mode === "charge" ? skill("skill_054") : recoil;
     let rolls = 0;

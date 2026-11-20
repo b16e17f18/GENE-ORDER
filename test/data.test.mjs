@@ -371,18 +371,40 @@ test("CSV-only next power definitions are read at runtime and validate their att
       const go = geneOrderBattle;
       const fighter = state.characterMap.get("character_005");
       const battle = go.createBattle({ player: [fighter], enemy: [fighter], skills: state.skills,
-        effects: state.effects, battleEffects: state.battleEffects, effectiveness: state.effectiveness });
+        effects: state.effects, battleEffects: state.battleEffects, powerRules: state.powerRules, effectiveness: state.effectiveness });
       const selection = { player: { type: "move", moveId: "skill_020" }, enemy: { type: "wait" } };
       go.resolveTurn(battle, selection);
       return go.previewDamage(battle, "player", state.skills.get("skill_018")).power;
     })()
   `;
   assert.equal(go.run(scenario), 120);
-  assert.equal(revised.run(scenario), 160);
+  assert.equal(revised.run(scenario), 140);
   assert.equal(revised.run("state.dataDiagnostics.some((d) => d.id === \"test_unknown\" && d.field === \"element\" && d.level === \"参照不一致\")"), true);
   assert.equal(revised.run("state.dataDiagnostics.some((d) => d.id === \"test_zero\" && d.field === \"modifier\" && d.level === \"数値異常\")"), true);
   assert.equal(revised.run("geneOrderBattle.battleEffectKind(state.battleEffects.get(\"test_unknown\"))"), null);
   assert.equal(go.run("state.dataDiagnostics.some((d) => d.value === \"next_thunder_power_150\")"), false);
+});
+
+test("loads the current official skill balance adjustments from CSV", () => {
+  const tuning = JSON.parse(go.run(`JSON.stringify([
+    "skill_018", "skill_023", "skill_026", "skill_029", "skill_040", "skill_042", "skill_044", "skill_046", "skill_049", "skill_058"
+  ].map((id) => {
+    const skill = state.skills.get(id);
+    return [id, skill.power, skill.cost, skill.priority, skill.power_rule, skill.power_cap,
+      skill.effect1, skill.effect_chance1, skill.effect2, skill.effect_chance2, skill.battle_effect1, skill.text];
+  }))`));
+  assert.deepEqual(tuning, [
+    ["skill_018", 80, 2, 0, "en_value", 140, "none", 0, "none", 0, "none", "ENが高い程威力が上がる。最大140。"],
+    ["skill_023", 150, 5, 0, "", null, "bf_sp_down1", 100, "none", 0, "none", "相手のSPを1段階下げる。"],
+    ["skill_026", 60, 1, 0, "", null, "bf_sp_down1", 100, "none", 0, "none", "相手のSPを1段階下げる。"],
+    ["skill_029", 50, 1, 0, "", null, "bf_sd_down1", 100, "none", 0, "none", "相手のSDを1段階下げる。"],
+    ["skill_040", 90, 2, 0, "en_value", 140, "none", 0, "none", 0, "none", "ENが高い程威力が上がる。最大140。"],
+    ["skill_042", 0, 1, 0, "", null, "none", 0, "none", 0, "バトンタッチ", "交代する。ステータス変化、デコイ等を引き継ぐ。"],
+    ["skill_044", 0, 0, 0, "", null, "bf_pa_up1", 100, "none", 0, "none", "PAが1段階上がる。"],
+    ["skill_046", 100, 2, 0, "", null, "recoil_25", 100, "poison", 100, "none", "与ダメージの1/4のダメージを自分も受ける。相手を毒にする。"],
+    ["skill_049", 90, 2, 0, "en_value", 140, "none", 0, "none", 0, "none", "ENが高い程威力が上がる。最大140。"],
+    ["skill_058", 0, 3, 1, "", null, "none", 0, "none", 0, "bf_half_guard", "優先度+1。被ダメージを1/2にし、反撃する。"],
+  ]);
 });
 
 test("reloading CSV over the data loader changes live battle tuning without code changes", async () => {
