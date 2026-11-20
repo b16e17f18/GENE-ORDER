@@ -942,14 +942,14 @@ test("official match captures poison and HP0 before resuming a replacement, then
 });
 
 
-test("playback timing provides MHB-length reading time for each visible event", () => {
+test("playback timing preserves the current configured reading time for each visible event", () => {
   const timing = go.run("geneOrderUI.PLAYBACK_TIMING");
   assert.equal(Object.isFrozen(timing), true);
-  assert.equal(timing.moveName, 840);
-  assert.equal(timing.hpGauge, 360);
-  for (const [type, minimum] of [["move", 1040], ["stage", 600], ["passive", 600],
-    ["status-applied", 720], ["residual", 840], ["faint", 1040], ["switch", 840],
-    ["replacement", 840], ["energy", 600], ["charge", 720]]) {
+  assert.equal(timing.moveName, 500);
+  assert.equal(timing.hpGauge, 750);
+  for (const [type, minimum] of [["move", 1000], ["stage", 1000], ["passive", 1000],
+    ["status-applied", 1000], ["residual", 1000], ["faint", 1000], ["switch", 1000],
+    ["replacement", 1000], ["energy", 750], ["charge", 1500]]) {
     assert.ok(go.run(`geneOrderUI.eventHold({ type: "${type}", category: "attack" })`) >= minimum, type);
   }
   assert.ok(timing.damage >= timing.hpGauge);

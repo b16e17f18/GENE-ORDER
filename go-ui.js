@@ -483,8 +483,7 @@ const geneOrderUI = (() => {
             <span class="hud-value go-en-value"></span></div>
           <div class="battle-info-stack"><div class="battle-info-line go-hud-rank-line is-hidden"><span>ランク</span>
             <span class="battle-info-chips go-hud-ranks"></span></div>
-          <div class="battle-info-line"><span>状態</span><span class="battle-info-chips go-hud-flags"></span></div>
-          <div class="battle-info-line"><span>パッシブ</span><span class="battle-info-chips">${esc(fighter.passive?.name ?? "未設定")}</span></div></div>
+          <div class="battle-info-line"><span>状態</span><span class="battle-info-chips go-hud-flags"></span></div></div>
           <div class="party-pips"></div>`;
         }
         const bar = hud.querySelector(".hp-fill");
@@ -564,8 +563,9 @@ const geneOrderUI = (() => {
       }) : "";
       const resistances = [...data.elements.keys()].map((element) => {
         const multiplier = go.effectivenessFor(element, fighter.base, data.effectiveness);
-        const style = multiplier > 1 ? "is-weak" : multiplier < 1 ? "is-resistant" : "is-neutral";
-        const label = multiplier > 1 ? "弱点" : multiplier < 1 ? "耐性" : "標準";
+        if (multiplier === 1) return "";
+        const style = multiplier > 1 ? "is-weak" : "is-resistant";
+        const label = multiplier > 1 ? "弱点" : "耐性";
         return `<div class="resistance-cell ${style}">${typeBadge(element)}<strong>${Math.round(multiplier * 100)}%</strong><span>${label}</span></div>`;
       });
       return `<div class="battle-inspect-header">
@@ -675,7 +675,8 @@ const geneOrderUI = (() => {
         return `<div class="go-move-card"><button class="move-button move-element-${esc(move.element ?? "")} ${issue ? "go-move-unavailable" : ""}"
           type="button" data-go-open-move="${esc(id)}" aria-label="${esc(move.name)}の詳細" aria-expanded="false">
           <span class="move-name">${esc(move.name)}</span><span class="move-cost">${energyBadge(releasing ? 0 : move.cost)}</span>
-          <span class="move-element">${moveAttributes(move)}</span><span class="move-kind">${esc(kind)}</span></button></div>`;
+          <span class="move-element">${moveAttributes(move)}</span><span class="move-kind">${esc(kind)}</span>
+          <span class="move-power power-chip">威力 ${move.category === "attack" ? releasing ? actor.pending.power : move.power : "—"}</span></button></div>`;
 
       });
       $("moveGrid").innerHTML = `<div class="command-note">${LABELS[candidate]}の行動を選択</div>${buttons.join("")}`;

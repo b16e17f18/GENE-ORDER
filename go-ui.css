@@ -376,11 +376,15 @@
   }
 
 #go-app .battle-view .go-move-card .move-name,
-#go-app .battle-view .go-expanded-move .move-name { grid-column: 1 / -1; grid-row: 1; padding-right: 34px; overflow-wrap: anywhere; }
+#go-app .battle-view .go-expanded-move .move-name { grid-column: 1; grid-row: 1; padding-right: 0; min-width: 0; overflow-wrap: anywhere; }
 #go-app .battle-view .go-move-card .move-element,
-#go-app .battle-view .go-expanded-move .move-element { position: absolute; right: 8px; top: 8px; padding: 0; border: 0; }
+#go-app .battle-view .go-expanded-move .move-element {
+  position: static; grid-column: 2; grid-row: 1;
+  align-self: start; justify-self: end; padding: 0; border: 0;
+}
 #go-app .battle-view .go-move-card .move-cost,
 #go-app .battle-view .go-expanded-move .move-cost { grid-column: 1; grid-row: 2; }
 #go-app .battle-view .go-move-card .move-kind,
 #go-app .battle-view .go-expanded-move .move-kind { grid-column: 1 / -1; grid-row: 3; }
-#go-app .battle-view .go-expanded-move .move-power { grid-column: 2; grid-row: 2; }
+#go-app .battle-view .go-move-card .move-power,
+#go-app .battle-view .go-expanded-move .move-power { grid-column: 2; grid-row: 2; align-self: start; justify-self: end; }

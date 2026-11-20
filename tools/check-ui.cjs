@@ -247,10 +247,26 @@ async function verify(browser, width) {
       await move(id).click();
       await ui.locator('[data-go-move="' + id + '"]').click();
     };
+    const verifyMoveLayout = async () => {
+      for (const button of await byId("moveGrid").locator("[data-go-open-move], [data-go-move]").all()) {
+        const boxes = await button.evaluate(node => [".move-name", ".move-element", ".move-power"].map(selector => {
+          const r = node.querySelector(selector).getBoundingClientRect();
+          return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+        }));
+        const overlaps = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > .5 &&
+          Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > .5;
+        assert.equal(overlaps(boxes[1], boxes[2]), false, "attribute icon and power must not overlap");
+        assert.equal(overlaps(boxes[0], boxes[1]), false, "move name and attribute icon must not overlap");
+      }
+    };
     const chooseSwitch = (name) => ui.locator("[data-go-switch]").filter({ hasText: name }).click();
     assert.match(await byId("playerHud").textContent(), /ユーズドマウス.*217\/217/s);
     assert.equal(await canMove("skill_041"), false);
-    assert.equal(await byId("moveGrid").locator(".move-text, .move-power").count(), 0);
+    assert.equal(await byId("moveGrid").locator(".move-text").count(), 0);
+    assert.equal(await byId("moveGrid").locator(".move-power").count(), 4);
+    assert.equal((await move("skill_002").locator(".move-power").textContent()).trim(), "威力 60");
+    assert.equal((await move("skill_041").locator(".move-power").textContent()).trim(), "威力 —");
+    await verifyMoveLayout();
     const cardLogs = await byId("go-official-log").locator("li").count();
     const hpBeforeCard = await byId("playerHud").textContent();
     await move("skill_041").click();
@@ -265,6 +281,7 @@ async function verify(browser, width) {
     const expandedBox = await ui.locator(".go-expanded-move").boundingBox();
     const gridBox = await byId("moveGrid").boundingBox();
     assert.ok(Math.abs(expandedBox.width - gridBox.width) < 2);
+    await verifyMoveLayout();
     await shot("move-expanded");
     await ui.locator('[data-go-move="skill_002"]').dispatchEvent("click", { detail: 2 });
     assert.ok(await ui.locator("[data-go-move-back]").isVisible());
@@ -326,6 +343,10 @@ async function verify(browser, width) {
       for (const viewport of [{ width: 320, height: 640 }, { width: 375, height: 812 }, { width: 430, height: 932 }]) {
         await page.setViewportSize(viewport);
         await layout();
+        await verifyMoveLayout();
+        await move("skill_002").click();
+        await verifyMoveLayout();
+        await ui.locator("[data-go-move-back]").click();
         await verifySpriteSizing(140, 140 / 240);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), viewport.width);
       }
@@ -335,6 +356,7 @@ async function verify(browser, width) {
       await verifySpriteSizing(180, .75);
       await move("skill_002").click();
       assert.ok(await ui.locator(".go-expanded-move").isVisible());
+      await verifyMoveLayout();
       assert.ok(await ui.locator(".go-move-matchup").isVisible());
       await ui.locator("[data-go-move-back]").click();
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 844);
@@ -376,6 +398,9 @@ async function verify(browser, width) {
     assert.equal(await byId("dexButton").count(), 0);
     assert.ok(await byId("playerHud").locator(".go-hud-rank-line").isHidden());
     assert.ok(await byId("enemyHud").locator(".go-hud-rank-line").isHidden());
+    for (const id of ["playerHud", "enemyHud"]) {
+      assert.doesNotMatch(await byId(id).textContent(), /パッシブ|知覚過敏|氷棚形成/);
+    }
     const inspect = byId("enemyInfoPanel");
     const inspectEnemy = () => byId("enemySprite").locator("[data-fighter-side]").click();
     const closeInspect = () => inspect.getByRole("button", { name: "戻る" }).click();
@@ -392,8 +417,10 @@ async function verify(browser, width) {
     assert.equal(await inspect.locator(".detail-stat-grade").count(), 5);
     assert.match(await inspect.locator(".detail-passive").textContent(), /特性.*氷棚形成/s);
     const resistances = inspect.locator(".battle-inspect-resistance-grid .resistance-cell");
-    assert.equal(await resistances.count(), 9);
-    for (const [id, expected] of [["thunder", "100%"], ["ice", "50%"], ["wind", "50%"]]) {
+    assert.equal(await resistances.count(), 4);
+    assert.equal(await resistances.locator(".go-attribute-thunder").count(), 0);
+    assert.ok((await resistances.locator("strong").allTextContents()).every(text => text !== "100%"));
+    for (const [id, expected] of [["fire", "200%"], ["ice", "50%"], ["wind", "50%"], ["light", "200%"]]) {
       const resistance = resistances.filter({ has: page.locator(".go-attribute-" + id) });
       assert.equal(await resistance.locator("strong").textContent(), expected);
     }
@@ -536,11 +563,11 @@ async function verify(browser, width) {
     assert.equal(playback.iterations, 2);
     await page.waitForFunction(() => window.__tempoProbe.status);
     const tempo = await page.evaluate(() => window.__tempoProbe);
-    assert.ok(tempo.animation - tempo.name >= 800, "move name needs reading time before animation");
+    assert.ok(tempo.animation - tempo.name >= 460, "move name needs reading time before animation");
     assert.ok(tempo.damage - tempo.animation >= 450, "damage follows the full animation");
     assert.ok(tempo.status - tempo.damage >= 1000, "damage result stays readable before status text");
     assert.equal(tempo.hpBefore, tempo.hpDuring, "HP must stay unchanged until animation finishes");
-    assert.equal(await byId("enemyHud").locator(".hp-fill").evaluate((bar) => getComputedStyle(bar).transitionDuration), "0.36s");
+    assert.equal(await byId("enemyHud").locator(".hp-fill").evaluate((bar) => getComputedStyle(bar).transitionDuration), "0.75s");
     await page.evaluate(() => window.__stopTempoProbe());
     await byId("go-fast-battle").check();
     await page.waitForFunction(() => !document.querySelector("#go-app #go-dodge")?.disabled, { timeout: 1500 });
