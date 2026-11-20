@@ -86,9 +86,9 @@ test("reads only the official UTF-8 tables", () => {
 test("normal effect IDs use snake_case and renamed references resolve with unchanged definitions", () => {
   assert.equal(go.run('[...state.effects.keys()].every((id) => /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/.test(id))'), true);
   for (const [id, name, value, turns] of [
-    ["evasion_up", "回避率上昇", 2, 1],
+    ["evasion_up", "回避率倍化", 2, 1],
     ["clear_field", "フィールド解除", 0, 0],
-    ["bind", "締め付け", 10, 3],
+    ["bind", "締めつけ", 10, 3],
     ["recoil_25", "反動ダメージ", 25, 0],
   ]) {
     const effect = go.run(`state.effects.get("${id}")`);
@@ -397,7 +397,7 @@ test("loads the current official skill balance adjustments from CSV", () => {
     ["skill_018", 80, 2, 0, "en_value", 140, "none", 0, "none", 0, "none", "ENが高い程威力が上がる。最大140。"],
     ["skill_023", 150, 5, 0, "", null, "bf_sp_down1", 100, "none", 0, "none", "相手のSPを1段階下げる。"],
     ["skill_026", 60, 1, 0, "", null, "bf_sp_down1", 100, "none", 0, "none", "相手のSPを1段階下げる。"],
-    ["skill_029", 50, 1, 0, "", null, "bf_sd_down1", 100, "none", 0, "none", "相手のSDを1段階下げる。"],
+    ["skill_029", 60, 1, 0, "", null, "bf_sd_down1", 100, "none", 0, "none", "相手のSDを1段階下げる。"],
     ["skill_040", 90, 2, 0, "en_value", 140, "none", 0, "none", 0, "none", "ENが高い程威力が上がる。最大140。"],
     ["skill_042", 0, 1, 0, "", null, "none", 0, "none", 0, "バトンタッチ", "交代する。ステータス変化、デコイ等を引き継ぐ。"],
     ["skill_044", 0, 0, 0, "", null, "bf_pa_up1", 100, "none", 0, "none", "PAが1段階上がる。"],
@@ -446,7 +446,7 @@ test("reloading CSV over the data loader changes live battle tuning without code
         state.skills.get("skill_027").effect_chance1, state.battleEffects.get("revenge").damage_value]);
     })()
   `;
-  assert.deepEqual(JSON.parse(go.run(scenario)), [195, 35, 6, 100, 150]);
+  assert.deepEqual(JSON.parse(go.run(scenario)), [195, 35, 4, 100, 150]);
   assert.deepEqual(JSON.parse(updated.run(scenario)), [200, 70, 2, 50, 200]);
 });
 
@@ -579,8 +579,7 @@ test("formal CSV has 24 playable passives and reports actionable numeric bounds"
   assert.equal(go.run('state.dataDiagnostics.filter(d => d.table === "passives" && d.level === "予約行").length'), 40);
   const invalid = runtime({ transforms: {
     "./data/character.csv": (text) => text.replace("獣族,125,81,75", "獣族,0,81.5,75"),
-    "./data/skill.csv": (text) => text.replace("pa_down1,enemy,100", "pa_down1,enemy,101")
-      .replace(",0,1,相手のPAを", ",0,8,相手のPAを"),
+    "./data/skill.csv": (text) => patchCsv(text, "skill_id", "skill_001", { effect_chance1: 101, cost: 8 }),
     "./data/battle_effect.csv": (text) => text.replace("none,0,1,TRUE,none,none,50", "none,0,0,TRUE,none,none,101"),
     "./data/power_rule.csv": (text) => text.replace("go_en_value_7,en_value,7,7,1.5", "go_en_value_7,en_value,7,6,0"),
   } });
@@ -593,7 +592,7 @@ test("formal CSV has 24 playable passives and reports actionable numeric bounds"
 test("CSV edits change the speed multiplier and burn damage and duration in a new battle", async () => {
   const revised = runtime({ transforms: {
     "./data/power_rule.csv": (csv) => csv.replace("speed_advantage,0,100,0.5", "speed_advantage,0,100,0.6"),
-    "./data/effect.csv": (csv) => csv.replace("burn,火やられ,damage,percent_maxhp,15,5", "burn,火やられ,damage,percent_maxhp,12,3"),
+    "./data/effect.csv": (csv) => csv.replace("burn,火やられ,damage,percent_maxhp,5,5", "burn,火やられ,damage,percent_maxhp,12,3"),
   } });
   await revised.boot();
   const result = revised.run(`
@@ -618,9 +617,7 @@ test("CSV edits change the speed multiplier and burn damage and duration in a ne
 test("existing CSVs configure both bind moves, attack reference, and evasion timing", async () => {
   const revised = runtime({ transforms: {
     "./data/skill.csv": (csv) => csv.replace(/(^skill_033,.*),phy_def\r?$/m, "$1,sp_def"),
-    "./data/effect.csv": (csv) => csv
-      .replace("bind,締め付け,bind,percent_maxhp,10,3", "bind,締め付け,bind,percent_maxhp,20,2")
-      .replace(/(^evasion_up,.*),1\r?$/m, "$1,0"),
+    "./data/effect.csv": (csv) => patchCsv(patchCsv(csv, "effect_id", "bind", { damage_value: 20, turn: 2 }), "effect_id", "evasion_up", { start_delay: 0 }),
   } });
   await revised.boot();
   const result = revised.run(`
@@ -938,7 +935,7 @@ test("official match captures poison and HP0 before resuming a replacement, then
         battle.winner, blocked, replay.turn, replay.winner, replay.teams.enemy[0].hp]);
     })()
   `));
-  assert.deepEqual(actual, [7, 6, 0, true, "player", true, 1, null, 146]);
+  assert.deepEqual(actual, [5, 4, 0, true, "player", true, 1, null, 146]);
 });
 
 
@@ -1152,4 +1149,91 @@ test("saved random-opponent settings replay both parties without carrying HP or 
       replay.battle.teams.enemy[0].hp === replay.battle.teams.enemy[0].maxHp, replay.battle.turn]);
   })()`));
   assert.deepEqual(value, [true, true, true, 1]);
+});
+
+
+test("dodge outcome and defense expiry notifications are silent without hiding actions or other expiries", () => {
+  const result = JSON.parse(go.run(`(() => {
+    const silent = [
+      { type: "dodge-attempt", actor: "test", chance: 50, success: true },
+      { type: "dodge-attempt", actor: "test", chance: 50, success: false },
+      { type: "evaded", actor: "test", move: "attack" },
+      { type: "defense-expired", actor: "test", dodge: true, guard: 50 },
+      ...[...state.battleEffects.values()].filter(d => geneOrderBattle.battleEffectKind(d) === "dodge" || Number(d.damage_cut) > 0)
+        .flatMap(d => ["effect-expired", "field-expired"].map(type => ({ type, actor: "test", side: "player", name: d.name }))),
+      { type: "effect-expired", actor: "test", name: state.effects.get("evasion_up").name },
+    ];
+    const before = JSON.stringify(silent);
+    const quiet = silent.every(event => describeGeneOrderEvent(event) === "");
+    const action = describeGeneOrderEvent({ type: "move", actor: "test", move: "回避", moveId: "skill_000", category: "status", cost: 0 });
+    const guardStart = describeGeneOrderEvent({ type: "half-guard", actor: "test" });
+    const poisonEnd = describeGeneOrderEvent({ type: "effect-expired", actor: "test", name: state.effects.get("poison").name });
+    const windEnd = describeGeneOrderEvent({ type: "field-expired", side: "player", name: "追い風" });
+    const unknownEnd = describeGeneOrderEvent({ type: "effect-expired", actor: "test", name: "未登録効果" });
+    return JSON.stringify([quiet, before === JSON.stringify(silent), action, guardStart, poisonEnd, windEnd, unknownEnd]);
+  })()`));
+  assert.deepEqual(result.slice(0, 2), [true, true]);
+  assert.match(result[2], /回避/);
+  assert.match(result[3], /半減/);
+  assert.match(result[4], /毒.*終了/);
+  assert.match(result[5], /追い風.*終了/);
+  assert.match(result[6], /未登録効果.*終了/);
+});
+
+// Test fixtures address columns by name so optional CSV columns cannot shift edits.
+function patchCsv(text, key, id, patch) {
+  const headers = text.split(/\r?\n/, 1)[0].replace(/^\uFEFF/, '').split(',');
+  const rows = go.run('rowsFromCsv')(text);
+  const target = rows.find(row => row[key] === id);
+  assert.ok(target, id);
+  for (const column of Object.keys(patch)) assert.ok(headers.includes(column), column);
+  Object.assign(target, patch);
+  const cell = value => '"' + String(value ?? '').replaceAll('"', '""') + '"';
+  return headers.join(',') + '\n' + rows.map(row => headers.map(column => cell(row[column])).join(',')).join('\n');
+}
+
+test('status CSV normalizes all three new columns and diagnoses no unsupported paralysis or frostbite', () => {
+  for (const [id, stat, multiplier, failure] of [['poison','none',1,0],['burn','phy_atk',.5,0],['paralysis','speed',.5,25],['frostbite','sp_atk',.5,0]]) {
+    const row = go.run('state.effects.get(' + JSON.stringify(id) + ')');
+    assert.equal(row.stat_modifier_target, stat);assert.equal(row.stat_modifier_multiplier,multiplier);assert.equal(row.action_failure_chance,failure);
+    assert.equal(go.run('state.dataDiagnostics.some(d => d.table === "effects" && d.id === ' + JSON.stringify(id) + ' && ["数値異常", "効果未対応", "参照不一致"].includes(d.level))'),false);
+  }
+});
+
+test('status CSV validation rejects invalid targets, multipliers and action failure percentages', async () => {
+  for (const [patch, field] of [[{stat_modifier_target:'hp'},'stat_modifier_target'],[{stat_modifier_multiplier:0},'stat_modifier_multiplier'],
+    [{stat_modifier_multiplier:-1},'stat_modifier_multiplier'],[{stat_modifier_multiplier:'NaN'},'stat_modifier_multiplier'],
+    [{action_failure_chance:-1},'action_failure_chance'],[{action_failure_chance:101},'action_failure_chance'],
+    [{action_failure_chance:'invalid'},'action_failure_chance'],[{stat_modifier_target:'none',stat_modifier_multiplier:.5},'stat_modifier_target']]) {
+    const r=runtime({transforms:{'./data/effect.csv':text=>patchCsv(text,'effect_id','paralysis',patch)}});await r.boot();
+    assert.equal(r.run('state.dataDiagnostics.some(d => d.table === "effects" && d.id === "paralysis" && d.field === ' + JSON.stringify(field) + ')'),true,JSON.stringify(patch));
+    assert.equal(r.run('geneOrderBattle.effectKind(state.effects.get("paralysis"))'),null);
+  }
+});
+
+test('status performance changes by reloading test CSV without editing JavaScript', async () => {
+  const r=runtime({transforms:{'./data/effect.csv':text=>patchCsv(patchCsv(text,'effect_id','burn',{damage_value:7,turn:3,stat_modifier_multiplier:.25}),
+    'effect_id','paralysis',{stat_modifier_multiplier:.75,action_failure_chance:50})}});await r.boot();
+  const scenario=`(() => {
+    const g=geneOrderBattle, base={...state.characterMap.get("character_001"),hp:200,phy_atk:120,speed:120,regen_value:0,energy_charge:0,passive_id:null};
+    const b=g.createBattle({...state,player:[base],enemy:[base]});const f=g.activeFighter(b,"player");
+    for(const id of ["burn","paralysis"])f.statuses.push({definition:state.effects.get(id),turns:state.effects.get(id).turn});
+    const before=[g.statValue(f,"phy_atk"),g.effectiveSpeed(b,"player"),g.actionFailureChance(f)];
+    const out=g.resolveTurn(b,{player:{type:"wait"},enemy:{type:"wait"}});
+    return JSON.stringify([...before,out.events.find(e=>e.type==="residual"&&e.side==="player").damage,f.statuses[0].turns]);
+  })()`;
+  assert.deepEqual(JSON.parse(go.run(scenario)),[60,60,25,10,4]);
+  assert.deepEqual(JSON.parse(r.run(scenario)),[30,90,50,14,2]);
+});
+
+test('old ten-column effects still load with neutral modifiers and no action failure chance', async () => {
+  const r=runtime({transforms:{'./data/effect.csv':text=>{
+    const headers=text.split(/\r?\n/,1)[0].split(',').slice(0,10);const rows=go.run('rowsFromCsv')(text);
+    const cell=value=>'"'+String(value??'').replaceAll('"','""')+'"';
+    return headers.join(',')+'\n'+rows.map(row=>headers.map(h=>cell(row[h])).join(',')).join('\n');
+  }}});await r.boot();
+  for(const id of ['burn','paralysis','frostbite']) {
+    assert.equal(r.run('state.effects.get('+JSON.stringify(id)+').stat_modifier_multiplier'),1);
+    assert.equal(r.run('state.effects.get('+JSON.stringify(id)+').action_failure_chance'),0);
+  }
 });

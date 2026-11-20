@@ -35,7 +35,7 @@ const geneOrderUI = (() => {
     if (["reflected", "revenge", "recoil", "decoy-hit"].includes(event.type)) return PLAYBACK_TIMING.damage;
     if (event.type === "stage") return PLAYBACK_TIMING.stage;
     if (event.type === "passive") return PLAYBACK_TIMING.passive;
-    if (["energy", "effect-energy"].includes(event.type)) return PLAYBACK_TIMING.energy;
+    if (["energy", "effect-energy", "en-drain", "en-modifier", "insufficient-energy"].includes(event.type)) return PLAYBACK_TIMING.energy;
     return PLAYBACK_TIMING.message;
   }
   const aiRandom = () => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32;
@@ -608,7 +608,7 @@ const geneOrderUI = (() => {
       <div class="battle-inspect-body">
         <div class="dex-data-row battle-inspect-row"><span>状態</span><strong class="battle-info-chips">${chips}</strong></div>
         <div class="dex-data-row battle-inspect-row"><span>回避率</span><strong>${go.evasionRate(fighter, battle.turn)}%</strong></div>
-        <div class="dex-data-row battle-inspect-row"><span>EN回復</span><strong>${fighter.base.energy_charge} EN / ターン</strong></div>
+        <div class="dex-data-row battle-inspect-row"><span>EN回復</span><strong>${geneOrderBattle.effectiveEnergyCharge(fighter, battle.turn)} EN / ターン</strong></div>
         <div class="battle-inspect-stats">
           <div class="detail-section-title">能力値</div>
           <div class="detail-stats battle-inspect-stat-list">${stats.join("")}</div>
@@ -689,7 +689,7 @@ const geneOrderUI = (() => {
           '" type="button" data-go-move="' + esc(expandedMoveId) + '" ' + (issue ? 'disabled' : '') +
           ' aria-label="' + esc(expanded.name) + 'を使う">' +
           '<span class="move-name">' + esc(expanded.name) + '</span>' +
-          '<span class="move-cost">' + energyBadge(releasing ? 0 : expanded.cost) + '</span>' +
+          '<span class="move-cost">' + energyBadge(geneOrderBattle.effectiveMoveCost(actor, expanded, battle.turn)) + '</span>' +
           '<span class="move-element">' + moveAttributes(expanded) + '</span>' +
           '<span class="move-kind" data-go-kind="' + esc(expanded.category === 'attack' ? expanded.attack_type : 'status') + '">' + esc(kind) + '</span>' +
           '<span class="move-power power-chip">威力 ' + (expanded.category === 'attack' ? releasing ? actor.pending.power : expanded.power : '—') + '</span>' +
@@ -706,7 +706,7 @@ const geneOrderUI = (() => {
         const kind = move.category === "attack" ? attackTypeLabel(move.attack_type) : "変化";
         return `<div class="go-move-card"><button class="move-button move-element-${esc(move.element ?? "")} ${issue ? "go-move-unavailable" : ""}"
           type="button" data-go-open-move="${esc(id)}" aria-label="${esc(move.name)}の詳細" aria-expanded="false">
-          <span class="move-name">${esc(move.name)}</span><span class="move-cost">${energyBadge(releasing ? 0 : move.cost)}</span>
+          <span class="move-name">${esc(move.name)}</span><span class="move-cost">${energyBadge(geneOrderBattle.effectiveMoveCost(actor, move, battle.turn))}</span>
           <span class="move-element">${moveAttributes(move)}</span><span class="move-kind" data-go-kind="${esc(move.category === "attack" ? move.attack_type : "status")}">${esc(kind)}</span>
           <span class="move-power power-chip">威力 ${move.category === "attack" ? releasing ? actor.pending.power : move.power : "—"}</span></button></div>`;
 
@@ -911,7 +911,10 @@ const geneOrderUI = (() => {
       if (!control || control.disabled) return;
       const command = control.dataset;
       const battleAction = ["goMove", "goOpenMove", "goSwitch", "goTurn", "goReplay", "goRandomBattle", "goRerollOpponent"].some((key) => Object.hasOwn(command, key));
-      if (battleAction && event.detail > 1) return;
+      // Opening and confirming a move are separate steps, even within a double-click.
+      // choose() clears expandedMoveId on acceptance; resolving phases still reject actions.
+      const moveCardStep = command.goOpenMove || (command.goMove && command.goMove === expandedMoveId);
+      if (battleAction && event.detail > 1 && !moveCardStep) return;
       if (command.goPage) return showPage(command.goPage);
       if (Object.hasOwn(command, "goRandomBattle")) return startRandomBattle();
       if (Object.hasOwn(command, "goRerollOpponent")) return start();

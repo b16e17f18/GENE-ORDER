@@ -4192,7 +4192,7 @@ function mountGeneOrderBattlePreview() {
       }
       const sideName = (side) => side === "player" ? "自分側" : "相手側";
       const lines = pending ? log.textContent.split("\n").slice(0, -1) : [startLog(), `ターン ${result.turn}`].filter(Boolean);
-      lines.push(...events.map(describeGeneOrderEvent));
+      lines.push(...events.map(describeGeneOrderEvent).filter(Boolean));
       if (result.pendingSwitch) lines.push(`${sideName(result.pendingSwitch.side)}の交代先を選択`);
       log.textContent = lines.join("\n");
       if (!result.pendingSwitch && decisions.length) diagnostics.textContent = decisions.map(({ side, type, selected, candidates }) =>
@@ -4521,6 +4521,9 @@ function normalizeEffect(row) {
     target_stat: safeText(row.target_stat, "none"),
     start_delay: optionalNumber(row.start_delay),
     start_text: csvText(row.start_text),
+    stat_modifier_target: safeText(row.stat_modifier_target, "none"),
+    stat_modifier_multiplier: safeText(row.stat_modifier_multiplier) ? Number(row.stat_modifier_multiplier) : 1,
+    action_failure_chance: safeText(row.action_failure_chance) ? Number(row.action_failure_chance) : 0,
   };
 }
 
@@ -9448,6 +9451,15 @@ function escapeHtml(value) {
 }
 
 function describeGeneOrderEvent(event) {
+  // These events still update battle state; only their notifications are omitted.
+  if (["dodge-attempt", "evaded", "defense-expired"].includes(event.type)) return "";
+  if (["effect-expired", "field-expired"].includes(event.type)) {
+    const quietDefense = [...state.battleEffects.values()].some(definition => definition.name === event.name &&
+      (geneOrderBattle.battleEffectKind(definition) === "dodge" || Number(definition.damage_cut) > 0));
+    const quietEvasion = event.type === "effect-expired" && [...state.effects.values()].some(definition =>
+      definition.name === event.name && geneOrderBattle.effectKind(definition) === "evasion-boost");
+    if (quietDefense || quietEvasion) return "";
+  }
   const statLabels = { phy_atk: "物理攻撃", phy_def: "物理防御", sp_atk: "特殊攻撃", sp_def: "特殊防御", speed: "敏捷" };
   const sideName = (side) => side === "player" ? "自分側" : "相手側";
   const describe = {
@@ -9482,7 +9494,10 @@ function describeGeneOrderEvent(event) {
     stage: (e) => e.delta === 0 ? `${e.actor}の${statLabels[e.stat]}ランクは変化しなかった`
       : `${e.actor}の${statLabels[e.stat]} ${e.delta > 0 ? "+" : ""}${e.delta}${e.stage ? `（現在 ${e.stage}）` : ""}`,
     heal: (e) => `${e.actor}の${e.source === "natural" ? "自然回復で" : ""}HP +${e.recovered}`,
-    "effect-energy": (e) => `${e.actor}のEN +${e.recovered}（技効果）`,
+    "effect-energy": (e) => e.actor + "のEN " + (e.recovered < 0 ? "−" : "+") + Math.abs(e.recovered) + "（技効果）",
+    "en-drain": (e) => e.user + "は" + e.actor + "のENを" + e.lost + "吸収（自身のEN +" + e.recovered + "）",
+    "en-modifier": (e) => e.actor + "に" + e.name + "（" + e.turns + "ターン" + (e.replaced ? "・更新" : "") + "）",
+    "insufficient-energy": (e) => e.actor + "の" + e.move + "はEN不足で発動しなかった（必要" + e.cost + "／現在" + e.energy + "、EN消費なし）",
     switch: (e) => `${e.actor}から${e.target}に交代` +
       (e.inheritedStages ? "（能力ランクを引き継いだ）" : "") + (e.decoyHp ? `（デコイHP ${e.decoyHp}を引き継いだ）` : ""),
     "decoy-created": (e) => `${e.actor}はHPを${e.cost}消費し、HP ${e.maxHp}のデコイを出した`,
@@ -9493,6 +9508,7 @@ function describeGeneOrderEvent(event) {
     wait: (e) => `${e.actor}は待機`,
     faint: (e) => `${e.actor}は戦闘不能`,
     skipped: (e) => `${e.actor}は行動できなかった`,
+    "action-failed": (e) => `${e.actor}は${e.statuses.join("・")}により${e.move}を使えなかった（EN消費なし）`,
     energy: (e) => `${sideName(e.side)}のEN +${e.recovered}`,
     win: (e) => `${sideName(e.side)}の勝利`,
     draw: () => "引き分け",

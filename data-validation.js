@@ -79,7 +79,7 @@ function normalizeGoMoveAnimation(row) {
 }
 
 function geneOrderStatusIds(rows) {
-  return new Set(rows.filter((row) => row.name && geneOrderBattle.effectKind(normalizeEffect(row)) === "status-damage")
+  return new Set(rows.filter((row) => row.name && ["status-damage", "status"].includes(geneOrderBattle.effectKind(normalizeEffect(row))))
     .map((row) => row.effect_id));
 }
 
@@ -252,6 +252,23 @@ function validateGeneOrderData(tables, imageExists) {
         range(table, id, row, ["damage_cut"], 0, 100);
         range(table, id, row, ["start_delay"], 0, Infinity, true);
         range(table, id, row, ["max_uses"], 1, Infinity, true);
+      }
+      if (table === "effects") {
+        numeric(table, id, row, ["stat_modifier_multiplier", "action_failure_chance"]);
+        range(table, id, row, ["action_failure_chance"], 0, 100);
+        const target = String(row.stat_modifier_target ?? "").trim();
+        if (target && target !== "none" && !["phy_atk", "phy_def", "sp_atk", "sp_def", "speed"].includes(target)) {
+          add("参照不一致", table, id, "stat_modifier_target", target);
+        }
+        if (String(row.stat_modifier_multiplier ?? "").trim() && Number(row.stat_modifier_multiplier) <= 0) {
+          add("数値異常", table, id, "stat_modifier_multiplier", row.stat_modifier_multiplier);
+        }
+        if (!target || target === "none") {
+          if (String(row.stat_modifier_multiplier ?? "").trim() && Number(row.stat_modifier_multiplier) !== 1) {
+            add("項目未設定", table, id, "stat_modifier_target");
+          }
+        }
+        if (["status", "damage", "en_charge_modifier", "en_cost_modifier"].includes(row.effect_group)) range(table, id, row, ["turn"], 1, Infinity, true);
       }
       if (table === "effects" && !geneOrderBattle.effectKind(row)) {
         add("効果未対応", table, id, "damage_type", row.damage_type);

@@ -1264,11 +1264,11 @@ const geneOrderAI = (() => {
     const target = go.activeFighter(board, other);
     const outgoing = attackPressure(board, side);
     const incoming = attackPressure(board, other);
-    const estimate = ({ preview }) => preview.actualDamage + (preview.decoyDamage ?? 0) * config.DECOY_WEIGHT;
+    const estimate = ({ preview }) => (preview.actualDamage + (preview.decoyDamage ?? 0) * config.DECOY_WEIGHT) * preview.executionChance;
     const best = Math.max(0, ...outgoing.map(estimate));
     const predictedIncoming = Math.max(0, ...incoming.map(estimate));
     const unknown = !target.fainted && (!board.opponentMovesComplete && !target.pending)
-      ? fighter.maxHp * config.UNKNOWN_PRESSURE * (incoming.length ? config.KNOWN_PRESSURE_FLOOR : 1) : 0;
+      ? fighter.maxHp * config.UNKNOWN_PRESSURE * (incoming.length ? config.KNOWN_PRESSURE_FLOOR : 1) * (1 - go.actionFailureChance(target) / 100) : 0;
     const danger = Math.max(predictedIncoming, unknown);
     const rankValue = STATS.reduce((sum, stat) => sum + fighter.stages[stat], 0) * config.STAGE_WEIGHT / 3;
     const residual = [...fighter.statuses, fighter.bind].filter(Boolean).reduce((sum, status) =>
@@ -1292,7 +1292,7 @@ const geneOrderAI = (() => {
     const sooner = (priority) => move.priority > priority ? 0 : move.priority < priority ? 1 :
       position.speed > position.otherSpeed ? 0 : position.speed < position.otherSpeed ? 1 : 0.5;
     const known = position.incoming.map(({ move: incoming, preview }) =>
-      sooner(incoming.priority) * (preview.targetHp === 0 ? 1 : fraction(preview.actualDamage / actor.hp) * config.SUPPORT_RISK));
+      sooner(incoming.priority) * preview.executionChance * (preview.targetHp === 0 ? 1 : fraction(preview.actualDamage / actor.hp) * config.SUPPORT_RISK));
     const unknown = board.opponentMovesComplete || target.pending ? 0 : sooner(0) * fraction(position.danger / actor.hp);
     return fraction(Math.max(average(known) * config.PUBLIC_ATTACK_WEIGHT, unknown));
   }
@@ -1310,11 +1310,23 @@ const geneOrderAI = (() => {
       const release = go.previewRelease(state, side, move, start);
       const result = release ?? start;
       return (result.actualDamage + (result.decoyDamage ?? 0) * config.DECOY_WEIGHT) *
-        (release ? config.TWO_TURN_DAMAGE_MULTIPLIER : 1);
+        (release ? config.TWO_TURN_DAMAGE_MULTIPLIER : 1) * start.executionChance;
     };
     const attacks = availableMoves(board, side, { future: true })
       .filter((move) => move.category === "attack" && move.element === effect.element);
     return Math.max(0, ...attacks.map((move) => damage(projected, move) - damage(board, move)));
+  }
+
+  function statusModifierValue(fighter, opponent, effect, config) {
+    const go = geneOrderBattle;
+    const statuses = fighter.statuses.filter(status => status.definition.effect_id !== effect.effect_id);
+    const before = { ...fighter, statuses };
+    const after = { ...fighter, statuses: [...statuses, { definition: effect, turns: effect.turn }] };
+    const stat = effect.stat_modifier_target;
+    const statValue = STATS.includes(stat) ? (go.statValue(before, stat, { opponent }) - go.statValue(after, stat, { opponent })) /
+      Math.max(1, go.statValue(before, stat, { opponent })) * config.FIELD_VALUE * enemyAiDebuffStatWeight(stat) : 0;
+    const failureValue = (go.actionFailureChance(after) - go.actionFailureChance(before)) / 100 * config.FIELD_VALUE;
+    return statValue + failureValue;
   }
 
   function supportScore(context, move, result, release) {
@@ -1362,17 +1374,34 @@ const geneOrderAI = (() => {
       } else if (kind === "next-element-power") {
         value = nextPowerValue(board, side, actor, effect, config);
       } else if (kind === "recover-en") {
-        const payment = actor.pending ? 0 : move.cost;
-        const gap = go.MAX_ENERGY - recipient.energy + (self ? payment - actor.base.energy_charge : 0);
-        value = Math.min(effect.damage_value, Math.max(0, gap)) * config.EN_WEIGHT * (self ? 1 : -1);
-      } else if (kind === "status-damage" || kind === "bind-damage") {
-        const current = kind === "bind-damage" ? target.bind : target.statuses.find((status) => status.definition.effect_id === id);
+        const payment = go.effectiveMoveCost(actor, move, board.turn);
+        const gap = go.MAX_ENERGY - recipient.energy + (self ? payment - go.effectiveEnergyCharge(actor, board.turn) : 0);
+        value = (effect.damage_value < 0 ? -Math.min(-effect.damage_value, recipient.energy) : Math.min(effect.damage_value, Math.max(0, gap))) * config.EN_WEIGHT * (self ? 1 : -1);
+      } else if (kind === "en-drain") {
+        const lost = Math.min(effect.damage_value, recipient.energy);
+        value = self ? 0 : (lost + Math.min(lost, Math.max(0, go.MAX_ENERGY - actor.energy + go.effectiveMoveCost(actor, move, board.turn)))) * config.EN_WEIGHT;
+      } else if (kind === "en-charge-modifier" || kind === "en-cost-modifier") {
+        const projected = { ...recipient, timedEffects: new Map(recipient.timedEffects) };
+        projected.timedEffects.set(id, { definition: effect, starts: board.turn, expires: board.turn + effect.turn });
+        const old = recipient.timedEffects.get(id);
+        const remaining = old ? Math.max(0, old.expires - board.turn) : 0;
+        const horizon = Math.min(effect.turn, config.STATUS_HORIZON);
+        if (kind === "en-charge-modifier") {
+          const change = go.effectiveEnergyCharge(recipient, board.turn) - go.effectiveEnergyCharge(projected, board.turn);
+          const restored = old ? go.effectiveEnergyCharge({ ...recipient, timedEffects: new Map([...recipient.timedEffects].filter(([key]) => key !== id)) }, board.turn) - go.effectiveEnergyCharge(projected, board.turn) : 0;
+          value = (change * horizon + restored * Math.max(0, horizon - remaining)) * config.EN_WEIGHT * (self ? -1 : 1);
+        } else {
+          value = effect.damage_value * Math.max(0, horizon - Math.min(horizon, remaining)) * config.EN_WEIGHT * (self ? -1 : 1);
+        }
+      } else if (["status-damage", "status", "bind-damage"].includes(kind)) {
+        const current = kind === "bind-damage" ? recipient.bind : recipient.statuses.find((status) => status.definition.effect_id === id);
         const turns = Math.max(0, Math.min(effect.turn - (current?.turns ?? 0), config.STATUS_HORIZON));
-        const metabolism = geneOrderPassives.matching(target, "stat-multiplier", (entry) => entry.condition.kind === "status").length;
-        const damage = Math.min(target.hp, go.residualDamage(target, effect) * turns);
-        value = (damage * config.STATUS_DAMAGE_WEIGHT + (kind === "bind-damage" && !current ? config.FIELD_VALUE : 0)
-          - (kind === "status-damage" && !current ? metabolism * config.FIELD_VALUE / 2 : 0)) *
-          enemyAiTypeMultiplier(config, "STATUS_SCORE_MULTIPLIER");
+        const metabolism = geneOrderPassives.matching(recipient, "stat-multiplier", (entry) => entry.condition.kind === "status").length;
+        const damage = Math.min(recipient.hp, go.residualDamage(recipient, effect) * turns);
+        const modifierValue = kind === "bind-damage" ? 0 : statusModifierValue(recipient, self ? target : actor, effect, config) * turns;
+        value = (damage * config.STATUS_DAMAGE_WEIGHT + modifierValue + (kind === "bind-damage" && !current ? config.FIELD_VALUE : 0)
+          - (kind !== "bind-damage" && !current ? metabolism * config.FIELD_VALUE / 2 : 0)) *
+          enemyAiTypeMultiplier(config, "STATUS_SCORE_MULTIPLIER") * (self ? -1 : 1);
       } else if (["guard", "absorb", "reflection", "revenge", "field-guard"].includes(kind)) {
         if (kind === "revenge" && go.moveEffects(move).some((slot) => go.battleEffectKind(board.battleEffects.get(slot.id)) === "reflection")) continue;
         if (!already(kind === "field-guard" ? board.fields[side] : actor.defenses, id)) value = protection(effect, kind);
@@ -1438,7 +1467,7 @@ const geneOrderAI = (() => {
     const release = go.previewRelease(board, side, move, result);
     const forecast = release ?? result;
     const risk = moveRisk(context, move);
-    const cost = actor.pending ? 0 : move.cost;
+    const cost = go.effectiveMoveCost(actor, move, board.turn);
     const damage = forecast.actualDamage * config.BODY_WEIGHT + (forecast.decoyDamage ?? 0) * config.DECOY_WEIGHT;
     const targetHp = forecast.targetHp;
     const endsKo = move.category === "attack" && !release && target.hp > 0 && targetHp === 0 && forecast.actorHp > 0;
@@ -1486,11 +1515,15 @@ const geneOrderAI = (() => {
       const ranked = rankSwitches(context, kind, indices, decoy && { hp: decoy.maxHp, maxHp: decoy.maxHp });
       score += ranked[0].score * chance / 100;
     }
-    const fatal = result.actorHp <= 0;
+    const executionChance = result.executionChance;
+    const fatal = result.actorHp <= 0 && executionChance > 0;
     if (fatal) score -= config.SURVIVAL_LOSS;
-    return { action, move, score, fatal, koConfidence, damage: result.actualDamage, decoyDamage: result.decoyDamage ?? 0,
+    score = score * executionChance + recoveryValue * (1 - executionChance);
+    return { action, move, score, fatal, koConfidence: koConfidence * executionChance,
+      damage: result.actualDamage, expectedDamage: result.actualDamage * executionChance, decoyDamage: result.decoyDamage ?? 0,
       label: move.name, reason: release ? "予約威力・次の攻撃" : result.reason, forecast: {
-        targetHp, actorHp: result.actorHp, hpCost: result.hpCost, response: result.responseDamage, power: result.power,
+        targetHp, actorHp: result.actorHp, hpCost: result.hpCost, energyCost: result.energyCost, response: result.responseDamage, power: result.power,
+        executionChance, actionFailureChance: result.actionFailureChance, expectedDamage: result.actualDamage * executionChance,
         actorEndHp: actorEnd.hp, targetEndHp: targetEnd.hp,
         actorNaturalRecovery: actorEnd.recovered, targetNaturalRecovery: targetEnd.recovered,
       } };
@@ -1516,12 +1549,12 @@ const geneOrderAI = (() => {
     const indices = go.switchTargets(board, side).filter((index) => !go.checkAction(board, side, { type: "switch", index }));
     candidates.push(...rankSwitches(ctx, "normal", indices));
     if (!go.checkAction(board, side, { type: "wait" })) {
-      const nextEN = Math.min(go.MAX_ENERGY, actor.energy + actor.base.energy_charge);
+      const nextEN = Math.min(go.MAX_ENERGY, actor.energy + go.effectiveEnergyCharge(actor, board.turn));
       const index = board.active[side];
       const team = board.teams[side].slice();
       team[index] = { ...actor, energy: nextEN };
-      const next = { ...board, teams: { ...board.teams, [side]: team } };
-      const future = allMoves.filter((move) => move.category === "attack" && move.cost > actor.energy && move.cost <= nextEN)
+      const next = { ...board, turn: board.turn + 1, teams: { ...board.teams, [side]: team } };
+      const future = allMoves.filter((move) => move.category === "attack" && go.effectiveMoveCost(actor, move, board.turn) > actor.energy && go.effectiveMoveCost(actor, move, board.turn + 1) <= nextEN)
         .map((move) => go.previewDamage(next, side, move)).filter((result) => result.actorHp > 0);
       const gain = Math.max(0, ...future.map((result) => result.actualDamage)) - position.best;
       const upkeep = geneOrderPassives.matching(actor, "turn-end").reduce((sum, effect) =>

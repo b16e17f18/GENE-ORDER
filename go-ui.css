@@ -409,3 +409,6 @@
 #go-app .battle-view .move-kind[data-go-kind="special"] { background: #d95a9d; }
 #go-app .battle-view .move-kind[data-go-kind="status"] { background: #42b8dc; }
 #go-app .battle-view .go-move-matchup { background: rgba(0, 0, 0, .25); }
+
+/* Keep persistent-effect labels readable on the inherited white detail panel. */
+#go-app .battle-inspect-body .battle-info-chips .effect-chip { color: #111; border-color: #111; white-space: normal; }

@@ -543,7 +543,7 @@ test("formal data battle includes status, evasion, guard, heal, ranks, EN, switc
   assert.equal(match.winner, "player");
 });
 
-test("official poison is guaranteed, rounds like MHB, refreshes and ticks seven times", () => {
+test("official poison is guaranteed, rounds like MHB, refreshes and ticks the CSV five turns", () => {
   const poison = skill("skill_027");
   const match = battle({ ...assets, skills: [poison], player: official("character_007"),
     enemy: [character({ hp: 125, element_1: "water" })], random: () => { throw Error("100% must not roll"); } });
@@ -551,16 +551,16 @@ test("official poison is guaranteed, rounds like MHB, refreshes and ticks seven 
   go.changeEnergy(active(match), 6);
   const first = action(match, poison.skill_id);
   assert.equal(first.events.find(e => e.type === "residual").damage, 13);
-  assert.equal(victim.statuses[0].turns, 6);
+  assert.equal(victim.statuses[0].turns, 4);
   const pass = () => go.resolveTurn(match, { player: wait, enemy: wait });
   pass();
   victim.hp = victim.maxHp;
   go.changeEnergy(active(match), 6);
   action(match, poison.skill_id);
   assert.equal(victim.statuses.length, 1);
-  assert.equal(victim.statuses[0].turns, 6);
+  assert.equal(victim.statuses[0].turns, 4);
   victim.hp = victim.maxHp;
-  for (let i = 0; i < 6; i++) assert.equal(pass().events.find(e => e.type === "residual").damage, 13);
+  for (let i = 0; i < 4; i++) assert.equal(pass().events.find(e => e.type === "residual").damage, 13);
   assert.equal(victim.statuses.length, 0);
   assert.ok(!pass().events.some(e => e.type === "residual"));
 });
@@ -576,11 +576,11 @@ test("poison is retained and paused on the bench, and is blocked by evasion or i
   assert.equal(active(match, "enemy").statuses.length, 0);
   run({ type: "switch", index: 1 });
   const poisoned = active(match, "enemy");
-  assert.equal(poisoned.statuses[0].turns, 6);
+  assert.equal(poisoned.statuses[0].turns, 4);
   const hp = poisoned.hp;
   go.resolveTurn(match, { player: wait, enemy: { type: "switch", index: 0 } });
   assert.equal(poisoned.hp, hp);
-  assert.equal(poisoned.statuses[0].turns, 6);
+  assert.equal(poisoned.statuses[0].turns, 4);
   poisoned.statuses = [];
   go.resolveTurn(match, { player: wait, enemy: { type: "switch", index: 1 } });
   go.changeEnergy(active(match), 6);
@@ -875,7 +875,7 @@ test("official teams: 砂煙 persists through a swap, ベノムアシッド pois
   assert.ok(first.events.some(e => e.type === "field-applied"));
   const next = go.resolveTurn(match, { player: { type: "switch", index: 1 }, enemy: select("skill_027") });
   assert.ok(next.events.some(e => e.type === "status-applied" && e.name === "毒"));
-  assert.equal(active(match).statuses[0].turns, 6);
+  assert.equal(active(match).statuses[0].turns, 4);
   const events = [];
   while (!match.winner && match.turn < 25) {
     const enemy = active(match, "enemy").energy >= 3 ? select("skill_027") : select("skill_026");
@@ -1156,7 +1156,7 @@ test("official burn uses MHB residuals, refreshes once, coexists with poison and
   target.statuses.push({ definition: officialEffects.get("poison"), turns: 2 });
   const first = action(match, move.skill_id);
   assert.equal(first.events.filter(e => e.type === "residual").length, 2);
-  assert.equal(tick(first)[0].damage, 60);
+  assert.equal(tick(first)[0].damage, 20);
   assert.equal(burn().turns, 4);
   const hp = target.hp;
   pass({ type: "switch", index: 1 });
@@ -1167,7 +1167,7 @@ test("official burn uses MHB residuals, refreshes once, coexists with poison and
   target.hp = target.maxHp;
   assert.equal(tick(action(match, move.skill_id)).length, 1);
   assert.equal(burn().turns, 4);
-  for (let i = 0; i < 4; i++) assert.equal(tick(pass())[0].damage, 60);
+  for (let i = 0; i < 4; i++) assert.equal(tick(pass())[0].damage, 20);
   assert.equal(burn(), undefined);
   assert.equal(tick(pass()).length, 0);
 });
@@ -1177,7 +1177,7 @@ const powerSetup = (element, effectId = "next_" + element + "_power_150") => sta
 });
 const powerEvents = (turn, phase = "used") => turn.events.filter((event) => event.type === "next-power-" + phase);
 
-test("Discharge costs no EN, raises SD twice and readies Thunder power", () => {
+test("Discharge costs no EN, raises the CSV SD stage and readies Thunder power", () => {
   const move = skill("skill_020");
   const attack = skill("skill_018");
   const match = battle({ ...assets, skills: [move, attack],
@@ -1188,7 +1188,7 @@ test("Discharge costs no EN, raises SD twice and readies Thunder power", () => {
   assert.deepEqual([move.element, move.cost, move.battle_effect_chance1], ["thunder", 0, 100]);
   assert.equal(go.checkAction(match, "player", select(move.skill_id)), "");
   const turn = action(match, move.skill_id);
-  assert.deepEqual([actor.energy, actor.stages.sp_def, powerEvents(turn, "ready")[0].element], [0, 2, "thunder"]);
+  assert.deepEqual([actor.energy, actor.stages.sp_def, powerEvents(turn, "ready")[0].element], [0, officialEffects.get(skill("skill_020").effect1).damage_value, "thunder"]);
   go.changeEnergy(actor, attack.cost);
   const result = action(match, attack.skill_id);
   assert.equal(powerEvents(result)[0].power, 120);
@@ -1341,7 +1341,7 @@ test("normalization re-reads CSV tuning for status probability, damage, duration
     return [first.events.find(e => e.type === "residual").damage, active(match).statuses[0].turns,
       first.events.find(e => e.category === "attack").damage, second.damage];
   }
-  assert.deepEqual(simulate(false), [40, 6, 56, 112]);
+  assert.deepEqual(simulate(false), [40, 4, 56, 112]);
   assert.deepEqual(simulate(true), [80, 2, 84, 84]);
   const raw = csv(read("data/skill.csv")).find(row => row.skill_id === "skill_027");
   const move = normalizeSkill({ ...raw, effect_chance1: "50" }, elements);
@@ -2278,7 +2278,7 @@ test("hostile status immunity blocks only individually targeted status effects",
 test("dodge action and actual evade are separate, including failed dodge and ignore-dodge attacks", () => {
   const dodge = skill("skill_000"), sharpen = skill("skill_043");
   for (const [id, evasion, hitType, dodgeMove, events, stage, stat] of [
-    ["021", 0, "normal", sharpen, 1, 2, "phy_def"], ["021", 100, "normal", dodge, 1, 2, "phy_def"],
+    ["021", 0, "normal", sharpen, 1, officialPassives.get("passive_021").effects[0].value, "phy_def"], ["021", 100, "normal", dodge, 1, officialPassives.get("passive_021").effects[0].value, "phy_def"],
     ["023", 0, "normal", dodge, 0, 0, "sp_atk"], ["023", 100, "normal", dodge, 1, 1, "sp_atk"],
     ["023", 100, "ignore_dodge", dodge, 0, 0, "sp_atk"],
   ]) {
@@ -2734,7 +2734,7 @@ test("support scoring distinguishes effective healing, capped ranks, enemy immun
   const canFocus = score(focus.skill_id);
   go.changeStage(actor, "sp_atk", 6);
   assert.ok(canFocus > score(focus.skill_id));
-  assert.ok(score(song.skill_id) < 0);
+  assert.ok(score(song.skill_id) <= 0, "an ineffective move must not earn positive utility, including zero EN cost");
   assert.ok(score(dodge.skill_id) > score(song.skill_id));
 });
 

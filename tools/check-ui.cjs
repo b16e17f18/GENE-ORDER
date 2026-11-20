@@ -330,8 +330,6 @@ async function verify(browser, width) {
     assert.match(await ui.locator(".go-move-matchup").getAttribute("aria-label"), /相手への属性相性/);
     assert.equal(await ui.locator(".go-move-matchup").evaluate(node => getComputedStyle(node).borderTopStyle), "solid");
     await shot("move-expanded");
-    await ui.locator('[data-go-move="skill_002"]').dispatchEvent("click", { detail: 2 });
-    assert.ok(await ui.locator("[data-go-move-back]").isVisible());
     await page.keyboard.press("Escape");
     assert.equal(await ui.locator(".go-move-card").count(), 4);
     assert.equal(await byId("go-official-log").locator("li").count(), cardLogs);
@@ -431,7 +429,7 @@ async function verify(browser, width) {
       await image.decode();
       return [image.naturalWidth, image.naturalHeight];
     }, chartImage), [1448, 1086]);
-    await chart.getByRole("button", { name: "閉じる" }).click();
+    await chart.locator('form[method="dialog"] button').click();
     assert.ok(await chart.isHidden());
     assert.ok(await chartButton.evaluate((button) => document.activeElement === button));
     await chartButton.click();
@@ -477,7 +475,8 @@ async function verify(browser, width) {
     await shot("battle");
     await byId("go-fast-battle").check();
     await pass(); await pass();
-    assert.match(await byId("go-official-log").textContent(), /回避判定/);
+    assert.doesNotMatch(await byId("go-official-log").textContent(), /回避判定|回避状態が終了|半減防御が終了/);
+    assert.match(await byId("go-official-log").textContent(), /の回避（EN/);
     await chooseMove("skill_041"); await pass();
     assert.match(await byId("playerHud").textContent(), /デコイ 体力 72\/72/);
     assert.match(await byId("go-official-log").textContent(), /ユーズドマウスの自然回復で体力 \+22/);

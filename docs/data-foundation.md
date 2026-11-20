@@ -141,3 +141,15 @@ v0.31の16箇所から9箇所を解消し、7箇所が残る。技・能力・�
 - 継続ダメージは effect.csv に一意の効果IDを作り、effect_group=damage、damage_type=percent_maxhp、damage_value に最大体力に対する百分率、turn に回数を書く。付与ターンの終了時から進み、同じIDでの再付与は期間を更新する。交代封じを伴うものは effect_group=bind を使う。
 - 回避率補正は effect_group=evasion、damage_type=multiplier、target_stat=evasion_percent。damage_value が倍率、turn が持続、start_delay が開始までのターン数（0で即時、1で次のターン）。ブロッサムシャインは倍率2・持続1・開始1。
 - 攻撃側の能力参照は skill.csv の attack_stat。phy_atk／phy_def／sp_atk／sp_def／speed を指定でき、空欄は技の分類に従う。シェルハードは phy_def。
+
+## 状態異常の追加カラム（2026-11-20）
+
+| カラム | 意味・有効範囲 | 空欄または旧CSVで省略 |
+|---|---|---|
+| stat_modifier_target | phy_atk / phy_def / sp_atk / sp_def / speed | none（補正なし） |
+| stat_modifier_multiplier | 有限の正数。倍率が1以外なら対象が必要 | 1 |
+| action_failure_chance | 有限の0〜100。単位は% | 0 |
+
+CSVの列名で読み込み、10カラムの旧形式も受け付ける。数値異常・未知の能力ID・倍率だけ設定して対象なしの組み合わせを診断する。effect_group=status、damage_type=none、damage_value=0、正のturnの行も状態異常として処理し、HPダメージを発生させない。状態異常IDのカタログはeffectKindの分類から生成するため、技・パッシブ・状態条件・AIで同じ分類を使う。複数の行動不能効果が共存する場合は独立した失敗確率の合成（1−各成功確率の積）とし、実行直前に1回だけ抽選する。
+
+テスト用CSVの再読み込みで能力倍率・行動不能確率・継続ダメージ・期間が変わることを検証した。正式effect.csvは作業開始時のSHA-256と一致し、内容は書き換えていない。作業中に外部追加された技と画像も保持する。
