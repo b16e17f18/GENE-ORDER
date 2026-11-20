@@ -9,22 +9,22 @@ const geneOrderUI = (() => {
   const DODGE = "skill_000";
   // MHB pause() doubles its source delays. These values are the actual milliseconds.
   const PLAYBACK_TIMING = Object.freeze({
-    input: 300,
-    moveName: 840,
-    damage: 1040,
-    stage: 600,
-    status: 720,
-    passive: 600,
-    faint: 1040,
-    switch: 840,
-    residual: 840,
-    energy: 600,
-    message: 720,
-    actionGap: 420,
-    turnEnd: 600,
-    hpGauge: 360,
-    flash: 130,
-    minimumAnimation: 80,
+    input: 500,
+    moveName: 500,
+    damage: 1000,
+    stage: 1000,
+    status: 1000,
+    passive: 1000,
+    faint: 1000,
+    switch: 1000,
+    residual: 1000,
+    energy: 750,
+    message: 1500,
+    actionGap: 500,
+    turnEnd: 750,
+    hpGauge: 750,
+    flash: 500,
+    minimumAnimation: 250,
   });
   function eventHold(event) {
     if (event.type === "move") return event.category === "attack" ? PLAYBACK_TIMING.damage : PLAYBACK_TIMING.status;
