@@ -1,6 +1,6 @@
 ﻿skill_id,name,category,power,element,element2,attack_type,hit_type,effect1,effect_target1,effect_chance1,effect2,effect_target2,effect_chance2,effect3,effect_target3,effect_chance3,battle_effect1,battle_effect_chance1,battle_effect2,battle_effect_chance2,target,priority,cost,text,animation_id,animation_duration_ms,repeat_count,power_rule,power_cap,learn_species,learn_elemenr,learn_character,sub_color,attack_stat
 skill_000,回避,status,0,無,none,none,normal,none,enemy,0,none,enemy,0,none,enemy,0,dodge_guard,100,none,0,self,4,0,全員共通。自身のevasion_percentの確率で、まもる相当の防御状態になる。回避不可技には無効。通常のEN回復は行う。,magic_enhance01,250,1,,,,,,,
-skill_001,歌声,status,0,無,none,none,normal,pa_down1,enemy,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,1,相手のPAを1段階下げる。,magic_sonicwave01,250,1,,,,,,none,
+skill_001,歌声,status,0,無,none,none,normal,pa_down1,enemy,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,0,相手のPAを1段階下げる。,magic_sonicwave01,250,1,,,,,,none,
 skill_002,ファングブレイク,attack,60,無,none,physical,normal,pd_down1,enemy,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,1,相手のPDを1段階下げる。,attack_spear01,500,1,,,,,,none,
 skill_003,毛繕い,status,0,無,none,none,normal,heal_half,self,100,pa_up1,self,100,none,enemy,0,none,0,none,0,self,0,3,HPを最大HPの1/2回復し、自分のPAを1段階上げる。,magic_starfall01,500,1,,,,,,#98FB98,
 skill_004,キャットラッシュ,attack,100,無,none,physical,normal,none,enemy,0,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,2,,attack_slash03,250,2,,,,,,none,
