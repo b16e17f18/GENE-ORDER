@@ -249,6 +249,16 @@ async function verify(browser, width) {
     };
     const verifyMoveLayout = async () => {
       for (const button of await byId("moveGrid").locator("[data-go-open-move], [data-go-move]").all()) {
+        const kindBadge = await button.locator(".move-kind").evaluate(node => {
+          const style = getComputedStyle(node);
+          return { kind: node.dataset.goKind, color: style.color, background: style.backgroundColor,
+            border: style.borderTopStyle, radius: style.borderRadius };
+        });
+        const backgrounds = { physical: "rgb(107, 114, 128)", special: "rgb(217, 90, 157)", status: "rgb(66, 184, 220)" };
+        assert.equal(kindBadge.background, backgrounds[kindBadge.kind]);
+        assert.equal(kindBadge.color, "rgb(255, 255, 255)");
+        assert.equal(kindBadge.border, "solid");
+        assert.equal(kindBadge.radius, "0px");
         const boxes = await button.evaluate(node => [".move-name", ".move-element", ".move-power"].map(selector => {
           const r = node.querySelector(selector).getBoundingClientRect();
           return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
@@ -276,12 +286,14 @@ async function verify(browser, width) {
     assert.equal(await ui.locator(".go-move-matchup").count(), 0);
     await ui.locator("[data-go-move-back]").click();
     await move("skill_002").click();
-    assert.match(await ui.locator(".go-move-matchup").textContent(), /相手への属性相性 ×/);
+    assert.match(await ui.locator(".go-move-matchup").textContent(), /^×[0-9]+(?:\.[0-9]+)?$/);
     assert.doesNotMatch(await ui.locator(".go-expanded-move").textContent(), /優先度|この技を使う/);
     const expandedBox = await ui.locator(".go-expanded-move").boundingBox();
     const gridBox = await byId("moveGrid").boundingBox();
     assert.ok(Math.abs(expandedBox.width - gridBox.width) < 2);
     await verifyMoveLayout();
+    assert.match(await ui.locator(".go-move-matchup").getAttribute("aria-label"), /相手への属性相性/);
+    assert.equal(await ui.locator(".go-move-matchup").evaluate(node => getComputedStyle(node).borderTopStyle), "solid");
     await shot("move-expanded");
     await ui.locator('[data-go-move="skill_002"]').dispatchEvent("click", { detail: 2 });
     assert.ok(await ui.locator("[data-go-move-back]").isVisible());

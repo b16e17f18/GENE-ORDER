@@ -650,8 +650,9 @@ const geneOrderUI = (() => {
         const releasing = actor.pending?.moveId === expandedMoveId;
         const kind = expanded.category === "attack" ? attackTypeLabel(expanded.attack_type) : "変化";
         const matchup = moveMatchup(expanded, go.activeFighter(battle, otherSide(candidate)), data);
-        const affinity = matchup ? '<span class="go-move-matchup">相手への属性相性 ×' + matchup.multiplier +
-          (matchup.passiveImmune ? ' ／ パッシブで無効' : '') + '</span>' : '';
+        const affinity = matchup ? '<span class="go-move-affinity"><span class="go-move-matchup" aria-label="相手への属性相性 ×' +
+          matchup.multiplier + '">×' + matchup.multiplier + '</span>' +
+          (matchup.passiveImmune ? '<span class="go-move-immunity">パッシブで無効</span>' : '') + '</span>' : '';
         $("moveGrid").innerHTML = '<div class="command-note">' + LABELS[candidate] + 'の技を確認</div>' +
           '<div class="go-expanded-move"><button class="move-button move-element-' + esc(expanded.element ?? '') +
           '" type="button" data-go-move="' + esc(expandedMoveId) + '" ' + (issue ? 'disabled' : '') +
@@ -659,7 +660,7 @@ const geneOrderUI = (() => {
           '<span class="move-name">' + esc(expanded.name) + '</span>' +
           '<span class="move-cost">' + energyBadge(releasing ? 0 : expanded.cost) + '</span>' +
           '<span class="move-element">' + moveAttributes(expanded) + '</span>' +
-          '<span class="move-kind">' + esc(kind) + '</span>' +
+          '<span class="move-kind" data-go-kind="' + esc(expanded.category === 'attack' ? expanded.attack_type : 'status') + '">' + esc(kind) + '</span>' +
           '<span class="move-power power-chip">威力 ' + (expanded.category === 'attack' ? releasing ? actor.pending.power : expanded.power : '—') + '</span>' +
           affinity + '<span class="move-text">' + esc(goStatText(expanded.text)) + '</span>' +
           (issue ? '<span class="go-move-issue">' + esc(goStatText(issue)) + '</span>' : '') +
@@ -675,7 +676,7 @@ const geneOrderUI = (() => {
         return `<div class="go-move-card"><button class="move-button move-element-${esc(move.element ?? "")} ${issue ? "go-move-unavailable" : ""}"
           type="button" data-go-open-move="${esc(id)}" aria-label="${esc(move.name)}の詳細" aria-expanded="false">
           <span class="move-name">${esc(move.name)}</span><span class="move-cost">${energyBadge(releasing ? 0 : move.cost)}</span>
-          <span class="move-element">${moveAttributes(move)}</span><span class="move-kind">${esc(kind)}</span>
+          <span class="move-element">${moveAttributes(move)}</span><span class="move-kind" data-go-kind="${esc(move.category === "attack" ? move.attack_type : "status")}">${esc(kind)}</span>
           <span class="move-power power-chip">威力 ${move.category === "attack" ? releasing ? actor.pending.power : move.power : "—"}</span></button></div>`;
 
       });
