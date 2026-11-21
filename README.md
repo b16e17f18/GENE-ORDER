@@ -22,7 +22,7 @@ py -3 -m http.server 8000 --bind 127.0.0.1
 | `go-ui.js`, `go-ui.css`, `styles.css` | 正式対戦の操作・表示とMHB由来のスタイル |
 | `data-validation.js` | ID・データ型・相性組・素材参照の診断 |
 | `data/*.csv` | UTF-8の正式マスタ（技とアニメーション定義を含む） |
-| `data/passive_type.csv` | パッシブ効果29タイプの種別ID・名称・発動タイミング・対象形式・効果量条件・別名 |
+| `data/passive_type.csv` | パッシブ効果34タイプの種別ID・名称・発動タイミング・対象形式・効果量条件・別名 |
 | `data/reference/` | 旧10属性資料とMHB由来の敵編成 |
 | `asset/character/` | キャラクター画像 |
 | `asset/battle-animation/`, `asset/bgm/`, `asset/element/` | 対戦アニメーション、BGM、属性アイコン |
@@ -31,7 +31,7 @@ py -3 -m http.server 8000 --bind 127.0.0.1
 | `test/` | データ基盤・戦闘ルールの自動テスト |
 | `docs/data-foundation.md` | データ契約・検証結果・未解決事項 |
 | `docs/battle-system.md` | 基本戦闘の仕様と暫定ルール |
-| `docs/passive-system.md` | 共通29タイプ、個別パッシブ、CSV調整、発動順と暫定仕様 |
+| `docs/passive-system.md` | 共通34タイプ、個別パッシブ、CSV調整、発動順と暫定仕様 |
 
 全65技の対応状況は技一覧に記録しています。 [技一覧](docs/skill-effects.md)
 
@@ -53,3 +53,5 @@ v0.61〜v0.63の正式表示は7属性の共通アイコン、日本語の能力
 ## 開発を始める前に
 
 ローカルとGitHubの双方で開発するため、作業開始前に `git status --short --branch` で未コミット変更を確認し、`git fetch origin main` と `git rev-list --left-right --count HEAD...origin/main` で差分を確認します。ローカルのコミットが先行しておらず早送りできる場合は、未コミット変更を保護したうえで `git pull --ff-only origin main` を実行します。履歴が分岐している場合は双方の変更を確認してから統合します。
+
+被弾・撃破・通常交代・味方戦闘不能後の登場に対応する5効果を加え、正式マスタは34タイプです。設定例・MHB比較・検証結果は [イベント型パッシブ追加](docs/passive-events-34.md) を参照してください。

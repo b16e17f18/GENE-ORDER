@@ -694,7 +694,7 @@ const geneOrderBattle = (() => {
     }
   }
 
-  function applyEntryPassive(battle, side, events) {
+  function applyEntryPassive(battle, side, events, replacement = false) {
     const fighter = activeFighter(battle, side), opponent = activeFighter(battle, opposingSide(side));
     if (fighter.fainted) return;
     for (const effect of geneOrderPassives.matching(fighter, "entry")) {
@@ -711,6 +711,16 @@ const geneOrderBattle = (() => {
         if (delta) geneOrderPassives.activate(fighter, side, effect, events, { stat: effect.stat, delta, target: target.base.name });
       }
     }
+    if (replacement) for (const effect of geneOrderPassives.matching(fighter, "replacement-entry")) {
+      restorePassiveEnergy(fighter, side, effect, events);
+    }
+  }
+
+  function restorePassiveEnergy(fighter, side, effect, events) {
+    const before = fighter.energy;
+    changeEnergy(fighter, effect.value);
+    if (fighter.energy !== before) geneOrderPassives.activate(fighter, side, effect, events,
+      { recoveredEnergy: fighter.energy - before });
   }
 
   function lifestealEffects(fighter, move, damage, hp) {
@@ -741,6 +751,10 @@ const geneOrderBattle = (() => {
     const targetSide = opposingSide(side);
     applyPassiveStages(defender, targetSide, "body-hit", events, { move });
     if (defender.fainted || attacker.fainted) return;
+    for (const effect of geneOrderPassives.matching(defender, "body-hit-energy")) {
+      restorePassiveEnergy(defender, targetSide, effect, events);
+    }
+    applyPassiveStages(attacker, side, "hit-enemy-stage", events, { target: defender });
     for (const effect of geneOrderPassives.matching(defender, "body-hit-status",
       (entry) => entry.condition.attackType === move.attack_type)) {
       const definition = battle.effects.get(effect.statusId);
@@ -885,6 +899,18 @@ const geneOrderBattle = (() => {
     const notify = (phase) => battle.onSwitch?.({ phase, battle, side, reason, from, to, events });
     notify("before-switch");
     notify("leave");
+    const replacement = reason === "replacement" && from.fainted;
+    if (reason === "normal" && !from.fainted && from.hp > 0) {
+      for (const effect of geneOrderPassives.matching(from, "normal-switch-heal")) {
+        // MHB switch_heal uses floor(max HP * percent / 100). GO stores a ratio.
+        const recovered = Math.max(0, Math.min(from.maxHp - from.hp,
+          hpEffectAmount("heal", from, 0, effect.value * 100, "percent_maxhp")));
+        if (!recovered) continue;
+        from.hp += recovered;
+        geneOrderPassives.activate(from, side, effect, events, { recovered });
+        events.push({ type: "heal", side, actor: from.base.name, recovered, source: "passive" });
+      }
+    }
     const stages = reason === "relay" ? { ...from.stages } : null;
     const decoy = reason === "relay" || reason === "tail-purge" ? from.decoy : null;
     resetStages(from);
@@ -906,8 +932,8 @@ const geneOrderBattle = (() => {
       if (delta) geneOrderPassives.activate(from, side, effect, events, { stat: effect.stat, delta, target: to.base.name });
     }
     notify("enter");
-    if (deferredEntries) deferredEntries.push(side);
-    else applyEntryPassive(battle, side, events);
+    if (deferredEntries) deferredEntries.push({ side, replacement });
+    else applyEntryPassive(battle, side, events, replacement);
     events.push({ type: reason === "replacement" ? "replacement" : "switch", side, reason,
       actor: from.base.name, target: to.base.name, inheritedStages: stages, decoyHp: decoy?.hp ?? 0 });
     notify("after-switch");
@@ -1241,9 +1267,14 @@ const geneOrderBattle = (() => {
       const defenderJustFainted = defender.fainted && !defenderWasFainted;
       if (defenderJustFainted && actualDamage > 0 && !actor.fainted) {
         for (const effect of geneOrderPassives.matching(actor, "on-ko")) {
-          const before = actor.energy;
-          changeEnergy(actor, effect.value);
-          geneOrderPassives.activate(actor, side, effect, events, { recoveredEnergy: actor.energy - before });
+          if (effect.handler === "on_ko_stat_stage") {
+            const delta = changeStage(actor, effect.stat, effect.value, { source: actor, side, events });
+            if (delta) geneOrderPassives.activate(actor, side, effect, events, { stat: effect.stat, delta });
+          } else {
+            const before = actor.energy;
+            changeEnergy(actor, effect.value);
+            geneOrderPassives.activate(actor, side, effect, events, { recoveredEnergy: actor.energy - before });
+          }
         }
       }
       if (defenderJustFainted) recordFaint(battle, other, defender, events);
@@ -1304,7 +1335,7 @@ const geneOrderBattle = (() => {
       }
       const entries = [];
       for (const { side, index } of replacements) switchFighter(battle, side, index, "replacement", events, entries);
-      for (const side of entries) applyEntryPassive(battle, side, events);
+      for (const { side, replacement } of entries) applyEntryPassive(battle, side, events, replacement);
       battle.turn += 1;
     }
   }

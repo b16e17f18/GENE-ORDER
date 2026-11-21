@@ -28,3 +28,8 @@ on_switch_out_stat_stage,交代時控え味方ランク変化,on_switch_out_stat
 status_immunity,状態異常無効,status_immunity,before-status-applied,status,number,0,,TRUE,TRUE,none,,target_idで指定した状態異常を無効化する。毒・麻痺・火やられ・氷やられ等を個別指定できる。全状態異常無効はallを指定する。
 heal_block,相手の回復技封印,heal_block,before-move,hp,number,0,,TRUE,TRUE,none,,このパッシブの所持者と対峙する相手はHPを直接回復する技を使用できない。MHBのイャンガルルガのパッシブに相当する。
 conditional_damage_multiplier,条件付き被ダメージ倍率,conditional_damage_multiplier,incoming-damage,attack_type,number,0,,FALSE,TRUE,stat_condition,,HPなどの指定条件を満たす時に指定分類の攻撃技から受けるダメージに倍率を掛ける
+on_damage_en_restore,被弾時EN回復,on_damage_en_restore,body-hit-energy,energy,integer,0,,TRUE,TRUE,none,,直接攻撃で本体HPが減少し生存した時に自分のENを回復する。1技につき最大1回。
+on_ko_stat_stage,撃破時能力ランク変化,on_ko_stat_stage,on-ko,stat,integer,,,TRUE,TRUE,none,,自分の直接攻撃で相手を倒した時に自分の指定能力ランクを変える。
+on_switch_out_heal,通常交代時HP回復,on_switch_out_heal,normal-switch-heal,hp,number,0,1,TRUE,TRUE,none,,通常交代が成立した時に控えへ戻る本人の最大HPに対する割合で回復する。0.2は20%。
+on_hit_enemy_stat_stage,攻撃命中時相手能力ランク変化,on_hit_enemy_stat_stage,hit-enemy-stage,stat,integer,,,TRUE,TRUE,none,,攻撃で生存中の相手の本体HPを減らした時に相手の指定能力ランクを変える。1技につき最大1回。
+on_enemy_ko_en_restore,味方戦闘不能後登場時EN回復,on_enemy_ko_en_restore,replacement-entry,energy,integer,0,,TRUE,TRUE,none,,味方戦闘不能による補充登場時だけ自分のENを回復する。通常交代では発動しない。
