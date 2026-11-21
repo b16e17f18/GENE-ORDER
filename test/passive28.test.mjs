@@ -73,3 +73,14 @@ test('relay applies outgoing team stages after inherited ranks and preserves all
 test('entry EN drain reapplies on re-entry once and preview matches live EN',()=>{
  const b=match([['on_entry_enemy_en_drain','en',2]],{player:[base({passive_id:'fixture'}),base({character_id:'bench'})]});active(b,'enemy').energy=7;action(b,{type:'switch',index:1});const prediction=go.previewSwitch(b,'player',0,'normal');assert.equal(active(prediction,'enemy').energy,5);action(b,{type:'switch',index:0});assert.equal(active(b,'enemy').energy,5);
 });
+
+for(const element of ['fire','water','thunder','ice','wind','earth','light','dark','none'])test('element use-stage excludes status moves for '+element,()=>{
+ const move={...give('bf_pa_up1'),element,effect_target1:'self'},b=match([['on_use_element_stat_stage',element+'_sp',1]],{moves:[move]});const e=action(b,use('give')).events;assert.equal(active(b).stages.speed,0);assert.equal(active(b).stages.phy_atk,1);assert.equal(e.some(e=>e.phase==='after-use'),false);
+});
+for(const type of ['physical','special'])test('element use-stage still triggers on '+type+' attacks',()=>{
+ const move={...strike,cost:0,element:'wind',attack_type:type},b=match([['on_use_element_stat_stage','wind_pa',1]],{moves:[move]});const e=action(b).events;assert.equal(active(b).stages.phy_atk,1);assert.equal(e.filter(e=>e.phase==='after-use').length,1);
+});
+test('common dodge does not cause neutral use-stage changes',()=>{const dodge=skills.get('skill_000'),b=match([['on_use_element_stat_stage','none_pa',-1]],{moves:[dodge]});const e=action(b,use(dodge.skill_id)).events;assert.equal(active(b).stages.phy_atk,0);assert.equal(e.some(e=>e.phase==='after-use'),false);});
+test('AI no longer awards status moves an attack-only use-stage bonus and does not mutate state',()=>{
+ const move={...give('bf_pa_up1'),effect_target1:'self',element:'wind'},b=match([['on_use_element_stat_stage','wind_pa',1]],{moves:[move]}),plain=match([],{moves:[move]});const score=board=>ai.evaluate(ai.observe(board,'player')).find(c=>c.action.moveId==='give').score,before=JSON.stringify(b,(_,v)=>v instanceof Map?[...v]:v);assert.equal(score(b),score(plain));assert.equal(JSON.stringify(b,(_,v)=>v instanceof Map?[...v]:v),before);
+});

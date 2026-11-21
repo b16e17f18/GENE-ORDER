@@ -1434,7 +1434,7 @@ const geneOrderAI = (() => {
       score += value * chance / 100;
     }
 
-    if (!actor.pending) for (const effect of geneOrderPassives.matching(actor, "after-use", (entry) => entry.element === move.element)) {
+    if (!actor.pending) for (const effect of geneOrderPassives.useStageEffects(actor, move)) {
       score += stageValue(actor, effect.stat, effect.value);
     }
     return score;

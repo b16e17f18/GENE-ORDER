@@ -3,7 +3,7 @@ starting_en,初期EN,starting_en,battle-start,energy,integer,0,,TRUE,TRUE,none,s
 element_immunity,属性攻撃無効,element_immunity,element-immunity,element,number,0,,TRUE,TRUE,none,,指定属性の攻撃技を無効にする
 element_damage_multiplier,属性別被ダメージ倍率,element_damage_multiplier,incoming-damage,element,number,0,1,FALSE,TRUE,none,,指定属性の攻撃技から受けるダメージに倍率を掛ける
 element_power_multiplier,属性技威力倍率,element_power_multiplier,power,element,number,0,,FALSE,TRUE,none,,指定属性の攻撃技の威力に倍率を掛ける
-on_use_element_stat_stage,属性技使用時ランク変化,on_use_element_stat_stage,after-use,element_stat,integer,,,TRUE,TRUE,none,,指定属性の技使用後に自分の能力ランクを変える
+on_use_element_stat_stage,属性技使用時ランク変化,on_use_element_stat_stage,after-use,element_stat,integer,,,TRUE,TRUE,none,,指定属性の攻撃技使用後に自分の能力ランクを変える。変化技は対象外
 turn_end_stat_stage,ターン終了時ランク変化,turn_end_stat_stage,turn-end,stat,integer,,,TRUE,TRUE,none,,ターン終了時に自分の能力ランクを変える
 on_hit_element_stat_stage,属性被弾時ランク変化,on_hit_element_stat_stage,body-hit,element_stat,integer,,,TRUE,TRUE,none,,指定属性の直接攻撃で本体HPが減った時に能力ランクを変える
 on_entry_enemy_stat_stage,登場時相手ランク変化,on_entry_enemy_stat_stage,entry,stat,integer,,,TRUE,TRUE,none,,場に出た時に相手の能力ランクを変える

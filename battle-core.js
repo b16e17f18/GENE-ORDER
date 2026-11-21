@@ -542,7 +542,7 @@ const geneOrderBattle = (() => {
         changeStage(charging, effect.target_stat, effect.damage_value);
       }
     }
-    for (const effect of geneOrderPassives.matching(charging, "after-use", (effect) => effect.element === move.element)) {
+    for (const effect of geneOrderPassives.useStageEffects(charging, move)) {
       changeStage(charging, effect.stat, effect.value);
     }
     team[index] = charging;
@@ -687,7 +687,8 @@ const geneOrderBattle = (() => {
   function applyPassiveStages(fighter, side, phase, events, { move, target = fighter } = {}) {
     if (fighter.fainted || target.fainted) return;
     const targetSide = target === fighter ? side : opposingSide(side);
-    const effects = geneOrderPassives.matching(fighter, phase, (effect) => !move || effect.element === move.element);
+    const effects = phase === "after-use" ? geneOrderPassives.useStageEffects(fighter, move) :
+      geneOrderPassives.matching(fighter, phase, (effect) => !move || effect.element === move.element);
     for (const effect of effects) {
       const delta = changeStage(target, effect.stat, effect.value, { source: fighter, side: targetSide, events });
       if (delta) geneOrderPassives.activate(fighter, side, effect, events, { stat: effect.stat, delta, target: target.base.name });

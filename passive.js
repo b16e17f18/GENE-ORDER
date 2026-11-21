@@ -606,6 +606,11 @@ const geneOrderPassives = (() => {
     });
   }
 
+  function useStageEffects(fighter, move) {
+    if (move?.category !== "attack") return [];
+    return matching(fighter, "after-use", effect => effect.element === move.element);
+  }
+
   function moveCosts(fighter, move) {
     return matching(fighter, "move-cost", (effect) => effect.value < 0 && move.priority >= effect.condition.priority)
       .map((effect) => ({ effect, damage: Math.floor(fighter.maxHp * -effect.value) }));
@@ -645,5 +650,5 @@ const geneOrderPassives = (() => {
       slot: effect.slot, text: title + (message ? "：" + message : "が発動"), ...details });
   }
 
-  return { readTypes, normalize, matching, first, used, survive, blocksStage, hasStatus, statModifiers, moveCosts, statusMoveBlock, statusBlock, attackEffects, effectChance, healBlock, criticalBlock, activate };
+  return { readTypes, normalize, matching, first, used, survive, blocksStage, hasStatus, statModifiers, useStageEffects, moveCosts, statusMoveBlock, statusBlock, attackEffects, effectChance, healBlock, criticalBlock, activate };
 })();

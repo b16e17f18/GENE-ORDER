@@ -18,7 +18,7 @@
 |element_immunity|実装済み|維持|passive.js|既存回帰成功|なし|
 |element_damage_multiplier|実装済み|維持|passive.js|既存回帰成功|なし|
 |element_power_multiplier|実装済み|維持|passive.js|既存回帰成功|なし|
-|on_use_element_stat_stage|実装済み|維持|passive.js|既存回帰成功|なし|
+|on_use_element_stat_stage|実装済み|後続指示で攻撃技限定|passive.js|既存回帰成功|なし|
 |turn_end_stat_stage|実装済み|維持|passive.js|既存回帰成功|なし|
 |on_hit_element_stat_stage|実装済み|維持|passive.js|既存回帰成功|なし|
 |on_entry_enemy_stat_stage|実装済み|維持|passive.js, battle-core.js|既存回帰成功|なし|

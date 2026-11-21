@@ -733,7 +733,7 @@ test("new CSV status and evasion IDs work in other moves without adding JS regis
   assert.match(log, /2ターン後から2ターン、1\.5倍/);
 });
 
-test("Drumming Beat applies a CSV-configured PD gain while Full Commitment cancels a one-rank PA gain", async () => {
+test("Drumming Beat keeps its CSV stage gains without triggering the attack-only Full Commitment penalty", async () => {
   const configured = runtime({ transforms: {
     "./data/skill.csv": (csv) => csv.replace(/^skill_021,.*$/m, (row) =>
       row.replace(/,pa_up[12],self,100,pd_up[12],self,100,/, ",pa_up1,self,100,pd_up2,self,100,")),
@@ -754,7 +754,7 @@ test("Drumming Beat applies a CSV-configured PD gain while Full Commitment cance
         turn.events.filter(e => e.type === "stage").map(e => [e.stat, e.delta])]);
     })()
   `);
-  assert.deepEqual(JSON.parse(result), ["bf_pd_up2", 0, 2, [["phy_atk", 1], ["phy_def", 2]]]);
+  assert.deepEqual(JSON.parse(result), ["bf_pd_up2", 1, 2, [["phy_atk", 1], ["phy_def", 2]]]);
 });
 
 test("an invalid CSV attack stat is diagnosed and blocks the move", async () => {

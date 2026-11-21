@@ -1809,7 +1809,7 @@ test("elemental immunity blocks water and fire before dodge, absorption, reflect
   }
 });
 
-test("all elemental use-stage passives apply to status, hit, evade or immunity on use", () => {
+test("elemental use-stage passives exclude status moves and apply to executed attacks", () => {
   for (const [id, element, stat, delta, mode] of [
     ["004", "wind", "speed", 1, "evaded"], ["009", "ice", "phy_def", 1, "hit"],
     ["011", "light", "phy_atk", 1, "status"], ["012", "fire", "phy_atk", 1, "hit"],
@@ -1821,8 +1821,8 @@ test("all elemental use-stage passives apply to status, hit, evade or immunity o
       enemy: [withPassive(enemyPassive, { element_1: "light" })] });
     active(match, "enemy").dodgeActive = mode === "evaded";
     const result = action(match);
-    assert.equal(active(match).stages[stat], delta, id);
-    assert.equal(passivesIn(result, "after-use").length, 1, id);
+    assert.equal(active(match).stages[stat], mode === "status" ? 0 : delta, id);
+    assert.equal(passivesIn(result, "after-use").length, mode === "status" ? 0 : 1, id);
   }
   const status = { ...skill("skill_001"), element: "water" };
   const match = passiveBattle({ skills: [status], player: [withPassive("009", { skillIds: [status.skill_id] })],
@@ -1983,7 +1983,7 @@ test("charge spends after-use and power triggers at reservation only and skips a
   assert.equal(passivesIn(stopped, "after-use").length + passivesIn(stopped, "power").length, 0);
 });
 
-test("special switch suspension does not repeat use passives and Relay transfers their resulting stage", () => {
+test("special status switches do not trigger use stages while attacking switches trigger once", () => {
   for (const [moveId, reason] of [["skill_006", "tail-purge"], ["skill_042", "relay"], ["skill_045", "post-attack"]]) {
     const move = { ...skill(moveId), element: "wind" };
     const match = passiveBattle({ manualSwitches: true, skills: [move],
@@ -1995,10 +1995,10 @@ test("special switch suspension does not repeat use passives and Relay transfers
     assert.equal(first.pendingSwitch.reason, reason);
     assert.equal(passivesIn(first, "after-use").length, reason === "post-attack" ? 1 : 0);
     const second = go.continueSwitch(match, "player", 1);
-    assert.equal(passivesIn(first, "after-use").length + passivesIn(second, "after-use").length, 1);
+    assert.equal(passivesIn(first, "after-use").length + passivesIn(second, "after-use").length, move.category === "attack" ? 1 : 0);
     assert.equal(passivesIn(second, "turn-end").length, 1);
-    assert.equal(outgoing.passiveState.uses.get(1), 1);
-    assert.equal(active(match).stages.speed, reason === "relay" ? 1 : 0);
+    assert.equal(outgoing.passiveState.uses.get(1) ?? 0, move.category === "attack" ? 1 : 0);
+    assert.equal(active(match).stages.speed, 0);
   }
 });
 
