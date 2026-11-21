@@ -5,6 +5,7 @@ const geneOrderBattle = (() => {
   const SWITCH_PRIORITY = 6;
   const MIN_STAGE = -6;
   const MAX_STAGE = 6;
+  const GUARD_BREAK_REMAINING_CUT = 0.5;
   const STATS = ["phy_atk", "phy_def", "sp_atk", "sp_def", "speed"];
   const DAMAGE_STATS = { physical: ["phy_atk", "phy_def"], special: ["sp_atk", "sp_def"] };
   const SIDES = ["player", "enemy"];
@@ -119,7 +120,7 @@ const geneOrderBattle = (() => {
       (effect) => effect.element === move.element && effect.value > 0);
     if (immunity) return { damage: 0, decoyDamage: 0, power, reason: "passive-immune", powerPassives, immunity };
     const pierce = move.hit_type === "guard_break"
-      ? effects.find((effect) => battleEffectKind(effect) === "position")?.modifier ?? 1 : 1;
+      ? effects.find((effect) => battleEffectKind(effect) === "position")?.modifier ?? GUARD_BREAK_REMAINING_CUT : 1;
     const absorb = activeDefense(defender, "absorb", modifiers.turn ?? 1);
     const reflection = activeDefense(defender, "reflection", modifiers.turn ?? 1);
     const revenge = activeDefense(defender, "revenge", modifiers.turn ?? 1);
@@ -328,8 +329,7 @@ const geneOrderBattle = (() => {
     if (!move) return { issues: ["技が登録されていません。"], supportedParts: 0 };
     const issues = [];
     const attack = move.category === "attack";
-    const normalHit = !move.hit_type || ["normal", "ignore_dodge", "sure_hit"].includes(move.hit_type) ||
-      (move.hit_type === "guard_break" && Boolean(chargeSlot(move, data)));
+    const normalHit = !move.hit_type || ["normal", "ignore_dodge", "sure_hit", "guard_break"].includes(move.hit_type);
     const validAttack = Object.hasOwn(DAMAGE_STATS, move.attack_type) && move.element != null &&
       move.element2 == null && (!move.target || move.target === "enemy");
     let supportedParts = Number(attack && validAttack);

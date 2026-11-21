@@ -73,7 +73,7 @@ await go.boot();
 test("production scripts parse and evaluate in index.html order", () => {
   assert.deepEqual(scripts, ["data-validation.js", "passive.js", "battle-core.js", "battle-ai.js",
     "bgm.js", "dialogue-manager.js", "go-ui.js", "app.js"]);
-  assert.match(go.elements.get("#go-status").textContent, /46体.*65件.*9種/);
+  assert.match(go.elements.get("#go-status").textContent, /46体.*89件.*9種/);
 });
 
 test("reads only the official UTF-8 tables", () => {
@@ -162,7 +162,7 @@ test("natural recovery reloads from character CSV and emits the actual recovered
 
 test("passive type master covers the handlers, configured effects and legacy alias", () => {
   assert.equal(go.run("state.passiveTypes.size"), 16);
-  assert.equal(go.run('state.passives.size'), 24);
+  assert.equal(go.run('state.passives.size'), 27);
   assert.equal(go.run('[...state.passives.values()].every((passive) => passive.status === "implemented")'), true);
   assert.equal(go.run('state.passives.get("passive_007").effects[0].value'), 0.5);
   assert.equal(go.run('state.passives.get("passive_007").effects[0].element'), "none");
@@ -257,7 +257,7 @@ test("loads Japanese character, skill and passive names and keeps passive linkag
   assert.equal(go.run('state.skills.get("skill_001").name'), "歌声");
   assert.equal(go.run('state.passives.get("passive_001").name'), "リバイブ");
   assert.equal(go.run('state.characters[0].passive === state.passives.get("passive_001")'), true);
-  assert.equal(go.run('state.passives.size'), 24);
+  assert.equal(go.run('state.passives.size'), 27);
 });
 
 test("distinguishes explicit neutral, absent and unknown attributes, and loads evasion and species", () => {
@@ -280,8 +280,16 @@ test("keeps the ordered nine elements, all 81 matchups and the three immunities"
 
 test("excludes placeholders and never fills absent moves with MHB attacks", () => {
   assert.equal(go.run('state.characterMap.has("character_045")'), false);
-  assert.equal(go.run('state.skills.size'), 65);
-  assert.equal(go.run('movesForCharacter(state.characterMap.get("character_025")).length'), 0);
+  assert.equal(go.run('state.skills.size'), 89);
+  assert.equal(go.run('movesForCharacter(state.characterMap.get("character_025")).length'), 4);
+  assert.equal(go.run('movesForCharacter(state.characterMap.get("character_047")).length'), 4);
+  assert.equal(go.run('state.characters.every((character) => movesForCharacter(character).length === 4)'), true);
+  assert.equal(go.run('JSON.stringify([...state.skills.values()].filter((move) => geneOrderBattle.moveAvailability(move, state).issues.length).map((move) => [move.skill_id, geneOrderBattle.moveAvailability(move, state).issues]))'),
+    JSON.stringify([["skill_047", ["どろぼう"]], ["skill_066", ["攻撃分類・属性・対象"]],
+      ["skill_084", ["攻撃分類・属性・対象"]], ["skill_085", ["攻撃分類・属性・対象"]],
+      ["skill_086", ["攻撃分類・属性・対象"]], ["skill_087", ["攻撃分類・属性・対象"]]]));
+  assert.equal(go.run('JSON.stringify(state.characters.filter((character) => geneOrderUI.fighterIssue(character, state)).map((character) => character.character_id))'),
+    JSON.stringify([]));
   assert.equal(go.run('state.skills.has("basic_strike")'), false);
 });
 
@@ -290,8 +298,8 @@ test("diagnoses unresolved move references and keeps passive placeholders separa
   assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照不一致" && d.value === "どろぼう")'), true);
   assert.equal(go.run('state.skills.get("skill_001").effect1'), "bf_pa_down1");
   assert.equal(go.run('[...state.passives.values()].every((p) => p.status === "implemented")'), true);
-  assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照先未設定" && d.value === "passive_025")'), true);
-  assert.equal(go.run('state.dataDiagnostics.filter((d) => d.level === "予約行" && d.id).length'), 93);
+  assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照先未設定" && d.value === "passive_025")'), false);
+  assert.equal(go.run('state.dataDiagnostics.filter((d) => d.level === "予約行" && d.id).length'), 66);
   assert.equal(go.run('state.dataDiagnostics.filter((d) => d.level === "ID未設定" && d.table === "characters").length'), 10);
 });
 
@@ -573,10 +581,10 @@ test("diagnoses invalid passive conditions and missing status targets", async ()
   assert.equal(invalid.run('state.dataDiagnostics.some(d => d.id === "passive_022" && d.field === "target_id1" && d.level === "効果未対応")'), true);
 });
 
-test("formal CSV has 24 playable passives and reports actionable numeric bounds", async () => {
+test("formal CSV has 27 playable passives and reports actionable numeric bounds", async () => {
   assert.equal(go.run('state.dataDiagnostics.filter(d => ["数値異常", "重複ID", "相性欠落", "相性重複"].includes(d.level)).length'), 0);
   assert.equal(go.run('state.dataDiagnostics.filter(d => d.level === "参照不一致").length'), 1);
-  assert.equal(go.run('state.dataDiagnostics.filter(d => d.table === "passives" && d.level === "予約行").length'), 40);
+  assert.equal(go.run('state.dataDiagnostics.filter(d => d.table === "passives" && d.level === "予約行").length'), 37);
   const invalid = runtime({ transforms: {
     "./data/character.csv": (text) => text.replace("獣族,125,81,75", "獣族,0,81.5,75"),
     "./data/skill.csv": (text) => patchCsv(text, "skill_id", "skill_001", { effect_chance1: 101, cost: 8 }),
@@ -850,14 +858,14 @@ test("random battle excludes placeholders and invalid slots, preserves data and 
   assert.equal(go.run('geneOrderUI.randomBattleSettings(state, () => 0.999999).team.player.length'), 3);
 });
 
-test("official UI rejects unready, invalid, duplicate and oversized teams using the formal roster", () => {
-  assert.equal(go.run('geneOrderUI.fighterIssue(state.characterMap.get("character_047"), state)'), "習得技未設定");
+test("official UI accepts newly configured fighters and rejects invalid, duplicate and oversized teams", () => {
+  assert.equal(go.run('geneOrderUI.fighterIssue(state.characterMap.get("character_047"), state)'), "");
   assert.equal(go.run('geneOrderUI.fighterIssue(state.characterMap.get("character_005"), state)'), "");
   assert.equal(go.run(`(${formalMatch()}).battle.teams.player[0].base.name`), "ユーズドマウス");
   assert.throws(() => go.run(formalMatch().replace('"character_016", "character_015", "character_019"', "")), /先発/);
   assert.throws(() => go.run(formalMatch().replace('"character_016"', '"character_015"')), /先発/);
   assert.throws(() => go.run(formalMatch().replace("random: ()", "limit: 2, random: ()")), /1〜2体/);
-  assert.throws(() => go.run(formalMatch().replace('"character_016"', '"character_047"')), /習得技未設定/);
+  assert.equal(go.run(`(${formalMatch().replace('"character_016"', '"character_047"')}).battle.teams.player[1].base.name`), "K-12");
 });
 
 test("official match maps manual versus AI through GO and records display frames without legacy state", () => {
@@ -910,8 +918,8 @@ test("official match captures poison and HP0 before resuming a replacement, then
       const match = make();
       const battle = match.battle;
       const wait = { type: "wait" };
-      match.resolve({ player: { type: "switch", index: 2 }, enemy: wait });
-      const poison = { type: "move", moveId: "skill_053" };
+      match.resolve({ player: { type: "switch", index: 1 }, enemy: wait });
+      const poison = { type: "move", moveId: "skill_046" };
       const afflicted = match.resolve({ player: poison, enemy: wait });
       const statusIndex = afflicted.events.findIndex(e => e.type === "status-applied");
       const atApplication = afflicted.frames[statusIndex].teams.enemy[0].statuses[0].turns;
@@ -1116,7 +1124,7 @@ test("selected player party gets three distinct random AI opponents with minimum
 test("random opponent selection rejects incomplete, duplicate and placeholder player parties before drawing", () => {
   for (const ids of [[], ["character_001"], ["character_001", "character_002"],
     ["character_001", "character_002", "character_003", "character_004"],
-    ["character_001", "character_001", "character_003"], ["character_001", "character_002", "character_047"],
+    ["character_001", "character_001", "character_003"], ["character_001", "character_002", "character_045"],
     ["character_001", "character_002", "unknown"]]) {
     assert.throws(() => go.run('geneOrderUI.randomOpponentSettings(state, ' + JSON.stringify(ids) +
       ', () => { throw new Error("draw must not happen"); })'), /3体/);

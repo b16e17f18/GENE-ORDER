@@ -205,10 +205,11 @@ test("EN shortage and unsupported selections do not advance or consume EN", () =
   const unsupported = battle({ skills: [{ ...strike, effect1: "poison" }] });
   assert.throws(() => go.resolveTurn(unsupported, { player: select(), enemy: wait }), /未対応.*poison/);
   assert.equal(active(unsupported, "enemy").hp, 200);
-  for (const move of [{ ...strike, battle_effect1: "protect" }, { ...strike, hit_type: "guard_break" },
-    { ...strike, power_rule: "hp_exact_1" }, { ...strike, category: "status" }]) {
+  for (const move of [{ ...strike, battle_effect1: "protect" }, { ...strike, power_rule: "hp_exact_1" },
+    { ...strike, category: "status" }]) {
     assert.match(go.unsupportedMoveReason(move), /未対応/);
   }
+  assert.equal(go.unsupportedMoveReason({ ...strike, hit_type: "guard_break" }), "");
 });
 
 test("action order compares priority, stage-adjusted speed, then injected random", () => {
@@ -403,12 +404,14 @@ test("imported guards cover all nine elements and physical or special attacks", 
   }
 });
 
-test("imported definitions stay unassigned to the existing formal skills", () => {
+test("imported definitions stay unassigned unless an official skill explicitly configures one", () => {
   const unused = new Set(["heal_hp1", "heal_hp2", "heal_hp3", "phy_protect", "phy_protect2", "sp_protect2",
-    "fire_protect", "thunder_protect", "ice_protect", "wind_protect", "earth_protect", "light_protect", "dark_protect", "none_protect"]);
+    "fire_protect", "thunder_protect", "ice_protect", "wind_protect", "earth_protect", "none_protect"]);
   for (const move of officialSkills) {
     assert.equal(go.moveEffects(move).some((effect) => unused.has(effect.id)), false, move.skill_id);
   }
+  assert.equal(officialSkills.filter((move) => go.moveEffects(move).some((effect) => ["dark_protect", "light_protect"].includes(effect.id)))
+    .map((move) => move.skill_id).join(","), "skill_068,skill_073");
 });
 
 test("EN recovery and guard from 大地の恵み are independent and capped", () => {
@@ -1122,6 +1125,20 @@ test("Phantom hides against ignore_dodge, pierces guards and clears positive ran
   assert.equal(b.stages.sp_def, -1);
 });
 
+test("guard break halves individual and field damage cuts without requiring a charge effect", () => {
+  const guardBreak = { ...strike, skill_id: "guard-break", hit_type: "guard_break", cost: 0 };
+  const match = battle({ skills: [guardBreak], player: [character({ skillIds: [guardBreak.skill_id] })] });
+  const target = active(match, "enemy");
+  target.halfGuard = 50;
+  match.fields.enemy.set("test-field", {
+    definition: { battle_effect_group: "guard", guard_type: "phy_damage", damage_cut: 50 }, starts: 1, expires: 2,
+  });
+  const preview = go.previewDamage(match, "player", guardBreak);
+  assert.equal(preview.damage, go.roundHalfDown(preview.afterEffectiveness * 0.75 * 0.75));
+  const result = go.resolveTurn(match, { player: select(guardBreak.skill_id), enemy: wait });
+  assert.equal(result.events.find((event) => event.type === "move").damage, preview.actualDamage);
+});
+
 test("MHB speed thresholds apply to both GO techniques in previews and real turns", () => {
   for (const id of ["skill_015", "skill_056"]) {
     const move = skill(id);
@@ -1700,8 +1717,8 @@ test("normalizes three GO slots, compound IDs, explicit neutral and MHB's EN ali
   assert.equal(officialPassives.get("passive_007").effects[0].element, "none");
   assert.equal(normalizeGoPassive({ ...row, target_id3: "unknown" }, elements).status, "partial");
   assert.equal(normalizeGoPassive({ ...row, passive_type3: "none" }, elements).status, "partial");
-  assert.equal(officialPassives.size, 24);
-  assert.equal([...officialPassives.values()].filter((p) => p.status === "implemented").length, 24);
+  assert.equal(officialPassives.size, 27);
+  assert.equal([...officialPassives.values()].filter((p) => p.status === "implemented").length, 27);
   assert.equal([...officialPassives.values()].filter((p) => p.status === "pending").length, 0);
 });
 
