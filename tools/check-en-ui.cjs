@@ -25,6 +25,7 @@ async function editor(browser){
  const input=page.locator('#files');await input.setInputFiles([resolve(root,'data/effect.csv'),resolve(root,'data/skill.csv')]);await page.waitForFunction(()=>db.effect?.source&&db.skill?.source,{},{timeout:5000}).catch(async e=>{throw Error(await page.locator('#msg').textContent()+' '+errors.join(';'));});
  await page.locator('#tabs').getByRole('button',{name:'effect',exact:true}).click();
  const field=name=>page.getByLabel(name,{exact:true});
+ assert.equal(await page.evaluate(()=>db.effect.rows.find(r=>r.effect_id==='en_charge_up1').damage_value),'1');
  await page.locator('#new').click();
  for(const [name,value] of Object.entries({effect_id:'fixture_en_zero',name:'検証用EN補正',effect_group:'en_cost_modifier',damage_type:'none',damage_value:'0',turn:'3',target_stat:'en',can_move:'TRUE'}))await field(name).fill(value);
  await page.locator('#save').click();
@@ -33,12 +34,12 @@ async function editor(browser){
  let download=page.waitForEvent('download');await page.locator('#export').click();let output=await download;const exportedEffect=await readFile(await output.path(),'utf8');
  assert.match(exportedEffect,/fixture_en_zero,検証用EN補正,en_cost_modifier,none,0,3/);assert.match(exportedEffect,/fixture_en_negative,検証用EN補正,en_cost_modifier,none,-1,4/);
  await page.locator('#tabs').getByRole('button',{name:'skill',exact:true}).click();
- for(const [slot,id,target,chance] of [[1,'en_down1','enemy','100'],[2,'en_drain1','enemy','50'],[3,'fixture_en_zero','self','0']]){await field('effect'+slot).fill(id);await field('effect_target'+slot).fill(target);await field('effect_chance'+slot).fill(chance);}
+ for(const [slot,id,target,chance] of [[1,'en_charge_up1','self','100'],[2,'en_charge_up1','enemy','50'],[3,'en_charge_up1','self','0']]){assert.ok(await field('effect'+slot).evaluate(e=>[...e.list.options].some(o=>o.value==='en_charge_up1')));await field('effect'+slot).fill(id);await field('effect_target'+slot).fill(target);await field('effect_chance'+slot).fill(chance);}
  await page.locator('#save').click();download=page.waitForEvent('download');await page.locator('#export').click();output=await download;const exportedSkill=await readFile(await output.path(),'utf8');
  await input.setInputFiles([{name:'effect.csv',mimeType:'text/csv',buffer:Buffer.from(exportedEffect)},{name:'skill.csv',mimeType:'text/csv',buffer:Buffer.from(exportedSkill)}]);
  await page.waitForFunction(()=>db.effect.rows.some(r=>r.effect_id==='fixture_en_negative')&&!db.effect.dirty&&!db.skill.dirty);
  const stored=await page.evaluate(()=>({effect:db.effect.rows.find(r=>r.effect_id==='fixture_en_negative'),zero:db.effect.rows.find(r=>r.effect_id==='fixture_en_zero'),skill:db.skill.rows[0],errors:validate(db.effect,'effect')}));
- assert.equal(stored.effect.damage_value,'-1');assert.equal(stored.effect.turn,'4');assert.equal(stored.zero.damage_value,'0');assert.equal(stored.skill.effect1,'en_down1');assert.equal(stored.skill.effect_target3,'self');assert.equal(stored.skill.effect_chance3,'0');assert.deepEqual(stored.errors,[]);assert.deepEqual(errors,[]);
+ assert.equal(stored.effect.damage_value,'-1');assert.equal(stored.effect.turn,'4');assert.equal(stored.zero.damage_value,'0');for(const slot of [1,2,3])assert.equal(stored.skill['effect'+slot],'en_charge_up1');assert.equal(stored.skill.effect_target1,'self');assert.equal(stored.skill.effect_target2,'enemy');assert.equal(stored.skill.effect_target3,'self');assert.equal(stored.skill.effect_chance3,'0');assert.deepEqual(stored.errors,[]);assert.deepEqual(errors,[]);
  await page.screenshot({path:resolve(artifacts,'editor.png'),fullPage:true});await page.close();console.log('PASS Edge GOE: create/edit/clone, effect slots/target/chance, export/import, signed/zero/duration retention');
 }
 async function battleUI(browser,width){

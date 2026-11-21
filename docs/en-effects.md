@@ -94,3 +94,41 @@ GO_Editor.htmlでeffectを参照専用から編集可能へ変更した。正式
 - CHANGELOG.md：未リリース欄への記録。
 
 既存の他の未コミットファイルは今回の作業以前の変更であり、まとめてステージしていない。
+
+
+## EN自然回復量UPの移植（2026-11-21）
+
+基準コミット8d3165dd0eb4074e1576f02f34044cc68f6bed0fを含む最新作業ブランチからfeature/en-charge-up1を作成した。古いmainからは開始していない。
+
+### MHBの確認とGOでの再利用
+
+MHBの[data/effect.csv](https://github.com/b16e17f18/MHB/blob/main/data/effect.csv)にenergy_charge_up（energy_up、value=1、turn=3、target=en）がある。battle-core.jsのapplyEnergyEffectは持続効果をaddTimedStatusEffectへ渡し、fighterEnergyChargeModifier／effectiveEnergyChargeで基礎回復量へ加減算する。app.jsのendRoundはターン終了時の回復量を期間減算前に保存してから期限切れを除外し、その保存値で自然EN回復する。基礎値を書き換えないため、効果終了時には通常回復へ自動復帰する。
+
+GOでは既存en_charge_modifierが符号付き整数の正値を受理する。effectiveEnergyCharge、setTimedEffect、tickTimedEffects、changeEnergyをそのまま利用できるため、戦闘エンジン・ローダー・AI・GOE本体のJavaScript変更は不要だった。MHBの旧groupやstatuses管理を追加せず、GO既存の個体別timedEffectsへ統一する。
+
+### 正式CSV定義
+
+既存13列を維持し、en_charge_down1と同じ任意列の空欄を保って1行だけ追加した。
+
+~~~csv
+effect_id,name,effect_group,damage_type,damage_value,turn,can_move,target_stat,start_text,start_delay,stat_modifier_target,stat_modifier_multiplier,action_failure_chance
+en_charge_up1,EN回復量1増加,en_charge_modifier,none,1,3,TRUE,cost_charge,{target}のEN自然回復量が1増加した！,,,,
+~~~
+
+### 期間・相互作用
+
+- 基礎cost_chargeは読み込み後のbase.energy_chargeを使用し、書き換えない。
+- 補正後回復量はmax(0, floor((基礎回復量 + 有効な加算補正の合計) × 有効な倍率補正の積))。
+- +1とen_charge_down1の-1は相殺。en_charge_zeroの0倍が併存する場合は自然回復0。適用順に依存しない。
+- 付与ターンtではstarts=t、expires=t+3。t・t+1・t+2の3回の自然回復後に解除し、t+3から通常回復量へ戻る。即時EN回復ではない。
+- 同じIDの再付与は重複加算せず、再付与ターンから3回分へ期限更新する。
+- EN上限は既存7。通常交代で解除し、控えへ持ち越さない。特殊交代でも既存のtimedEffects消去に従い、パワーリレーで引き継がない。
+- self／enemy、追加効果スロット1～3、発生率は既存の共通処理を使用する。正式技・キャラクターへの新規割り当ては行わない。
+
+### 検証・変更ファイル
+
+追加自動テスト17件（EN処理15、GOE2）。付与ターン込みの3回、期限後復元、即時回復との区別、上限、減少・無効との併用と順序、再付与、通常交代、リレー、自己・相手、確率0、テスト用CSVの量・期間変更、GOEの3枠・対象・CSV往復を確認した。
+
+関連テスト66件成功。EdgeでGOEの新効果候補・3枠への設定・自己／相手・CSV出力と再読込、既存のPC1280px／スマートフォン相当390pxの戦闘UI回帰を確認し、すべて成功した。仕上げ時の全テストは1回実行し、464件すべて成功・失敗0（既存447＋追加17）、約42.8秒だった。
+
+変更ファイルはdata/effect.csv、test/en-effects.test.mjs、test/editor.test.mjs、tools/check-en-ui.cjs、本記録、CHANGELOG.mdの6ファイル。ゲームの戦闘エンジン・UI配置・能力値・個別技・パッシブ設定・バージョンは変更しない。編集中のpassive.csvと画像2件を保持し、今回のコミットから除外する。mainへのマージ・Pushは行わない。
