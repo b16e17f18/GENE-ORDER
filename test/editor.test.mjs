@@ -5,7 +5,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 const html=readFileSync(new URL('../GO_Editor.html',import.meta.url),'utf8');
 const script=html.match(/<script>([\s\S]*?)<\/script>/)[1].split("$('load').onclick")[0];
-const ctx=vm.createContext({document:{getElementById(){return {}}}});vm.runInContext(script,ctx);
+const ctx=vm.createContext({document:{getElementById(){return {}}}});vm.runInContext(readFileSync(new URL('../passive.js',import.meta.url),'utf8'),ctx);vm.runInContext(script,ctx);
 const run=s=>vm.runInContext(s,ctx);
 const csv=readFileSync(new URL('../data/effect.csv',import.meta.url),'utf8');ctx.csv=csv;
 run("db.effect=parse(csv);tab='effect'");
@@ -16,3 +16,16 @@ test('GOE edited export roundtrip preserves every column including negative, zer
 test('GOE accepts all EN group/target choices without rejecting custom identifiers',()=>{for(const group of ['en_drain','en_charge_modifier','en_cost_modifier'])assert.equal(run('choices("effect_group").has('+JSON.stringify(group)+')'),true);assert.equal(run("choices('target_stat').has('cost_charge')"),true);assert.equal(run("choices('effect_target1').has('enemy')"),true);});
 test('GOE detects invalid numbers/durations while allowing negative effect magnitude',()=>{run("bad=parse(csv);bad.rows.find(r=>r.effect_id==='en_down1').damage_value='-4'");assert.equal(run("validate(bad,'effect').length"),0);run("bad.rows.find(r=>r.effect_id==='en_cost_up1').turn='0'");assert.ok(run("validate(bad,'effect').length")>0);run("bad.rows.find(r=>r.effect_id==='en_down1').damage_value='NaN'");assert.ok(run("validate(bad,'effect').some(e=>e.includes('damage_value'))"));});
 test('GOE accepts blank lines and CRLF without corrupting structured rows',()=>{ctx.lines=csv.replaceAll('\n','\r\n')+'\r\n';assert.equal(run('parse(lines).rows.length'),run('db.effect.rows.length'));assert.equal(run('serialize(parse(lines))'),ctx.lines);});
+
+test('GOE reads all 28 passive definitions and uses handler-specific target lists',()=>{
+ ctx.typeCsv=readFileSync(new URL('../data/passive_type.csv',import.meta.url),'utf8');ctx.elementCsv=readFileSync(new URL('../data/element.csv',import.meta.url),'utf8');
+ run("db.passive_type=parse(typeCsv);db.element=parse(elementCsv);tab='passive';draft={passive_type1:'status_immunity'}");assert.equal(run('passiveContext().catalog.types.size'),28);assert.equal(run("choices('passive_type1').get('heal_block').includes('回復')"),true);assert.equal(run("choices('target_id1').has('poison')"),true);assert.equal(run("choices('target_id1').has('all')"),true);assert.equal(run("choices('target_id1').has('pa')"),false);run("draft.passive_type1='debuff_immunity'");for(const id of ['pa','pd','sa','sd','sp','all'])assert.equal(run('choices("target_id1").has('+JSON.stringify(id)+')'),true);assert.equal(run("choices('target_id1').has('poison')"),false);
+});
+test('GOE passive validation rejects target/value/condition mismatches and accepts old aliases',()=>{
+ for(const row of [{name:'X',passive_type1:'none',target_id1:'pa',value1:'1'},{name:'X',passive_type1:'status_immunity',target_id1:'pa',value1:'1'},{name:'X',passive_type1:'contact_damage_reflect',target_id1:'all',value1:'1.1'},{name:'X',passive_type1:'on_status_stat_stage',target_id1:'pa',value1:'1',condition1:'bad'}]){ctx.row=row;assert.ok(run('passiveErrors(row).length')>0);}
+ ctx.row={passive_id:'x',name:'X',passive_type1:'start_energy',target_id1:'en',value1:'3'};assert.equal(run('passiveErrors(row).length'),0);assert.equal(run("validate({headers:schemas.passive.split(','),rows:[row]},'passive').length"),0);
+});
+test('GOE keeps three passive slots, signed stage values and status conditions through export/import',()=>{
+ ctx.row={passive_id:'fixture',name:'複合検証',passive_type1:'on_entry_stat_stage',target_id1:'pa',value1:'-1',passive_type2:'status_immunity',target_id2:'sleep',value2:'0',passive_type3:'on_status_stat_stage',target_id3:'sd',value3:'2',condition3:'all'};
+ run("p={headers:schemas.passive.split(','),rows:[row],dirty:true,eol:String.fromCharCode(10)};back=parse(serialize(p))");assert.equal(run('back.rows[0].value1'),'-1');assert.equal(run('back.rows[0].value2'),'0');assert.equal(run('back.rows[0].condition3'),'all');assert.equal(run('passiveErrors(back.rows[0]).length'),0);
+});

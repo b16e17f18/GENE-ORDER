@@ -1717,9 +1717,11 @@ test("normalizes three GO slots, compound IDs, explicit neutral and MHB's EN ali
   assert.equal(officialPassives.get("passive_007").effects[0].element, "none");
   assert.equal(normalizeGoPassive({ ...row, target_id3: "unknown" }, elements).status, "partial");
   assert.equal(normalizeGoPassive({ ...row, passive_type3: "none" }, elements).status, "partial");
-  assert.equal(officialPassives.size, 27);
-  assert.equal([...officialPassives.values()].filter((p) => p.status === "implemented").length, 27);
-  assert.equal([...officialPassives.values()].filter((p) => p.status === "pending").length, 0);
+  const rows = csv(read("data/passive.csv")).filter(row=>row.name);
+  const pending = rows.filter(row=>[1,2,3].every(slot=>!row['passive_type'+slot]||row['passive_type'+slot]==='none')).length;
+  assert.equal(officialPassives.size, rows.length);
+  assert.equal([...officialPassives.values()].filter(p=>p.status==='implemented').length, rows.length-pending);
+  assert.equal([...officialPassives.values()].filter(p=>p.status==='pending').length, pending);
 });
 
 test("starting EN is capped and applies once to every fighter including the bench", () => {

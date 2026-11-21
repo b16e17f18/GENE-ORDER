@@ -9466,7 +9466,8 @@ function describeGeneOrderEvent(event) {
     passive: (event) => {
       const detail = event.multiplier ? '（' + (statLabels[event.stat] ?? "被ダメージ") + ' ×' + event.multiplier + '）' :
         event.damage ? '（HP −' + event.damage + '）' : '';
-      return event.text + detail;
+      return event.text + detail + (event.lostEnergy != null ? `（${event.target}のEN −${event.lostEnergy}）` : "") +
+        (event.recoveredEnergy != null ? `（EN +${event.recoveredEnergy}）` : "");
     },
     move: (e) => {
       const suffix = { "passive-immune": "パッシブにより無効", blocked: "攻撃は無効", "position-miss": "位置によって届かなかった" }[e.reason];
@@ -9503,6 +9504,7 @@ function describeGeneOrderEvent(event) {
     "decoy-created": (e) => `${e.actor}はHPを${e.cost}消費し、HP ${e.maxHp}のデコイを出した`,
     "decoy-hit": (e) => `${e.actor}のデコイに${e.damage}ダメージ（残りHP ${e.hp}）`,
     "decoy-broken": (e) => `${e.actor}のデコイが壊れた`,
+    "heal-blocked": (e) => `${e.actor}の${e.move}は回復封印により使えなかった（EN消費なし）`,
     "move-failed": (e) => `${e.actor}の${e.move}は不成立`,
     replacement: (e) => `${sideName(e.side)}に${e.target}が登場`,
     wait: (e) => `${e.actor}は待機`,
