@@ -1,3 +1,10 @@
+// Multiply defined nonzero attack-element matchups; all-zero remains immune.
+function combineMoveElementMultipliers(values) {
+  if (!values.length || values.some(value => !Number.isFinite(value) || value < 0)) throw new Error("属性相性が未定義です。");
+  const nonzero = values.filter(value => value !== 0);
+  return nonzero.length ? nonzero.reduce((product, value) => product * value, 1) : 0;
+}
+
 // GENE ORDER v0.50. The inherited MHB entry points below remain separate.
 const geneOrderBattle = (() => {
   const START_ENERGY = 1;
@@ -91,6 +98,23 @@ const geneOrderBattle = (() => {
     return Math.max(0, cost);
   }
 
+  function moveElements(move) {
+    if (typeof move?.element !== "string" || !move.element.trim()) throw new Error("攻撃技の属性が未定義です。");
+    const second = move.element2;
+    if (second != null && typeof second !== "string") throw new Error("第2属性が未定義です。");
+    return [...new Set([move.element, ...(second && second !== "none" ? [second] : [])])];
+  }
+
+  function moveHasElement(move, element) { return moveElements(move).includes(element); }
+
+  function moveWeaknessMultiplier(defender, move, chart, override) {
+    return combineMoveElementMultipliers(moveElements(move).map(element => effectivenessFor(element, defender, chart, override)));
+  }
+
+  function sameElementBonusForMove(attacker, move) {
+    return [attacker.base.element_1, attacker.base.element_2].some(element => moveHasElement(move, element)) ? 1.25 : 1;
+  }
+
   function effectivenessFor(element, defender, chart, override) {
     const row = chart.get(element);
     const defendingTypes = [defender.element_1, defender.element_2].filter((type) => type != null);
@@ -108,16 +132,17 @@ const geneOrderBattle = (() => {
   function calculateDamage(attacker, defender, move, chart, modifiers = {}) {
     if (move.category !== "attack") return { damage: 0, reason: "not-attack" };
     const stats = Object.hasOwn(DAMAGE_STATS, move.attack_type) && DAMAGE_STATS[move.attack_type];
-    if (!stats || move.element2 != null) throw new Error("未対応の攻撃分類または複合属性技です。");
+    if (!stats) throw new Error("未対応の攻撃分類です。");
+    if (moveElements(move).some(element => !chart.has(element))) throw new Error("攻撃技の属性が未定義です。");
 
     const effects = moveEffects(move).filter(({ table, chance }) => table === "battleEffects" && chance > 0)
       .map(({ id }) => modifiers.battleEffects?.get(id)).filter(Boolean);
     const override = effects.find((effect) => battleEffectKind(effect) === "type-override");
     const powerPassives = modifiers.power == null
-      ? geneOrderPassives.matching(attacker, "power", (effect) => effect.element === move.element) : [];
+      ? geneOrderPassives.matching(attacker, "power", (effect) => moveHasElement(move, effect.element)) : [];
     const power = modifiers.power ?? resolvePower(move, attacker, defender, modifiers, effects, powerPassives);
     const immunity = geneOrderPassives.first(defender, "element-immunity",
-      (effect) => effect.element === move.element && effect.value > 0);
+      (effect) => moveHasElement(move, effect.element) && effect.value > 0);
     if (immunity) return { damage: 0, decoyDamage: 0, power, reason: "passive-immune", powerPassives, immunity };
     const pierce = move.hit_type === "guard_break"
       ? effects.find((effect) => battleEffectKind(effect) === "position")?.modifier ?? GUARD_BREAK_REMAINING_CUT : 1;
@@ -138,16 +163,16 @@ const geneOrderBattle = (() => {
     }
 
     const baseDamage = Math.floor(22 * power * attack / (50 * defense)) + 2;
-    const stab = [attacker.base.element_1, attacker.base.element_2].includes(move.element) ? 1.25 : 1;
+    const stab = sameElementBonusForMove(attacker, move);
     const afterStab = roundHalfDown(baseDamage * stab);
-    const effectiveness = effectivenessFor(move.element, defender.base, chart, override);
+    const effectiveness = moveWeaknessMultiplier(defender.base, move, chart, override);
     const afterEffectiveness = Math.floor(afterStab * effectiveness);
     const reason = attackBlockReason(defender, move, effectiveness === 0 || finalMultiplier === 0 ||
       modifiers.blocked === true);
     const virtualDamage = reason ? 0 : Math.max(1, roundHalfDown(afterEffectiveness * finalMultiplier));
     const decoy = virtualDamage > 0 ? defender.decoy : null;
     const decoyDamage = decoy ? Math.min(virtualDamage, decoy.hp) : 0;
-    const absorbed = virtualDamage > 0 && !decoy && absorb?.definition.element === move.element;
+    const absorbed = virtualDamage > 0 && !decoy && absorb && moveHasElement(move, absorb.definition.element);
     const reflected = virtualDamage > 0 && !decoy && !absorbed && reflection && guardApplies(reflection.definition, move);
     const incoming = decoy || absorbed || reflected ? 0 : virtualDamage;
     // Only the direct damage to the fighter can spend this passive's use.
@@ -302,7 +327,7 @@ const geneOrderBattle = (() => {
       if (boost) multiplier *= boost.damage_value;
     }
     for (const effect of powerPassives) multiplier *= effect.value;
-    multiplier *= attacker.nextElementPower?.get(move.element)?.modifier ?? 1;
+    for (const element of moveElements(move)) multiplier *= attacker.nextElementPower?.get(element)?.modifier ?? 1;
     return Math.min(Math.round(move.power * multiplier), move.power_cap ?? Infinity);
   }
 
@@ -329,8 +354,12 @@ const geneOrderBattle = (() => {
     const issues = [];
     const attack = move.category === "attack";
     const normalHit = !move.hit_type || ["normal", "ignore_dodge", "sure_hit", "guard_break"].includes(move.hit_type);
-    const validAttack = Object.hasOwn(DAMAGE_STATS, move.attack_type) && move.element != null &&
-      move.element2 == null && (!move.target || move.target === "enemy");
+    let validElements = false;
+    try {
+      const master = data.elements ?? data.effectiveness;
+      validElements = moveElements(move).every(element => !master || master.has(element));
+    } catch { /* Invalid attributes remain unavailable rather than becoming neutral. */ }
+    const validAttack = Object.hasOwn(DAMAGE_STATS, move.attack_type) && validElements && (!move.target || move.target === "enemy");
     let supportedParts = Number(attack && validAttack);
     if (attack && !validAttack) issues.push("攻撃分類・属性・対象");
     if (!validAttackStat(move)) issues.push(`攻撃参照能力 ${move.attack_stat}`);
@@ -401,7 +430,7 @@ const geneOrderBattle = (() => {
     const type = effect.guard_type;
     if (type === "phy_damage") return move.attack_type === "physical";
     if (type === "sp_damage") return move.attack_type === "special";
-    return type === move.element + "_damage";
+    return moveElements(move).some(element => type === element + "_damage");
   }
 
   function fieldDamageMultiplier(move, effects, turn, pierce) {
@@ -462,10 +491,12 @@ const geneOrderBattle = (() => {
       speedFields: move.power_rule === SPEED_ADVANTAGE_RULE
         ? { attacker: fieldSpeedMultiplier(battle, side), defender: fieldSpeedMultiplier(battle, other) } : undefined,
     });
-    const nextPower = !pending && move.category === "attack" ? attacker.nextElementPower.get(move.element) : undefined;
-    if (pending || !chargeSlot(move, battle)) return { ...result, hpCosts, nextPower };
+    const nextPowers = !pending && move.category === "attack"
+      ? moveElements(move).map(element => attacker.nextElementPower.get(element)).filter(Boolean) : [];
+    const nextPower = nextPowers[0]; // Preserve the single-element preview field.
+    if (pending || !chargeSlot(move, battle)) return { ...result, hpCosts, nextPower, nextPowers };
     const { immunity, survival, ...charge } = result;
-    return { ...charge, hpCosts, nextPower, damage: 0, decoyDamage: 0, response: null, heal: 0, reason: "charging" };
+    return { ...charge, hpCosts, nextPower, nextPowers, damage: 0, decoyDamage: 0, response: null, heal: 0, reason: "charging" };
   }
 
   function hpEffectAmount(kind, recipient, damage, value, damageType) {
@@ -687,7 +718,7 @@ const geneOrderBattle = (() => {
     if (fighter.fainted || target.fainted) return;
     const targetSide = target === fighter ? side : opposingSide(side);
     const effects = phase === "after-use" ? geneOrderPassives.useStageEffects(fighter, move) :
-      geneOrderPassives.matching(fighter, phase, (effect) => !move || effect.element === move.element);
+      geneOrderPassives.matching(fighter, phase, (effect) => !move || moveHasElement(move, effect.element));
     for (const effect of effects) {
       const delta = changeStage(target, effect.stat, effect.value, { source: fighter, side: targetSide, events });
       if (delta) geneOrderPassives.activate(fighter, side, effect, events, { stat: effect.stat, delta, target: target.base.name });
@@ -1198,11 +1229,11 @@ const geneOrderBattle = (() => {
         actor.pending = null;
         continue;
       }
-      if (result.nextPower) {
-        const { element, modifier } = result.nextPower;
+      for (const nextPower of result.nextPowers ?? []) {
+        const { element, modifier } = nextPower;
         actor.nextElementPower.delete(element);
         events.push({ type: "next-power-used", side, actor: actor.base.name, move: move.name,
-          effect: result.nextPower.battle_effect_id, element, multiplier: modifier, power: result.power });
+          effect: nextPower.battle_effect_id, element, multiplier: modifier, power: result.power });
       }
       if (result.reason === "charging") {
         actor.pending = { moveId: move.skill_id, power: result.power, definition: battle.battleEffects.get(chargeSlot(move, battle).id) };
@@ -1341,7 +1372,7 @@ const geneOrderBattle = (() => {
   }
 
   return { START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, stageDelta, statValue, effectiveStat, changeEnergy,
-    calculateDamage, effectivenessFor, previewDamage, previewRelease, previewSwitch, moveEffects, moveEffectsWithPassive, decoyValues, residualDamage,
+    moveElements, moveHasElement, moveWeaknessMultiplier, sameElementBonusForMove, calculateDamage, effectivenessFor, previewDamage, previewRelease, previewSwitch, moveEffects, moveEffectsWithPassive, decoyValues, residualDamage,
     naturalRecovery, previewTurnEndRecovery, statusStatMultiplier, actionFailureChance, effectiveEnergyCharge, effectiveMoveCost,
     guardApplies, activeTimed, effectiveSpeed, evasionRate, moveAvailability, unsupportedMoveReason, validAttackStat, effectKind, battleEffectKind, createBattle, activeFighter, switchTargets, checkAction, resolveTurn, continueSwitch };
 })();
@@ -1441,11 +1472,7 @@ function moveWeaknessMultiplier(target, move) {
   const elements = moveElements(move);
   if (!elements.length) return 1;
 
-  const totalMultiplier = elements.reduce(
-    (total, element) => total + weaknessMultiplier(target, element),
-    0,
-  );
-  return totalMultiplier / elements.length;
+  return combineMoveElementMultipliers(elements.map(element => weaknessMultiplier(target, element)));
 }
 
 function sameElementBonusForMove(attacker, move) {

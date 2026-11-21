@@ -139,7 +139,7 @@ test("all 324 dual defenses multiply, with Thunder and Ice STAB applied once", (
   assert.equal(count, 324);
 });
 
-test("neutral, blank, status and unsupported compound attacks remain distinct", () => {
+test("neutral, blank, status and supported compound attacks remain distinct", () => {
   const [a, b] = fighters(battle());
   a.base.element_1 = "none";
   const neutral = { ...strike, element: "none" };
@@ -149,7 +149,7 @@ test("neutral, blank, status and unsupported compound attacks remain distinct", 
   b.base.element_1 = "dark";
   assert.equal(go.calculateDamage(a, b, neutral, chart).effectiveness, 0.5);
   assert.throws(() => go.calculateDamage(a, b, { ...neutral, element: null }, chart), /未定義/);
-  assert.throws(() => go.calculateDamage(a, b, { ...neutral, element2: "fire" }, chart), /複合属性/);
+  assert.equal(go.calculateDamage(a, b, { ...neutral, element2: "fire" }, chart).effectiveness, 1);
   const status = go.calculateDamage(a, b, { category: "status", power: 0 }, chart);
   assert.equal(status.reason, "not-attack");
   assert.equal(status.damage, 0);

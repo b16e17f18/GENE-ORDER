@@ -621,12 +621,12 @@ const geneOrderPassives = (() => {
     return matching(fighter, "incoming-damage", effect => effect.handler === "conditional_damage_multiplier"
       ? move.category === "attack" && (effect.attackType === "all" || effect.attackType === move.attack_type) &&
         conditionMatches(fighter, effect.condition, opponent)
-      : effect.element === move.element);
+      : geneOrderBattle.moveHasElement(move, effect.element));
   }
 
   function useStageEffects(fighter, move) {
     if (move?.category !== "attack") return [];
-    return matching(fighter, "after-use", effect => effect.element === move.element);
+    return matching(fighter, "after-use", effect => geneOrderBattle.moveHasElement(move, effect.element));
   }
 
   function moveCosts(fighter, move) {

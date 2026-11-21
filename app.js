@@ -4462,7 +4462,7 @@ function normalizeSkill(raw, elementNames) {
     category: safeText(row.category),
     power: number(row.power),
     element: elementNames.get(row.element) ?? null,
-    element2: row.element2 === "none" ? null : elementNames.get(row.element2) ?? null,
+    element2: !row.element2 || row.element2 === "none" ? null : elementNames.get(row.element2) ?? row.element2,
     attack_type: safeText(row.attack_type, "none"),
     attack_stat: safeText(row.attack_stat),
     hit_type: safeText(row.hit_type, "normal"),

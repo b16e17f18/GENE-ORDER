@@ -292,7 +292,7 @@ test("excludes placeholders and never fills absent moves with MHB attacks", () =
   assert.equal(go.run('movesForCharacter(state.characterMap.get("character_047")).length'), 4);
   assert.equal(go.run('state.characters.every((character) => movesForCharacter(character).length === 4)'), true);
   assert.equal(go.run('JSON.stringify([...state.skills.values()].filter((move) => geneOrderBattle.moveAvailability(move, state).issues.length).map((move) => [move.skill_id, geneOrderBattle.moveAvailability(move, state).issues]))'),
-    JSON.stringify([["skill_047", ["どろぼう"]], ["skill_066", ["攻撃分類・属性・対象"]],
+    JSON.stringify([["skill_047", ["どろぼう"]],
       ["skill_084", ["攻撃分類・属性・対象"]], ["skill_085", ["攻撃分類・属性・対象"]],
       ["skill_086", ["攻撃分類・属性・対象"]], ["skill_087", ["攻撃分類・属性・対象"]]]));
   assert.equal(go.run('JSON.stringify(state.characters.filter((character) => geneOrderUI.fighterIssue(character, state)).map((character) => character.character_id))'),

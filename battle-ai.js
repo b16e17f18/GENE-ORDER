@@ -1313,7 +1313,7 @@ const geneOrderAI = (() => {
         (release ? config.TWO_TURN_DAMAGE_MULTIPLIER : 1) * start.executionChance;
     };
     const attacks = availableMoves(board, side, { future: true })
-      .filter((move) => move.category === "attack" && move.element === effect.element);
+      .filter((move) => move.category === "attack" && go.moveHasElement(move, effect.element));
     return Math.max(0, ...attacks.map((move) => damage(projected, move) - damage(board, move)));
   }
 
@@ -1344,7 +1344,7 @@ const geneOrderAI = (() => {
     const protection = (effect, kind) => {
       const incoming = position.incoming;
       const matches = ({ move: enemyMove }) => kind === "guard" || kind === "revenge" ||
-        (kind === "absorb" && effect.element === enemyMove.element) || go.guardApplies(effect, enemyMove);
+        (kind === "absorb" && go.moveHasElement(enemyMove, effect.element)) || go.guardApplies(effect, enemyMove);
       const applicable = incoming.length ? average(incoming.map((entry) => Number(matches(entry)))) :
         board.opponentMovesComplete ? 0 : kind === "guard" || kind === "revenge" ? 1 : config.UNKNOWN_GUARD_COVERAGE;
       const mix = board.opponentMovesComplete ? applicable : Math.max(config.UNKNOWN_GUARD_FLOOR, applicable);
