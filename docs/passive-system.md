@@ -2,7 +2,7 @@
 
 ## パッシブ種別マスタ
 
-`data/passive_type.csv` に28タイプの定義を置き、`passive.csv` の各効果を検証する。UTF-8で保存し、再読み込み後の新規戦闘に反映する。
+`data/passive_type.csv` に29タイプの定義を置き、`passive.csv` の各効果を検証する。UTF-8で保存し、再読み込み後の新規戦闘に反映する。
 
 | 列 | 内容 |
 |---|---|
@@ -19,7 +19,7 @@
 
 流動体質は `element_damage_multiplier` を使う。種別マスタは効果量を0より大きく1以下の倍率に制限し、個別パッシブの `value1=0.5` で半減する。`neutral` は無属性ID `none` へ正規化する。未設定の効果スロットを表す `passive_type=none` は種別マスタへの登録を必要としない。旧種別ID `start_energy` はマスタの `aliases` に記録し、`starting_en` として解決する。
 
-既存の処理方式を使う種別は、新しい `passive_type_id` と既存の `handler` を指定した行を追加して利用できる。新しい処理方式を作る場合はJavaScriptにもハンドラーを実装する。発動タイミング・対象形式・条件形式がハンドラーと食い違う行、重複ID・別名、未登録ハンドラー、矛盾した数値範囲、正式28タイプの定義欠落は起動時エラーになる。個別パッシブの不正な対象・効果量・種別IDはデータ診断で検出する。
+既存の処理方式を使う種別は、新しい `passive_type_id` と既存の `handler` を指定した行を追加して利用できる。新しい処理方式を作る場合はJavaScriptにもハンドラーを実装する。発動タイミング・対象形式・条件形式がハンドラーと食い違う行、重複ID・別名、未登録ハンドラー、矛盾した数値範囲、正式29タイプの定義欠落は起動時エラーになる。個別パッシブの不正な対象・効果量・種別IDはデータ診断で検出する。
 
 種別検証には `geneOrderPassives.readTypes(rows)`、パッシブの正規化には `normalize(row, elements, statuses, catalog)` を使う。ローダー・診断・テストへ同じ種別マスタを渡し、JavaScript側に範囲定義の代替データを持たせない。
 
@@ -160,3 +160,8 @@ IDは `data/passive.csv` の `passive_NNN`。各効果の対象・量・条件�
 on_use_element_stat_stageは、ユーザー指示により指定属性の「攻撃技」だけを対象とする。category=attackの物理・特殊技が実行された場合に従来のタイミングで発動し、変化技・共通回避は対象外。技自体の通常効果による能力変化は妨げない。命中しなかった攻撃の扱いと、溜め技の予約時に1回だけ発動する仕様は維持する。geneOrderPassives.useStageEffectsを実戦・溜め予測・AIが共有する。passive_type.csvは説明のみ更新し、効果量・個別passive.csv・skill.csv・キャラクター性能を変更しない。
 
 検証：9属性の変化技除外、物理・特殊攻撃、共通回避、AIの不要な加点・状態非変更を追加し、全354件成功（失敗0）。ドラミングビートの通常効果は維持され、全身全霊の使用後PA低下による相殺は発生しない。
+
+
+## HP条件付き倍率（2026-11-21）
+
+HP50%以下のSA1.5倍は既存のconditional_stat_multiplier／sa／1.5／self_hp_lte:1/2を再利用する。新しいconditional_damage_multiplierはall／0.5／self_hp_eq:1/1で満タン時の被ダメージ半減を表す。共通HP条件に完全一致eqを追加し、lteの以下比較は維持する。詳細は[HP条件付きパッシブ](hp-conditional-passives.md)を参照。既存28タイプを維持して全29タイプとなる。

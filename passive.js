@@ -439,6 +439,8 @@ const geneOrderPassives = (() => {
     ["on_entry_enemy_stat_stage", { phase: "entry", target: statTarget, targetKind: "stat" }],
     ["on_dodge_action_stat_stage", { phase: "dodge-action", target: statTarget, targetKind: "stat" }],
     ["on_evade_stat_stage", { phase: "evaded", target: statTarget, targetKind: "stat" }],
+    ["conditional_damage_multiplier", { phase: "incoming-damage", target: attackTarget, targetKind: "attack_type",
+      conditionKind: "stat_condition", condition: statCondition }],
     ["conditional_stat_multiplier", { phase: "stat-multiplier", target: statTarget, targetKind: "stat",
       conditionKind: "stat_condition", condition: statCondition }],
     ["priority_move_hp_cost", { phase: "move-cost", target: literalTarget("hp"), targetKind: "hp",
@@ -523,12 +525,12 @@ const geneOrderPassives = (() => {
 
   function statCondition(raw) {
     if (raw === "status") return { kind: "status" };
-    const match = /^(self|opponent)_hp_lte:(\d+)\/([1-9]\d*)$/.exec(raw);
+    const match = /^(self|opponent)_hp_(lte|eq):(\d+)\/([1-9]\d*)$/.exec(raw);
     if (!match) return null;
-    const numerator = Number(match[2]);
-    const denominator = Number(match[3]);
-    return Number.isSafeInteger(denominator) && numerator <= denominator
-      ? { kind: match[1], numerator, denominator } : null;
+    const numerator = Number(match[3]);
+    const denominator = Number(match[4]);
+    return Number.isSafeInteger(numerator) && Number.isSafeInteger(denominator) && numerator <= denominator
+      ? { kind: match[1], operator: match[2], numerator, denominator } : null;
   }
 
   function normalize(row, elements, statuses = new Set(), catalog = readTypes()) {
@@ -595,15 +597,26 @@ const geneOrderPassives = (() => {
     return Boolean(fighter?.statuses?.length);
   }
 
+  function conditionMatches(fighter, condition, opponent) {
+    const { kind, numerator, denominator, operator = "lte" } = condition;
+    if (kind === "status") return hasStatus(fighter);
+    const target = kind === "self" ? fighter : opponent;
+    if (!target || target.hp <= 0) return false;
+    const current = target.hp * denominator, threshold = target.maxHp * numerator;
+    return operator === "eq" ? current === threshold : current <= threshold;
+  }
+
   function statModifiers(fighter, stat, opponent) {
     if (fighter.fainted) return [];
-    return matching(fighter, "stat-multiplier", (effect) => {
-      if (effect.stat !== stat) return false;
-      const { kind, numerator, denominator } = effect.condition;
-      if (kind === "status") return hasStatus(fighter);
-      const target = kind === "self" ? fighter : opponent;
-      return target && target.hp > 0 && target.hp * denominator <= target.maxHp * numerator;
-    });
+    return matching(fighter, "stat-multiplier", effect =>
+      effect.stat === stat && conditionMatches(fighter, effect.condition, opponent));
+  }
+
+  function damageModifiers(fighter, move, opponent) {
+    return matching(fighter, "incoming-damage", effect => effect.handler === "conditional_damage_multiplier"
+      ? move.category === "attack" && (effect.attackType === "all" || effect.attackType === move.attack_type) &&
+        conditionMatches(fighter, effect.condition, opponent)
+      : effect.element === move.element);
   }
 
   function useStageEffects(fighter, move) {
@@ -650,5 +663,5 @@ const geneOrderPassives = (() => {
       slot: effect.slot, text: title + (message ? "：" + message : "が発動"), ...details });
   }
 
-  return { readTypes, normalize, matching, first, used, survive, blocksStage, hasStatus, statModifiers, useStageEffects, moveCosts, statusMoveBlock, statusBlock, attackEffects, effectChance, healBlock, criticalBlock, activate };
+  return { readTypes, normalize, matching, first, used, survive, blocksStage, hasStatus, conditionMatches, statModifiers, damageModifiers, useStageEffects, moveCosts, statusMoveBlock, statusBlock, attackEffects, effectChance, healBlock, criticalBlock, activate };
 })();

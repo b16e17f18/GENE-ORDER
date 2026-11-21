@@ -22,7 +22,7 @@ py -3 -m http.server 8000 --bind 127.0.0.1
 | `go-ui.js`, `go-ui.css`, `styles.css` | 正式対戦の操作・表示とMHB由来のスタイル |
 | `data-validation.js` | ID・データ型・相性組・素材参照の診断 |
 | `data/*.csv` | UTF-8の正式マスタ（技とアニメーション定義を含む） |
-| `data/passive_type.csv` | パッシブ効果28タイプの種別ID・名称・発動タイミング・対象形式・効果量条件・別名 |
+| `data/passive_type.csv` | パッシブ効果29タイプの種別ID・名称・発動タイミング・対象形式・効果量条件・別名 |
 | `data/reference/` | 旧10属性資料とMHB由来の敵編成 |
 | `asset/character/` | キャラクター画像 |
 | `asset/battle-animation/`, `asset/bgm/`, `asset/element/` | 対戦アニメーション、BGM、属性アイコン |
@@ -31,7 +31,7 @@ py -3 -m http.server 8000 --bind 127.0.0.1
 | `test/` | データ基盤・戦闘ルールの自動テスト |
 | `docs/data-foundation.md` | データ契約・検証結果・未解決事項 |
 | `docs/battle-system.md` | 基本戦闘の仕様と暫定ルール |
-| `docs/passive-system.md` | 共通28タイプ、個別パッシブ、CSV調整、発動順と暫定仕様 |
+| `docs/passive-system.md` | 共通29タイプ、個別パッシブ、CSV調整、発動順と暫定仕様 |
 
 全65技の対応状況は技一覧に記録しています。 [技一覧](docs/skill-effects.md)
 

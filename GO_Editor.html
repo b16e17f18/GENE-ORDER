@@ -31,7 +31,10 @@ function serialize(d){if(!d.dirty&&d.original!==undefined)return d.original;let 
 function lookup(f){if(/^passive_type[123]$/.test(f))return ['passive_type','passive_type_id'];if(/^skill_[1-4]$|^ai_(setup|main)_skill$|^skill_id$/.test(f)&&!(f==='skill_id'&&tab==='skill'))return ['skill','skill_id'];if(f==='character_id'&&tab==='character_skill')return ['character','character_id'];if(f==='passive_id'&&tab!=='passive')return ['passive','passive_id'];if(/^effect[123]$/.test(f))return ['effect','effect_id'];if(/^battle_effect[12]$/.test(f))return ['battle_effect','battle_effect_id'];if(/^element(_[12]|2)?$/.test(f))return ['element','name'];if(f==='species_id')return ['species','name'];if(f==='animation_id')return ['animation','animation_id'];if(f==='power_rule')return ['power_rule','power_rule_group'];return null}
 function choices(f){
   if(tab==='passive'&&/^target_id[123]$/.test(f)&&db.passive_type?.rows.length)return passiveTargets(f.slice(-1));
-  if(tab==='passive'&&/^condition[123]$/.test(f)&&db.passive_type?.rows.length){const {c,definition}=passiveDefinition(f.slice(-1));if(definition?.condition_kind==='status_condition')return new Map(['all',...c.statuses].map(v=>[v,v]));}
+  if(tab==='passive'&&/^condition[123]$/.test(f)&&db.passive_type?.rows.length){const {c,definition}=passiveDefinition(f.slice(-1));if(definition?.condition_kind==='status_condition')return new Map(['all',...c.statuses].map(v=>[v,v]));if(definition?.condition_kind==='stat_condition'){
+    const opts=new Map([['self_hp_eq:1/1','自分のHPが最大'],['self_hp_lte:1/2','自分のHPが50%以下'],['opponent_hp_lte:1/3','相手のHPが1/3以下'],['status','自分が状態異常']]);
+    for(const row of db.passive.rows)for(const slot of [1,2,3]){const value=row['condition'+slot];if(value&&definition.condition(value,c.elements,c.statuses)&&!opts.has(value))opts.set(value,value)}return opts;
+  }}
   let ref=lookup(f);
   let opts=new Map();
   if(ref&&db[ref[0]])for(let r of db[ref[0]].rows){

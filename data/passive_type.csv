@@ -27,3 +27,4 @@ effect_chance_multiplier,追加効果確率倍率,effect_chance_multiplier,effec
 on_switch_out_stat_stage,交代時控え味方ランク変化,on_switch_out_stat_stage,switch-out,stat,integer,,,TRUE,TRUE,none,,交代時に交代先の味方の指定能力ランクを変える
 status_immunity,状態異常無効,status_immunity,before-status-applied,status,number,0,,TRUE,TRUE,none,,target_idで指定した状態異常を無効化する。毒・麻痺・火やられ・氷やられ等を個別指定できる。全状態異常無効はallを指定する。
 heal_block,相手の回復技封印,heal_block,before-move,hp,number,0,,TRUE,TRUE,none,,このパッシブの所持者と対峙する相手はHPを直接回復する技を使用できない。MHBのイャンガルルガのパッシブに相当する。
+conditional_damage_multiplier,条件付き被ダメージ倍率,conditional_damage_multiplier,incoming-damage,attack_type,number,0,,FALSE,TRUE,stat_condition,,HPなどの指定条件を満たす時に指定分類の攻撃技から受けるダメージに倍率を掛ける

@@ -129,8 +129,7 @@ const geneOrderBattle = (() => {
     const { value: defense, passives: defensePassives } = effectiveStat(defender, stats[1], { opponent: attacker });
     const guard = activeDefense(defender, "guard", modifiers.turn ?? 1);
     const cut = Math.max(guard?.definition.damage_cut ?? (defender.halfGuard ?? 0), absorb?.definition.damage_cut ?? 0);
-    const damagePassives = geneOrderPassives.matching(defender, "incoming-damage",
-      (effect) => effect.element === move.element);
+    const damagePassives = geneOrderPassives.damageModifiers(defender, move, attacker);
     const passiveMultiplier = damagePassives.reduce((multiplier, effect) => multiplier * effect.value, 1);
     const finalMultiplier = (modifiers.finalMultiplier ?? (100 - cut * pierce) / 100) *
       fieldDamageMultiplier(move, modifiers.targetFields ?? [], modifiers.turn ?? 1, pierce) * passiveMultiplier;
