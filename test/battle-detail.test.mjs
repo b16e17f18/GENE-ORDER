@@ -43,3 +43,7 @@ test('hidden opponent row omits numeric values in text, titles and attributes, w
 });
 test('unranked recovery has no grade or stage markers, player sees its value',()=>{const html=ui.battleStatMarkup('regen_value',22);assert.match(html,/>22<\/strong>/);assert.doesNotMatch(html,/▲|▼|・|stat-rank-color|detail-stat-track/);});
 test('battle rendering leaves data, stages and rank definitions untouched',()=>{const b=make(),before=JSON.stringify(b,(_,v)=>v instanceof Map?[...v]:v),ranks=get('GO_STAT_RANKS');const rankBefore=JSON.stringify(ranks);for(const stat of ['phy_atk','phy_def','sp_atk','sp_def','speed'])ui.battleStatMarkup(stat,go.statValue(active(b),stat),0);assert.equal(JSON.stringify(b,(_,v)=>v instanceof Map?[...v]:v),before);assert.equal(JSON.stringify(ranks),rankBefore);assert.match(get('goCharacterStat')('phy_atk',81),/detail-stat-track/);});
+
+test('stage markup gives every marker its own fixed slot and direction style',()=>{
+ for(const stage of [-6,-2,0,2,6]){const html=ui.battleStatMarkup('phy_atk',81,stage);assert.equal((html.match(/class="go-stage-slot /g)||[]).length,6);assert.equal((html.match(/go-stage-up"/g)||[]).length,Math.max(0,stage));assert.equal((html.match(/go-stage-down"/g)||[]).length,Math.max(0,-stage));assert.equal((html.match(/go-stage-empty"/g)||[]).length,6-Math.abs(stage));assert.ok(html.indexOf('go-battle-stage')<html.indexOf('detail-stat-grade'));}
+});

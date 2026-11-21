@@ -555,9 +555,12 @@ async function verify(browser, width) {
     assert.doesNotMatch(await byId("go-official-log").textContent(), /勝利/);
     await byId("go-fast-battle").check();
     await chooseMove("skill_043"); await pass();
-    assert.deepEqual(await byId("playerHud").locator(".go-hud-ranks > span").allTextContents(), ["物理攻撃▲・・・・・"]);
+    assert.equal(await byId("playerHud").locator(".go-hud-ranks, .go-hud-rank-line").count(), 0);
+    await inspectPlayer();
+    assert.equal(await inspect.locator(".detail-stat-phy_atk .go-battle-stage").textContent(), "▲・・・・・");
+    await closeInspect();
     await chooseMove("skill_002"); await pass();
-    assert.deepEqual(await byId("enemyHud").locator(".go-hud-ranks > span").allTextContents(), ["物理防御▼・・・・・"]);
+    assert.equal(await byId("enemyHud").locator(".go-hud-ranks, .go-hud-rank-line").count(), 0);
     await inspectEnemy();
     assert.equal(await inspect.locator(".detail-stat-phy_def .detail-stat-value").count(), 0);
     assert.match(await inspect.locator(".detail-stat-phy_def .go-battle-stage").getAttribute("aria-label"), /能力変化 ▼/);

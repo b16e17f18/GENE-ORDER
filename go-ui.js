@@ -178,9 +178,12 @@ const geneOrderUI = (() => {
   function battleStatMarkup(stat, value, stage, hideValue = false) {
     const grade = goStatRank(stat, value);
     const marks = Number.isInteger(stage) ? stageMarks(stage) : "";
+    const slots = [...marks].map(mark => '<span class="go-stage-slot ' +
+      (mark === "▲" ? "go-stage-up" : mark === "▼" ? "go-stage-down" : "go-stage-empty") +
+      '" aria-hidden="true">' + mark + '</span>').join("");
     return '<div class="detail-stat detail-stat-' + stat + ' go-battle-stat' + (hideValue ? ' go-stat-hidden' : '') + '">' +
       '<span class="detail-stat-label">' + escapeHtml(STAT_LABELS[stat]) + '</span>' +
-      '<span class="go-battle-stage" aria-label="能力変化 ' + marks + '">' + marks + '</span>' +
+      '<span class="go-battle-stage" aria-label="能力変化 ' + marks + '">' + slots + '</span>' +
       '<span class="detail-stat-grade"' + (grade ? ' style="--stat-rank-color:' + grade.color + '"' : '') + '>' + (grade?.letter ?? '') + '</span>' +
       (hideValue ? '' : '<strong class="detail-stat-value">' + escapeHtml(value) + '</strong>') + '</div>';
   }
@@ -524,9 +527,6 @@ const geneOrderUI = (() => {
             style="width:${meterWidth}%"></div></div><span class="hud-value hp-value"></span></div>
           <div class="energy-line"><span>EN</span><div class="meter energy-meter">${renderEnergySegments({ energy: fighter.energy, maxEnergy: go.MAX_ENERGY })}</div>
             <span class="hud-value go-en-value"></span></div>
-          <div class="battle-info-stack"><div class="battle-info-line go-hud-rank-line is-hidden"><span>ランク</span>
-            <span class="battle-info-chips go-hud-ranks"></span></div>
-          </div>
           <div class="party-pips"></div>`;
         }
         const bar = hud.querySelector(".hp-fill");
@@ -535,10 +535,6 @@ const geneOrderUI = (() => {
         hud.querySelector(".hp-value").textContent = fighter.hp + "/" + fighter.maxHp;
         hud.querySelector(".go-en-value").textContent = fighter.energy + "/" + go.MAX_ENERGY;
         hud.querySelectorAll(".energy-segment").forEach((segment, slot) => segment.classList.toggle("is-filled", slot < fighter.energy));
-        const ranks = Object.entries(fighter.stages).filter(([, rank]) => rank !== 0);
-        hud.querySelector(".go-hud-rank-line").classList.toggle("is-hidden", ranks.length === 0);
-        hud.querySelector(".go-hud-ranks").innerHTML = ranks
-          .map(([stat, rank]) => `<span>${esc(STATS[stat])}${stageMarks(rank)}</span>`).join(" ");
         hud.querySelector(".party-pips").innerHTML = team.map((member, i) =>
           `<span class="pip ${member.fainted ? "is-fainted" : "is-alive"} ${index === i ? "is-active" : ""}"></span>`).join("");
         if (sprite.dataset.renderedFighterKey !== key) {

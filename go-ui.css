@@ -413,8 +413,27 @@
 /* Keep persistent-effect labels readable on the inherited white detail panel. */
 #go-app .battle-inspect-body .battle-info-chips .effect-chip { white-space: normal; }
 
-/* Battle-only stat rows: current grade and six stage markers; dex graphs stay unchanged. */
-#go-app .battle-inspect-stats .go-battle-stat { grid-template-columns: minmax(4.5em, 1fr) 6ch 1.2em 4ch; gap: 8px; }
-#go-app .battle-inspect-stats .go-stat-hidden { grid-template-columns: minmax(4.5em, 1fr) 6ch 1.2em; }
-#go-app .go-battle-stage { white-space: nowrap; font-family: monospace; text-align: center; }
-#go-app .battle-inspect-stats .go-battle-stat .detail-stat-value { grid-column: 4; }
+/* Battle details only: six fixed slots followed immediately by the current grade. */
+#go-app .battle-inspect-stats .go-battle-stat {
+  grid-template-columns: 5em 6em 1.4em 4ch;
+  justify-content: start;
+  gap: .5em;
+}
+#go-app .battle-inspect-stats .go-stat-hidden { grid-template-columns: 5em 6em 1.4em; }
+#go-app .go-battle-stat .detail-stat-label { grid-column: 1; grid-row: 1; }
+#go-app .go-battle-stage {
+  display: inline-grid;
+  grid-template-columns: repeat(6, 1em);
+  grid-column: 2;
+  grid-row: 1;
+  width: 6em;
+  justify-self: start;
+  white-space: nowrap;
+  font-family: inherit;
+  text-align: center;
+}
+#go-app .go-stage-slot { display: block; width: 1em; line-height: 1.2; color: #777; }
+#go-app .go-stage-slot.go-stage-up { color: #ff3ca8; }
+#go-app .go-stage-slot.go-stage-down { color: #1769ff; }
+#go-app .go-battle-stat .detail-stat-grade { grid-column: 3; grid-row: 1; justify-self: center; }
+#go-app .battle-inspect-stats .go-battle-stat .detail-stat-value { grid-column: 4; grid-row: 1; }
