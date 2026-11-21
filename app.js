@@ -9472,7 +9472,8 @@ function describeGeneOrderEvent(event) {
     move: (e) => {
       const suffix = { "passive-immune": "パッシブにより無効", blocked: "攻撃は無効", "position-miss": "位置によって届かなかった" }[e.reason];
       const damage = e.category === "attack" && e.reason === "hit" ? ` → ${e.target}に${e.actualDamage}ダメージ（威力${e.power}）` : "";
-      return `${e.actor}の${e.move}（EN −${e.cost}）${suffix ? " → " + suffix : damage}`;
+      const attributes = e.elements?.length > 1 ? `［${e.elements.map(id => state.elements.get(id)?.name ?? id).join("・")}］` : "";
+      return `${e.actor}の${e.move}${attributes}（EN −${e.cost}）${suffix ? " → " + suffix : damage}`;
     },
     charge: (e) => `${e.actor}は${e.move}を予約（威力${e.power}、EN −${e.cost}）`,
     "next-power-ready": (e) => {

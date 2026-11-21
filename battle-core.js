@@ -1268,7 +1268,7 @@ const geneOrderBattle = (() => {
       }
       if (actualDamage > 0) defender.tookDirectDamage = true;
       events.push({ type: "move", side, actor: actor.base.name, target: defender.base.name, move: move.name, characterId: actor.base.character_id, moveId: move.skill_id,
-        category: move.category, cost, power: result.power, damage: result.damage, actualDamage, decoyDamage, reason: result.reason });
+        category: move.category, elements: move.category === "attack" ? moveElements(move) : [], effectiveness: result.effectiveness, cost, power: result.power, damage: result.damage, actualDamage, decoyDamage, reason: result.reason });
       if (result.reason === "evaded") {
         events.push({ type: "evaded", side: other, actor: defender.base.name, move: move.name });
         applyPassiveStages(defender, other, "evaded", events);

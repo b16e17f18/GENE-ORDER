@@ -55,3 +55,5 @@ v0.61〜v0.63の正式表示は7属性の共通アイコン、日本語の能力
 ローカルとGitHubの双方で開発するため、作業開始前に `git status --short --branch` で未コミット変更を確認し、`git fetch origin main` と `git rev-list --left-right --count HEAD...origin/main` で差分を確認します。ローカルのコミットが先行しておらず早送りできる場合は、未コミット変更を保護したうえで `git pull --ff-only origin main` を実行します。履歴が分岐している場合は双方の変更を確認してから統合します。
 
 被弾・撃破・通常交代・味方戦闘不能後の登場に対応する5効果を加え、正式マスタは34タイプです。設定例・MHB比較・検証結果は [イベント型パッシブ追加](docs/passive-events-34.md) を参照してください。
+
+2属性の攻撃技を正式対応しました。0倍を除外した相性乗算、1回限りのSTAB、属性パッシブ・AI・UI・GOEの動作は[複合属性技の記録](docs/dual-elements.md)を参照してください。
