@@ -170,8 +170,8 @@ test("natural recovery reloads from character CSV and emits the actual recovered
 test("passive type master covers the handlers, configured effects and legacy alias", () => {
   assert.equal(go.run("state.passiveTypes.size"), 34);
   assert.equal(go.run('state.passives.size'), passiveRows.filter(row=>row.name).length);
-  assert.equal(go.run('[...state.passives.values()].filter(p=>!'+JSON.stringify([...pendingPassiveIds,"passive_026","passive_029"])+'.includes(p.passive_id)).every(p=>p.status==="implemented")'),true);
-  assert.deepEqual(JSON.parse(go.run('JSON.stringify([...state.passives.values()].filter(p=>p.issues.length).map(p=>[p.passive_id,p.status,p.issues.map(i=>[i.field,i.value])]))')), [["passive_026","partial",[["target_id3","all"]]],["passive_029","partial",[["target_id1","all"]]]]);
+  assert.equal(go.run('[...state.passives.values()].filter(p=>!'+JSON.stringify(pendingPassiveIds)+'.includes(p.passive_id)).every(p=>p.status==="implemented")'),true);
+  assert.deepEqual(JSON.parse(go.run('JSON.stringify([...state.passives.values()].filter(p=>p.issues.length).map(p=>[p.passive_id,p.status,p.issues.map(i=>[i.field,i.value])]))')), []);
   assert.equal(go.run('state.passives.get("passive_007").effects[0].value'), 0.5);
   assert.equal(go.run('state.passives.get("passive_007").effects[0].element'), "none");
   assert.equal(go.run('state.dataDiagnostics.some((issue) => issue.table === "passiveTypes")'), false);
@@ -305,8 +305,8 @@ test("diagnoses unresolved move references and keeps passive placeholders separa
   assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照不一致" && ["burn", "speed_advantage"].includes(d.value))'), false);
   assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照不一致" && d.value === "どろぼう")'), true);
   assert.equal(go.run('state.skills.get("skill_001").effect1'), "bf_pa_down1");
-  assert.equal(go.run('[...state.passives.values()].filter(p=>!'+JSON.stringify([...pendingPassiveIds,"passive_026","passive_029"])+'.includes(p.passive_id)).every(p=>p.status==="implemented")'),true);
-  assert.deepEqual(JSON.parse(go.run('JSON.stringify([...state.passives.values()].filter(p=>p.issues.length).map(p=>[p.passive_id,p.status,p.issues.map(i=>[i.field,i.value])]))')), [["passive_026","partial",[["target_id3","all"]]],["passive_029","partial",[["target_id1","all"]]]]);
+  assert.equal(go.run('[...state.passives.values()].filter(p=>!'+JSON.stringify(pendingPassiveIds)+'.includes(p.passive_id)).every(p=>p.status==="implemented")'),true);
+  assert.deepEqual(JSON.parse(go.run('JSON.stringify([...state.passives.values()].filter(p=>p.issues.length).map(p=>[p.passive_id,p.status,p.issues.map(i=>[i.field,i.value])]))')), []);
   assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照先未設定" && d.value === "passive_025")'), false);
   assert.equal(go.run('state.dataDiagnostics.filter((d) => d.level === "予約行" && d.id).length'), reservedMasters);
   assert.equal(go.run('state.dataDiagnostics.filter((d) => d.level === "ID未設定" && d.table === "characters").length'), 10);
@@ -539,7 +539,7 @@ test("the data loader diagnoses pending and partial passives using the same regi
   assert.equal(revised.run('state.passives.get("passive_023").status'), "pending");
   assert.equal(revised.run('state.dataDiagnostics.some(d => d.id === "passive_023" && d.level === "効果未設定")'), true);
   assert.equal(go.run('state.dataDiagnostics.filter(d => d.level === "効果未設定").length'), pendingPassiveIds.length);
-  assert.deepEqual(JSON.parse(go.run('JSON.stringify(state.dataDiagnostics.filter(d => d.table === "passives" && d.level === "効果未対応").map(d=>[d.id,d.field,d.value]))')), [["passive_026","target_id3","all"],["passive_029","target_id1","all"]]);
+  assert.deepEqual(JSON.parse(go.run('JSON.stringify(state.dataDiagnostics.filter(d => d.table === "passives" && d.level === "効果未対応").map(d=>[d.id,d.field,d.value]))')), []);
 });
 
 test("the HTTP loader re-reads v0.41 thresholds, multipliers, priority HP costs and poison chance", async () => {

@@ -58,3 +58,7 @@ GOEは既に2列を編集・出力できていたため本体変更なし。PC12
 先行実装（9baf4afに取り込み済み）：battle-core.js、passive.js、battle-ai.js、go-ui.js、app.js、test/battle.test.mjs、test/data.test.mjs。
 
 今回の仕上げ：battle-core.js、app.js、test/dual-elements.test.mjs（追加）、test/battle.test.mjs、test/data.test.mjs、test/editor.test.mjs、tools/check-dual-elements.cjs（追加）、README.md、CHANGELOG.md、docs/battle-system.md、docs/skill-effects.md、docs/pending-decisions.md、本記録。
+
+## PR最終検証での更新
+
+passive_026／029の対象形式の診断は、処理タイプをconditional_damage_multiplierへ修正して解消した。正式な効果量・条件は変更せず、旧不正対象を検出する負例テストも維持する。相性例はユーザー再確認により光・風→地2倍で確定。最終統合検証は[PR記録](pr-integration.md)を参照。

@@ -1720,8 +1720,8 @@ test("normalizes three GO slots, compound IDs, explicit neutral and MHB's EN ali
   const rows = csv(read("data/passive.csv")).filter(row=>row.name);
   const pending = rows.filter(row=>[1,2,3].every(slot=>!row['passive_type'+slot]||row['passive_type'+slot]==='none')).length;
   assert.equal(officialPassives.size, rows.length);
-  assert.deepEqual([...officialPassives.values()].filter(p=>p.status==='partial').map(p=>p.passive_id), ['passive_026','passive_029']);
-  assert.equal([...officialPassives.values()].filter(p=>p.status==='implemented').length, rows.length-pending-2);
+  assert.deepEqual([...officialPassives.values()].filter(p=>p.status==='partial').map(p=>p.passive_id), []);
+  assert.equal([...officialPassives.values()].filter(p=>p.status==='implemented').length, rows.length-pending);
   assert.equal([...officialPassives.values()].filter(p=>p.status==='pending').length, pending);
 });
 
