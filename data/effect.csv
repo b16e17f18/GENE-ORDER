@@ -78,6 +78,7 @@ en_down1,EN1減少,heal,none,-1,0,TRUE,en,{target}のENが減少した！,,,,
 en_down2,EN2減少,heal,none,-2,0,TRUE,en,{target}のENが減少した！,,,,
 en_drain1,EN1吸収,en_drain,none,1,0,TRUE,en,{actor}はENを吸収した！,,,,
 en_charge_down1,EN回復量1減少,en_charge_modifier,none,-1,3,TRUE,cost_charge,{target}のEN回復量が低下した！,,,,
+en_charge_up1,EN回復量1増加,en_charge_modifier,none,1,3,TRUE,cost_charge,{target}のEN自然回復量が1増加した！,,,,
 en_charge_zero,EN自然回復無効,en_charge_modifier,multiplier,0,3,TRUE,cost_charge,{target}のEN自然回復が無効になった！,,,,
 en_cost_up1,消費EN1増加,en_cost_modifier,none,1,3,TRUE,en,{target}の消費ENが増加した！,,,,
 sleep,睡眠,control,none,0,3,FALSE,none,{target}は{name}状態になった！,,,,100

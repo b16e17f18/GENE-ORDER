@@ -24,7 +24,7 @@ character_022,テールデッド,闇,,爬虫類族,210,68,68,88,88,88,60,23,2,49
 character_023,スカイシャドウ,風,闇,鳥獣族,158,103,67,119,80,173,75,15,2,52,skill_013,skill_036,skill_062,skill_063,character_023,#FFFFFF,8,,,,,23,,,,passive_023,
 character_024,フェブジェリー,無,闇,獣族,157,84,84,135,140,130,55,12,2,55,skill_003,skill_004,skill_007,skill_064,character_024,#FFFFFF,8,,,,,24,,,,passive_024,
 character_025,エルフレズ,光,風,天使族,198,74,101,158,119,95,65,19,2,57,skill_007,skill_065,skill_066,skill_067,character_025,#FFFFFF,8,,,,,25,,,,passive_025,
-character_026,XZY-O2,雷,光,機械族,150,110,110,110,110,110,50,0,2,52,skill_071,skill_070,skill_082,skill_083,character_026,#FFFFFF,8,,,,,26,,,,passive_026,
+character_026,XZY-O2,雷,光,機械族,150,110,110,110,110,110,50,0,2,52,skill_069,skill_071,skill_070,skill_007,character_026,#FFFFFF,8,,,,,26,,,,passive_026,
 character_027,ピクシースマイル,闇,火,悪魔族,164,64,55,109,109,109,80,24,1,43,skill_072,skill_074,skill_075,skill_073,character_027,#FFFFFF,8,,,,,27,,,,passive_027,
 character_028,マーメイドキット,闇,氷,悪魔族,157,62,82,102,135,112,75,23,1,47,skill_076,skill_075,skill_077,skill_004,character_028,#FFFFFF,8,,,,,28,,,,passive_028,
 character_029,ジバモ,闇,地,悪魔族,172,65,90,143,90,90,45,12,1,47,skill_075,skill_079,skill_078,skill_073,character_029,#FFFFFF,8,,,,,29,,,,passive_029,

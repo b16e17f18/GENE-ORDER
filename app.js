@@ -4462,7 +4462,7 @@ function normalizeSkill(raw, elementNames) {
     category: safeText(row.category),
     power: number(row.power),
     element: elementNames.get(row.element) ?? null,
-    element2: row.element2 === "none" ? null : elementNames.get(row.element2) ?? null,
+    element2: !row.element2 || row.element2 === "none" ? null : elementNames.get(row.element2) ?? row.element2,
     attack_type: safeText(row.attack_type, "none"),
     attack_stat: safeText(row.attack_stat),
     hit_type: safeText(row.hit_type, "normal"),
@@ -9466,12 +9466,14 @@ function describeGeneOrderEvent(event) {
     passive: (event) => {
       const detail = event.multiplier ? '（' + (statLabels[event.stat] ?? "被ダメージ") + ' ×' + event.multiplier + '）' :
         event.damage ? '（HP −' + event.damage + '）' : '';
-      return event.text + detail;
+      return event.text + detail + (event.lostEnergy != null ? `（${event.target}のEN −${event.lostEnergy}）` : "") +
+        (event.recoveredEnergy != null ? `（EN +${event.recoveredEnergy}）` : "");
     },
     move: (e) => {
       const suffix = { "passive-immune": "パッシブにより無効", blocked: "攻撃は無効", "position-miss": "位置によって届かなかった" }[e.reason];
       const damage = e.category === "attack" && e.reason === "hit" ? ` → ${e.target}に${e.actualDamage}ダメージ（威力${e.power}）` : "";
-      return `${e.actor}の${e.move}（EN −${e.cost}）${suffix ? " → " + suffix : damage}`;
+      const attributes = e.elements?.length > 1 ? `［${e.elements.map(id => state.elements.get(id)?.name ?? id).join("・")}］` : "";
+      return `${e.actor}の${e.move}${attributes}（EN −${e.cost}）${suffix ? " → " + suffix : damage}`;
     },
     charge: (e) => `${e.actor}は${e.move}を予約（威力${e.power}、EN −${e.cost}）`,
     "next-power-ready": (e) => {
@@ -9503,6 +9505,7 @@ function describeGeneOrderEvent(event) {
     "decoy-created": (e) => `${e.actor}はHPを${e.cost}消費し、HP ${e.maxHp}のデコイを出した`,
     "decoy-hit": (e) => `${e.actor}のデコイに${e.damage}ダメージ（残りHP ${e.hp}）`,
     "decoy-broken": (e) => `${e.actor}のデコイが壊れた`,
+    "heal-blocked": (e) => `${e.actor}の${e.move}は回復封印により使えなかった（EN消費なし）`,
     "move-failed": (e) => `${e.actor}の${e.move}は不成立`,
     replacement: (e) => `${sideName(e.side)}に${e.target}が登場`,
     wait: (e) => `${e.actor}は待機`,

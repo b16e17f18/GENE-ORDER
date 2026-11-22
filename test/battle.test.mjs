@@ -139,7 +139,7 @@ test("all 324 dual defenses multiply, with Thunder and Ice STAB applied once", (
   assert.equal(count, 324);
 });
 
-test("neutral, blank, status and unsupported compound attacks remain distinct", () => {
+test("neutral, blank, status and supported compound attacks remain distinct", () => {
   const [a, b] = fighters(battle());
   a.base.element_1 = "none";
   const neutral = { ...strike, element: "none" };
@@ -149,7 +149,7 @@ test("neutral, blank, status and unsupported compound attacks remain distinct", 
   b.base.element_1 = "dark";
   assert.equal(go.calculateDamage(a, b, neutral, chart).effectiveness, 0.5);
   assert.throws(() => go.calculateDamage(a, b, { ...neutral, element: null }, chart), /未定義/);
-  assert.throws(() => go.calculateDamage(a, b, { ...neutral, element2: "fire" }, chart), /複合属性/);
+  assert.equal(go.calculateDamage(a, b, { ...neutral, element2: "fire" }, chart).effectiveness, 1);
   const status = go.calculateDamage(a, b, { category: "status", power: 0 }, chart);
   assert.equal(status.reason, "not-attack");
   assert.equal(status.damage, 0);
@@ -1717,9 +1717,12 @@ test("normalizes three GO slots, compound IDs, explicit neutral and MHB's EN ali
   assert.equal(officialPassives.get("passive_007").effects[0].element, "none");
   assert.equal(normalizeGoPassive({ ...row, target_id3: "unknown" }, elements).status, "partial");
   assert.equal(normalizeGoPassive({ ...row, passive_type3: "none" }, elements).status, "partial");
-  assert.equal(officialPassives.size, 27);
-  assert.equal([...officialPassives.values()].filter((p) => p.status === "implemented").length, 27);
-  assert.equal([...officialPassives.values()].filter((p) => p.status === "pending").length, 0);
+  const rows = csv(read("data/passive.csv")).filter(row=>row.name);
+  const pending = rows.filter(row=>[1,2,3].every(slot=>!row['passive_type'+slot]||row['passive_type'+slot]==='none')).length;
+  assert.equal(officialPassives.size, rows.length);
+  assert.deepEqual([...officialPassives.values()].filter(p=>p.status==='partial').map(p=>p.passive_id), []);
+  assert.equal([...officialPassives.values()].filter(p=>p.status==='implemented').length, rows.length-pending);
+  assert.equal([...officialPassives.values()].filter(p=>p.status==='pending').length, pending);
 });
 
 test("starting EN is capped and applies once to every fighter including the bench", () => {
@@ -1807,7 +1810,7 @@ test("elemental immunity blocks water and fire before dodge, absorption, reflect
   }
 });
 
-test("all elemental use-stage passives apply to status, hit, evade or immunity on use", () => {
+test("elemental use-stage passives exclude status moves and apply to executed attacks", () => {
   for (const [id, element, stat, delta, mode] of [
     ["004", "wind", "speed", 1, "evaded"], ["009", "ice", "phy_def", 1, "hit"],
     ["011", "light", "phy_atk", 1, "status"], ["012", "fire", "phy_atk", 1, "hit"],
@@ -1819,8 +1822,8 @@ test("all elemental use-stage passives apply to status, hit, evade or immunity o
       enemy: [withPassive(enemyPassive, { element_1: "light" })] });
     active(match, "enemy").dodgeActive = mode === "evaded";
     const result = action(match);
-    assert.equal(active(match).stages[stat], delta, id);
-    assert.equal(passivesIn(result, "after-use").length, 1, id);
+    assert.equal(active(match).stages[stat], mode === "status" ? 0 : delta, id);
+    assert.equal(passivesIn(result, "after-use").length, mode === "status" ? 0 : 1, id);
   }
   const status = { ...skill("skill_001"), element: "water" };
   const match = passiveBattle({ skills: [status], player: [withPassive("009", { skillIds: [status.skill_id] })],
@@ -1981,7 +1984,7 @@ test("charge spends after-use and power triggers at reservation only and skips a
   assert.equal(passivesIn(stopped, "after-use").length + passivesIn(stopped, "power").length, 0);
 });
 
-test("special switch suspension does not repeat use passives and Relay transfers their resulting stage", () => {
+test("special status switches do not trigger use stages while attacking switches trigger once", () => {
   for (const [moveId, reason] of [["skill_006", "tail-purge"], ["skill_042", "relay"], ["skill_045", "post-attack"]]) {
     const move = { ...skill(moveId), element: "wind" };
     const match = passiveBattle({ manualSwitches: true, skills: [move],
@@ -1993,10 +1996,10 @@ test("special switch suspension does not repeat use passives and Relay transfers
     assert.equal(first.pendingSwitch.reason, reason);
     assert.equal(passivesIn(first, "after-use").length, reason === "post-attack" ? 1 : 0);
     const second = go.continueSwitch(match, "player", 1);
-    assert.equal(passivesIn(first, "after-use").length + passivesIn(second, "after-use").length, 1);
+    assert.equal(passivesIn(first, "after-use").length + passivesIn(second, "after-use").length, move.category === "attack" ? 1 : 0);
     assert.equal(passivesIn(second, "turn-end").length, 1);
-    assert.equal(outgoing.passiveState.uses.get(1), 1);
-    assert.equal(active(match).stages.speed, reason === "relay" ? 1 : 0);
+    assert.equal(outgoing.passiveState.uses.get(1) ?? 0, move.category === "attack" ? 1 : 0);
+    assert.equal(active(match).stages.speed, 0);
   }
 });
 

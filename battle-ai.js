@@ -1313,7 +1313,7 @@ const geneOrderAI = (() => {
         (release ? config.TWO_TURN_DAMAGE_MULTIPLIER : 1) * start.executionChance;
     };
     const attacks = availableMoves(board, side, { future: true })
-      .filter((move) => move.category === "attack" && move.element === effect.element);
+      .filter((move) => move.category === "attack" && go.moveHasElement(move, effect.element));
     return Math.max(0, ...attacks.map((move) => damage(projected, move) - damage(board, move)));
   }
 
@@ -1344,7 +1344,7 @@ const geneOrderAI = (() => {
     const protection = (effect, kind) => {
       const incoming = position.incoming;
       const matches = ({ move: enemyMove }) => kind === "guard" || kind === "revenge" ||
-        (kind === "absorb" && effect.element === enemyMove.element) || go.guardApplies(effect, enemyMove);
+        (kind === "absorb" && go.moveHasElement(enemyMove, effect.element)) || go.guardApplies(effect, enemyMove);
       const applicable = incoming.length ? average(incoming.map((entry) => Number(matches(entry)))) :
         board.opponentMovesComplete ? 0 : kind === "guard" || kind === "revenge" ? 1 : config.UNKNOWN_GUARD_COVERAGE;
       const mix = board.opponentMovesComplete ? applicable : Math.max(config.UNKNOWN_GUARD_FLOOR, applicable);
@@ -1356,7 +1356,7 @@ const geneOrderAI = (() => {
     };
 
     let score = 0;
-    for (const { id, chance, target: destination, table } of go.moveEffects(move)) {
+    for (const { id, chance, target: destination, table } of go.moveEffectsWithPassive(actor, move)) {
       if (!(chance > 0)) continue;
       const self = destination === "self";
       if (self && actor.pending) continue;
@@ -1394,6 +1394,7 @@ const geneOrderAI = (() => {
           value = effect.damage_value * Math.max(0, horizon - Math.min(horizon, remaining)) * config.EN_WEIGHT * (self ? -1 : 1);
         }
       } else if (["status-damage", "status", "bind-damage"].includes(kind)) {
+        if (kind !== "bind-damage" && geneOrderPassives.statusBlock(recipient,id)) continue;
         const current = kind === "bind-damage" ? recipient.bind :
           (!self && id === "sleep" && result.wakesTarget) ? null : recipient.statuses.find((status) => status.definition.effect_id === id);
         const turns = Math.max(0, Math.min(effect.turn - (current?.turns ?? 0), config.STATUS_HORIZON));
@@ -1433,7 +1434,7 @@ const geneOrderAI = (() => {
       score += value * chance / 100;
     }
 
-    if (!actor.pending) for (const effect of geneOrderPassives.matching(actor, "after-use", (entry) => entry.element === move.element)) {
+    if (!actor.pending) for (const effect of geneOrderPassives.useStageEffects(actor, move)) {
       score += stageValue(actor, effect.stat, effect.value);
     }
     return score;
@@ -1473,7 +1474,7 @@ const geneOrderAI = (() => {
     const targetHp = forecast.targetHp;
     const endsKo = move.category === "attack" && !release && target.hp > 0 && targetHp === 0 && forecast.actorHp > 0;
     const koConfidence = endsKo ? (1 - risk) * (target.pending ? 1 : config.PUBLIC_ATTACK_WEIGHT) : 0;
-    const healing = result.hpEffects.reduce((sum, effect) => sum +
+    const healing = result.lifestealHeal + result.hpEffects.reduce((sum, effect) => sum +
       (effect.target === "self" ? 1 : -1) * effect.delta * effect.chance / 100, 0);
     const healWeight = config.HEAL_BASE_WEIGHT + (1 - actor.hp / actor.maxHp) * config.HEAL_MISSING_HP_WEIGHT;
     const survivingSide = (candidate, hp) => hp > 0 || board.teams[candidate].some((fighter, index) =>
@@ -1497,6 +1498,8 @@ const geneOrderAI = (() => {
       + healing * (healing > 0 ? healWeight * enemyAiTypeMultiplier(config, "HEAL_SCORE_MULTIPLIER") : config.RESPONSE_WEIGHT) + recoveryValue
       - response * config.RESPONSE_WEIGHT - result.hpCost - toxic * config.STATUS_DAMAGE_WEIGHT
       - cost * config.ENERGY_COST_PENALTY;
+    if (endsKo) score += Math.min(go.MAX_ENERGY - actor.energy + cost,
+      geneOrderPassives.matching(actor,"on-ko").reduce((n,e)=>n+e.value,0)) * config.EN_WEIGHT;
     if (cost > 0 && actor.energy - cost <= 0) score -= config.EMPTY_ENERGY_PENALTY;
     score += supportScore(context, move, result, release) * (1 - risk);
     if (release) {
@@ -1504,7 +1507,7 @@ const geneOrderAI = (() => {
       const safe = positionMove && !position.incoming.some(({ move: enemyMove }) => enemyMove.hit_type === "sure_hit");
       score = score * config.TWO_TURN_DAMAGE_MULTIPLIER - (safe ? 0 : position.danger * config.CAST_RISK);
     }
-    for (const { id, chance, table } of go.moveEffects(move)) {
+    for (const { id, chance, table } of go.moveEffectsWithPassive(actor, move)) {
       if (table !== "battleEffects" || chance <= 0 || result.actorHp <= 0) continue;
       const effect = board.battleEffects.get(id);
       const kind = go.battleEffectKind(effect);

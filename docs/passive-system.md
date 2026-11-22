@@ -2,7 +2,7 @@
 
 ## パッシブ種別マスタ
 
-`data/passive_type.csv` に16種の定義を置き、`passive.csv` の各効果を検証する。UTF-8で保存し、再読み込み後の新規戦闘に反映する。
+`data/passive_type.csv` に34タイプの定義を置き、`passive.csv` の各効果を検証する。UTF-8で保存し、再読み込み後の新規戦闘に反映する。
 
 | 列 | 内容 |
 |---|---|
@@ -19,13 +19,13 @@
 
 流動体質は `element_damage_multiplier` を使う。種別マスタは効果量を0より大きく1以下の倍率に制限し、個別パッシブの `value1=0.5` で半減する。`neutral` は無属性ID `none` へ正規化する。未設定の効果スロットを表す `passive_type=none` は種別マスタへの登録を必要としない。旧種別ID `start_energy` はマスタの `aliases` に記録し、`starting_en` として解決する。
 
-既存の処理方式を使う種別は、新しい `passive_type_id` と既存の `handler` を指定した行を追加して利用できる。新しい処理方式を作る場合はJavaScriptにもハンドラーを実装する。発動タイミング・対象形式・条件形式がハンドラーと食い違う行、重複ID・別名、未登録ハンドラー、矛盾した数値範囲、既存16種の定義欠落は起動時エラーになる。個別パッシブの不正な対象・効果量・種別IDはデータ診断で検出する。
+既存の処理方式を使う種別は、新しい `passive_type_id` と既存の `handler` を指定した行を追加して利用できる。新しい処理方式を作る場合はJavaScriptにもハンドラーを実装する。発動タイミング・対象形式・条件形式がハンドラーと食い違う行、重複ID・別名、未登録ハンドラー、矛盾した数値範囲、正式34タイプの定義欠落は起動時エラーになる。個別パッシブの不正な対象・効果量・種別IDはデータ診断で検出する。
 
 種別検証には `geneOrderPassives.readTypes(rows)`、パッシブの正規化には `normalize(row, elements, statuses, catalog)` を使う。ローダー・診断・テストへ同じ種別マスタを渡し、JavaScript側に範囲定義の代替データを持たせない。
 
 ## データと状態
 
-[正式パッシブCSV](../data/passive.csv) は64枠。名称設定済み24件を実装。残る40枠は予約行。既存の最大3枠と各枠の `passive_typeN`、`target_idN`、`valueN`、`trigger_textN` を使う。
+[正式パッシブCSV](../data/passive.csv) は64枠。初期実装24件の一覧は履歴として以下に保持する。現在の名称設定件数と予約行・効果未設定行はCSVと起動時診断を正とする。既存の最大3枠と各枠の `passive_typeN`、`target_idN`、`valueN`、`trigger_textN` を使う。
 
 | 効果種別 | 対象・数値 |
 |---|---|
@@ -60,7 +60,7 @@
 
 MHB由来の `normalizePassive()` / `normalizePassiveEffect()`、`passiveEffectsOf()` / `findPassiveEffect()`、`externalPassiveSource()`、`passiveActivationLogEvents()` を共用。MHBでは `startEnergyFromPassiveEffects()` / `initialEnergyFromPassive()` が初期ENを参照し、`turnEndStatUpFromPassive()` / `turnEndStatDownFromPassive()` が終了時に増減を探す。GOは符号付きランク変化を複数枠順に処理する。MHBの `surviveOncePassiveEffect()` の直接攻撃制限を参考に満タン条件と枠別回数を加え、`findBlockingEffectPassive()` / `findBlockingBattleEffectPassive()` の発生元区別はGOの `changeStage()` に適用した。MHBの `elementDamageMultiplierFromPassive()` は最終ダメージを補正するため、GOの `element_power_multiplier` は威力計算に配置した。MHBの `hasPassiveEffect()` と `passiveEffectValue()` も確認した。移植元では専用のパッシブ自動テストファイルは確認できなかった。
 
-## 正式CSVの24件
+## v0.41時点の正式CSV24件（履歴）
 
 | ID末尾 | 名称 | 説明・構造化内容 | 状況・確認事項 |
 |---|---|---|---|
@@ -148,3 +148,24 @@ IDは `data/passive.csv` の `passive_NNN`。各効果の対象・量・条件�
 | 022 | 物理で本体HP減・生存｜被弾後 | 相手へ毒。確率1、毒の量・期間はeffect.csv | 被弾ごと | 毒再付与・デコイ・反撃 | Revive survives / toxic mucus |
 | 023 | 実際の攻撃回避｜evaded | 自分 SA+1 | 回避ごと | 回避不可・回避状態取得 | dodge action and actual evade |
 | 024 | 火攻撃｜無効判定 | 敵技を無効、1 | 枠別記録 | 反射・回避・デコイ | elemental immunity |
+
+
+## 28タイプへの拡張（2026-11-21）
+
+正式なpassive_type.csvの既存16タイプと追加12タイプへ対応した。対象・条件・値は共通の正規化で検証する。詳細な対応表、MHBとの比較、処理順、境界仕様、検証結果は[28タイプ拡張記録](passive-extension-28.md)を参照する。急所無効は定義・判定APIのみ対応し、GOへ急所やダメージ乱数を新設しない。
+
+
+## 属性技使用時ランク変化の対象変更（2026-11-21）
+
+on_use_element_stat_stageは、ユーザー指示により指定属性の「攻撃技」だけを対象とする。category=attackの物理・特殊技が実行された場合に従来のタイミングで発動し、変化技・共通回避は対象外。技自体の通常効果による能力変化は妨げない。命中しなかった攻撃の扱いと、溜め技の予約時に1回だけ発動する仕様は維持する。geneOrderPassives.useStageEffectsを実戦・溜め予測・AIが共有する。passive_type.csvは説明のみ更新し、効果量・個別passive.csv・skill.csv・キャラクター性能を変更しない。
+
+検証：9属性の変化技除外、物理・特殊攻撃、共通回避、AIの不要な加点・状態非変更を追加し、全354件成功（失敗0）。ドラミングビートの通常効果は維持され、全身全霊の使用後PA低下による相殺は発生しない。
+
+
+## HP条件付き倍率（2026-11-21）
+
+HP50%以下のSA1.5倍は既存のconditional_stat_multiplier／sa／1.5／self_hp_lte:1/2を再利用する。新しいconditional_damage_multiplierはall／0.5／self_hp_eq:1/1で満タン時の被ダメージ半減を表す。共通HP条件に完全一致eqを追加し、lteの以下比較は維持する。詳細は[HP条件付きパッシブ](hp-conditional-passives.md)を参照。既存28タイプを維持して全29タイプとなる。
+
+## 被弾・撃破・交代イベントの5タイプ追加
+
+既存29タイプを維持し、on_damage_en_restore、on_ko_stat_stage、on_switch_out_heal、on_hit_enemy_stat_stage、on_enemy_ko_en_restoreを追加した。合計34タイプ。個別キャラクター・技・passive.csvの設定は変更しない。発動順・除外条件・値の範囲・GOEの確認は[イベント型パッシブ追加](passive-events-34.md)を参照。

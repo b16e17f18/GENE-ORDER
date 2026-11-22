@@ -69,6 +69,13 @@ function runtime({ protocol = "http:", missing = "", invalid = "", utf8Error = "
 
 const go = runtime();
 await go.boot();
+// Master sizes may grow while users edit CSV. Distinguish intentional blanks from invalid definitions.
+const csvRows = name => go.run('rowsFromCsv(' + JSON.stringify(read('data/' + name + '.csv').toString('utf8')) + ')');
+const passiveRows = csvRows('passive');
+const pendingPassiveIds = passiveRows.filter(row => row.name && [1,2,3].every(slot => !row['passive_type'+slot] || row['passive_type'+slot] === 'none')).map(row => row.passive_id);
+const reservedPassives = passiveRows.filter(row => row.passive_id && !row.name && !row.text).length;
+const reservedMasters = reservedPassives + csvRows('character').filter(row => row.character_id && !row.name).length + csvRows('skill').filter(row => row.skill_id && !row.name && !row.category).length;
+
 
 test("production scripts parse and evaluate in index.html order", () => {
   assert.deepEqual(scripts, ["data-validation.js", "passive.js", "battle-core.js", "battle-ai.js",
@@ -161,9 +168,10 @@ test("natural recovery reloads from character CSV and emits the actual recovered
 });
 
 test("passive type master covers the handlers, configured effects and legacy alias", () => {
-  assert.equal(go.run("state.passiveTypes.size"), 16);
-  assert.equal(go.run('state.passives.size'), 27);
-  assert.equal(go.run('[...state.passives.values()].every((passive) => passive.status === "implemented")'), true);
+  assert.equal(go.run("state.passiveTypes.size"), 34);
+  assert.equal(go.run('state.passives.size'), passiveRows.filter(row=>row.name).length);
+  assert.equal(go.run('[...state.passives.values()].filter(p=>!'+JSON.stringify(pendingPassiveIds)+'.includes(p.passive_id)).every(p=>p.status==="implemented")'),true);
+  assert.deepEqual(JSON.parse(go.run('JSON.stringify([...state.passives.values()].filter(p=>p.issues.length).map(p=>[p.passive_id,p.status,p.issues.map(i=>[i.field,i.value])]))')), []);
   assert.equal(go.run('state.passives.get("passive_007").effects[0].value'), 0.5);
   assert.equal(go.run('state.passives.get("passive_007").effects[0].element'), "none");
   assert.equal(go.run('state.dataDiagnostics.some((issue) => issue.table === "passiveTypes")'), false);
@@ -257,7 +265,7 @@ test("loads Japanese character, skill and passive names and keeps passive linkag
   assert.equal(go.run('state.skills.get("skill_001").name'), "歌声");
   assert.equal(go.run('state.passives.get("passive_001").name'), "リバイブ");
   assert.equal(go.run('state.characters[0].passive === state.passives.get("passive_001")'), true);
-  assert.equal(go.run('state.passives.size'), 27);
+  assert.equal(go.run('state.passives.size'), passiveRows.filter(row=>row.name).length);
 });
 
 test("distinguishes explicit neutral, absent and unknown attributes, and loads evasion and species", () => {
@@ -285,7 +293,7 @@ test("excludes placeholders and never fills absent moves with MHB attacks", () =
   assert.equal(go.run('movesForCharacter(state.characterMap.get("character_047")).length'), 4);
   assert.equal(go.run('state.characters.every((character) => movesForCharacter(character).length === 4)'), true);
   assert.equal(go.run('JSON.stringify([...state.skills.values()].filter((move) => geneOrderBattle.moveAvailability(move, state).issues.length).map((move) => [move.skill_id, geneOrderBattle.moveAvailability(move, state).issues]))'),
-    JSON.stringify([["skill_047", ["どろぼう"]], ["skill_066", ["攻撃分類・属性・対象"]],
+    JSON.stringify([["skill_047", ["どろぼう"]],
       ["skill_084", ["攻撃分類・属性・対象"]], ["skill_085", ["攻撃分類・属性・対象"]],
       ["skill_086", ["攻撃分類・属性・対象"]], ["skill_087", ["攻撃分類・属性・対象"]]]));
   assert.equal(go.run('JSON.stringify(state.characters.filter((character) => geneOrderUI.fighterIssue(character, state)).map((character) => character.character_id))'),
@@ -297,9 +305,10 @@ test("diagnoses unresolved move references and keeps passive placeholders separa
   assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照不一致" && ["burn", "speed_advantage"].includes(d.value))'), false);
   assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照不一致" && d.value === "どろぼう")'), true);
   assert.equal(go.run('state.skills.get("skill_001").effect1'), "bf_pa_down1");
-  assert.equal(go.run('[...state.passives.values()].every((p) => p.status === "implemented")'), true);
+  assert.equal(go.run('[...state.passives.values()].filter(p=>!'+JSON.stringify(pendingPassiveIds)+'.includes(p.passive_id)).every(p=>p.status==="implemented")'),true);
+  assert.deepEqual(JSON.parse(go.run('JSON.stringify([...state.passives.values()].filter(p=>p.issues.length).map(p=>[p.passive_id,p.status,p.issues.map(i=>[i.field,i.value])]))')), []);
   assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照先未設定" && d.value === "passive_025")'), false);
-  assert.equal(go.run('state.dataDiagnostics.filter((d) => d.level === "予約行" && d.id).length'), 66);
+  assert.equal(go.run('state.dataDiagnostics.filter((d) => d.level === "予約行" && d.id).length'), reservedMasters);
   assert.equal(go.run('state.dataDiagnostics.filter((d) => d.level === "ID未設定" && d.table === "characters").length'), 10);
 });
 
@@ -529,8 +538,8 @@ test("the data loader diagnoses pending and partial passives using the same regi
   assert.equal(revised.run('state.dataDiagnostics.some(d => d.id === "passive_003" && d.field === "target_id2" && d.level === "効果未対応")'), true);
   assert.equal(revised.run('state.passives.get("passive_023").status'), "pending");
   assert.equal(revised.run('state.dataDiagnostics.some(d => d.id === "passive_023" && d.level === "効果未設定")'), true);
-  assert.equal(go.run('state.dataDiagnostics.filter(d => d.level === "効果未設定").length'), 0);
-  assert.equal(go.run('state.dataDiagnostics.filter(d => d.table === "passives" && d.level === "効果未対応").length'), 0);
+  assert.equal(go.run('state.dataDiagnostics.filter(d => d.level === "効果未設定").length'), pendingPassiveIds.length);
+  assert.deepEqual(JSON.parse(go.run('JSON.stringify(state.dataDiagnostics.filter(d => d.table === "passives" && d.level === "効果未対応").map(d=>[d.id,d.field,d.value]))')), []);
 });
 
 test("the HTTP loader re-reads v0.41 thresholds, multipliers, priority HP costs and poison chance", async () => {
@@ -584,7 +593,7 @@ test("diagnoses invalid passive conditions and missing status targets", async ()
 test("formal CSV has 27 playable passives and reports actionable numeric bounds", async () => {
   assert.equal(go.run('state.dataDiagnostics.filter(d => ["数値異常", "重複ID", "相性欠落", "相性重複"].includes(d.level)).length'), 0);
   assert.equal(go.run('state.dataDiagnostics.filter(d => d.level === "参照不一致").length'), 1);
-  assert.equal(go.run('state.dataDiagnostics.filter(d => d.table === "passives" && d.level === "予約行").length'), 37);
+  assert.equal(go.run('state.dataDiagnostics.filter(d => d.table === "passives" && d.level === "予約行").length'), reservedPassives);
   const invalid = runtime({ transforms: {
     "./data/character.csv": (text) => text.replace("獣族,125,81,75", "獣族,0,81.5,75"),
     "./data/skill.csv": (text) => patchCsv(text, "skill_id", "skill_001", { effect_chance1: 101, cost: 8 }),
@@ -726,7 +735,7 @@ test("new CSV status and evasion IDs work in other moves without adding JS regis
   assert.match(log, /2ターン後から2ターン、1\.5倍/);
 });
 
-test("Drumming Beat applies a CSV-configured PD gain while Full Commitment cancels a one-rank PA gain", async () => {
+test("Drumming Beat keeps its CSV stage gains without triggering the attack-only Full Commitment penalty", async () => {
   const configured = runtime({ transforms: {
     "./data/skill.csv": (csv) => csv.replace(/^skill_021,.*$/m, (row) =>
       row.replace(/,pa_up[12],self,100,pd_up[12],self,100,/, ",pa_up1,self,100,pd_up2,self,100,")),
@@ -747,7 +756,7 @@ test("Drumming Beat applies a CSV-configured PD gain while Full Commitment cance
         turn.events.filter(e => e.type === "stage").map(e => [e.stat, e.delta])]);
     })()
   `);
-  assert.deepEqual(JSON.parse(result), ["bf_pd_up2", 0, 2, [["phy_atk", 1], ["phy_def", 2]]]);
+  assert.deepEqual(JSON.parse(result), ["bf_pd_up2", 1, 2, [["phy_atk", 1], ["phy_def", 2]]]);
 });
 
 test("an invalid CSV attack stat is diagnosed and blocks the move", async () => {

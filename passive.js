@@ -407,7 +407,7 @@ const geneOrderPassives = (() => {
     ["pa", "phy_atk"], ["pd", "phy_def"], ["sa", "sp_atk"], ["sd", "sp_def"], ["sp", "speed"],
   ]);
   const integer = (value) => Number.isInteger(value);
-  const stat = (id) => STAT_ALIASES.get(id) ?? ([...STAT_ALIASES.values()].includes(id) ? id : null);
+  const stat = (id) => STAT_ALIASES.get(String(id).toLowerCase()) ?? ([...STAT_ALIASES.values()].includes(id) ? id : null);
   const element = (id, elements) => {
     const canonical = ELEMENT_ALIASES.get(id) ?? id;
     return elements.has(canonical) ? canonical : null;
@@ -424,6 +424,9 @@ const geneOrderPassives = (() => {
     const ability = stat(id);
     return ability ? { stat: ability } : null;
   };
+  const statusTarget = (id, elements, statuses) => id === "all" || statuses.has(id) ? { statusId: id } : null;
+  const energyTarget = id => ["en", "none"].includes(id) ? {} : null;
+  const attackTarget = id => ["physical", "special", "all"].includes(id) ? { attackType: id } : null;
   const literalTarget = (target) => (id) => id === target ? {} : null;
   const definitions = new Map([
     ["starting_en", { phase: "battle-start", target: (id) => ["en", "none"].includes(id) ? {} : null, targetKind: "energy" }],
@@ -436,6 +439,8 @@ const geneOrderPassives = (() => {
     ["on_entry_enemy_stat_stage", { phase: "entry", target: statTarget, targetKind: "stat" }],
     ["on_dodge_action_stat_stage", { phase: "dodge-action", target: statTarget, targetKind: "stat" }],
     ["on_evade_stat_stage", { phase: "evaded", target: statTarget, targetKind: "stat" }],
+    ["conditional_damage_multiplier", { phase: "incoming-damage", target: attackTarget, targetKind: "attack_type",
+      conditionKind: "stat_condition", condition: statCondition }],
     ["conditional_stat_multiplier", { phase: "stat-multiplier", target: statTarget, targetKind: "stat",
       conditionKind: "stat_condition", condition: statCondition }],
     ["priority_move_hp_cost", { phase: "move-cost", target: literalTarget("hp"), targetKind: "hp",
@@ -448,9 +453,27 @@ const geneOrderPassives = (() => {
       statuses.has(id) ? { statusId: id } : null, targetKind: "status", conditionKind: "attack_type",
       condition: (raw) => ["physical", "special"].includes(raw) ? { attackType: raw } : null }],
     ["debuff_immunity", { phase: "before-stage", target: (id) => {
-      const ability = id.endsWith("_down") && stat(id.slice(0, -5));
+      const ability = id === "all" ? "all" : stat(id.endsWith("_down") ? id.slice(0, -5) : id);
       return ability ? { stat: ability } : null;
     }, targetKind: "debuff_stat" }],
+    ["on_entry_stat_stage", { phase: "entry", target: statTarget, targetKind: "stat" }],
+    ["on_entry_enemy_en_drain", { phase: "entry", target: energyTarget, targetKind: "energy" }],
+    ["status_damage_immunity", { phase: "before-status-damage", target: statusTarget, targetKind: "status" }],
+    ["on_status_stat_stage", { phase: "on-status-applied", target: statTarget, targetKind: "stat", conditionKind: "status_condition",
+      condition: (raw, elements, statuses) => raw === "all" || statuses.has(raw) ? { statusId: raw } : null }],
+    ["contact_damage_reflect", { phase: "after-body-hit", target: attackTarget, targetKind: "attack_type" }],
+    ["on_ko_en_restore", { phase: "on-ko", target: energyTarget, targetKind: "energy" }],
+    ["on_damage_en_restore", { phase: "body-hit-energy", target: energyTarget, targetKind: "energy" }],
+    ["on_ko_stat_stage", { phase: "on-ko", target: statTarget, targetKind: "stat" }],
+    ["on_switch_out_heal", { phase: "normal-switch-heal", target: literalTarget("hp"), targetKind: "hp" }],
+    ["on_hit_enemy_stat_stage", { phase: "hit-enemy-stage", target: statTarget, targetKind: "stat" }],
+    ["on_enemy_ko_en_restore", { phase: "replacement-entry", target: energyTarget, targetKind: "energy" }],
+    ["damage_lifesteal", { phase: "after-damage", target: attackTarget, targetKind: "attack_type" }],
+    ["critical_immunity", { phase: "before-critical", target: literalTarget("none"), targetKind: "none" }],
+    ["effect_chance_multiplier", { phase: "effect-chance", target: literalTarget("none"), targetKind: "none" }],
+    ["on_switch_out_stat_stage", { phase: "switch-out", target: statTarget, targetKind: "stat" }],
+    ["status_immunity", { phase: "before-status-applied", target: statusTarget, targetKind: "status" }],
+    ["heal_block", { phase: "before-move", target: literalTarget("hp"), targetKind: "hp" }],
     ["survive_once", { phase: "before-hp-damage", target: literalTarget("hp_full_once"), targetKind: "hp_full_once" }],
   ]);
 
@@ -507,12 +530,12 @@ const geneOrderPassives = (() => {
 
   function statCondition(raw) {
     if (raw === "status") return { kind: "status" };
-    const match = /^(self|opponent)_hp_lte:(\d+)\/([1-9]\d*)$/.exec(raw);
+    const match = /^(self|opponent)_hp_(lte|eq):(\d+)\/([1-9]\d*)$/.exec(raw);
     if (!match) return null;
-    const numerator = Number(match[2]);
-    const denominator = Number(match[3]);
-    return Number.isSafeInteger(denominator) && numerator <= denominator
-      ? { kind: match[1], numerator, denominator } : null;
+    const numerator = Number(match[3]);
+    const denominator = Number(match[4]);
+    return Number.isSafeInteger(numerator) && Number.isSafeInteger(denominator) && numerator <= denominator
+      ? { kind: match[1], operator: match[2], numerator, denominator } : null;
   }
 
   function normalize(row, elements, statuses = new Set(), catalog = readTypes()) {
@@ -539,12 +562,12 @@ const geneOrderPassives = (() => {
         continue;
       }
       const field = "condition" + slot;
-      const condition = definition.condition?.(safeText(row[field]));
+      const condition = definition.condition?.(safeText(row[field]), elements, statuses);
       if (definition.condition && !condition) {
         issues.push({ field, value: row[field] });
         continue;
       }
-      effects.push({ ...original, type, passive_type: type, phase: definition.phase, value, ...target, condition });
+      effects.push({ ...original, type, passive_type: type, phase: definition.phase, handler: definition.handler, value, ...target, condition });
     }
     const unconfigured = [passive.effect1, passive.effect2, passive.effect3].filter((effect) =>
       effect.type === PASSIVE_EFFECT_TYPE_NONE && (effect.target_id !== PASSIVE_EFFECT_TYPE_NONE || effect.value !== 0));
@@ -572,22 +595,38 @@ const geneOrderPassives = (() => {
 
   function blocksStage(fighter, stat, delta, source) {
     if (delta >= 0 || !externalPassiveSource(source, fighter)) return null;
-    return first(fighter, "before-stage", (effect) => effect.stat === stat && effect.value > 0);
+    return first(fighter, "before-stage", (effect) => (effect.stat === stat || effect.stat === "all") && effect.value > 0);
   }
 
   function hasStatus(fighter) {
     return Boolean(fighter?.statuses?.length);
   }
 
+  function conditionMatches(fighter, condition, opponent) {
+    const { kind, numerator, denominator, operator = "lte" } = condition;
+    if (kind === "status") return hasStatus(fighter);
+    const target = kind === "self" ? fighter : opponent;
+    if (!target || target.hp <= 0) return false;
+    const current = target.hp * denominator, threshold = target.maxHp * numerator;
+    return operator === "eq" ? current === threshold : current <= threshold;
+  }
+
   function statModifiers(fighter, stat, opponent) {
     if (fighter.fainted) return [];
-    return matching(fighter, "stat-multiplier", (effect) => {
-      if (effect.stat !== stat) return false;
-      const { kind, numerator, denominator } = effect.condition;
-      if (kind === "status") return hasStatus(fighter);
-      const target = kind === "self" ? fighter : opponent;
-      return target && target.hp > 0 && target.hp * denominator <= target.maxHp * numerator;
-    });
+    return matching(fighter, "stat-multiplier", effect =>
+      effect.stat === stat && conditionMatches(fighter, effect.condition, opponent));
+  }
+
+  function damageModifiers(fighter, move, opponent) {
+    return matching(fighter, "incoming-damage", effect => effect.handler === "conditional_damage_multiplier"
+      ? move.category === "attack" && (effect.attackType === "all" || effect.attackType === move.attack_type) &&
+        conditionMatches(fighter, effect.condition, opponent)
+      : geneOrderBattle.moveHasElement(move, effect.element));
+  }
+
+  function useStageEffects(fighter, move) {
+    if (move?.category !== "attack") return [];
+    return matching(fighter, "after-use", effect => geneOrderBattle.moveHasElement(move, effect.element));
   }
 
   function moveCosts(fighter, move) {
@@ -600,6 +639,27 @@ const geneOrderPassives = (() => {
     return first(fighter, "before-status-effect", (effect) => effect.value > 0);
   }
 
+  function statusBlock(fighter, statusId, phase = "before-status-applied") {
+    return first(fighter, phase, effect => effect.statusId === "all" || effect.statusId === statusId);
+  }
+
+  function attackEffects(fighter, phase, move) {
+    return move?.category === "attack" ? matching(fighter, phase, effect =>
+      effect.attackType === "all" || effect.attackType === move.attack_type) : [];
+  }
+
+  function effectChance(fighter, chance) {
+    return Math.min(100, Math.max(0, matching(fighter, "effect-chance").reduce((n, effect) => n * effect.value, chance)));
+  }
+
+  function healBlock(actor, opponent, move, effects) {
+    if (!actor || !opponent || actor === opponent || opponent.fainted || !isImmediateHpHealingStatusMove(move, effects)) return null;
+    return first(opponent, "before-move");
+  }
+
+  // GO has no critical-hit damage or critical RNG. Expose the gate for future callers only.
+  function criticalBlock(fighter) { return first(fighter, "before-critical"); }
+
   function activate(fighter, side, effect, events, details = {}) {
     fighter.passiveState.uses.set(effect.slot, used(fighter, effect) + 1);
     const title = fighter.base.name + "の「" + effect.passive_name + "」";
@@ -608,5 +668,5 @@ const geneOrderPassives = (() => {
       slot: effect.slot, text: title + (message ? "：" + message : "が発動"), ...details });
   }
 
-  return { readTypes, normalize, matching, first, used, survive, blocksStage, hasStatus, statModifiers, moveCosts, statusMoveBlock, activate };
+  return { readTypes, normalize, matching, first, used, survive, blocksStage, hasStatus, conditionMatches, statModifiers, damageModifiers, useStageEffects, moveCosts, statusMoveBlock, statusBlock, attackEffects, effectChance, healBlock, criticalBlock, activate };
 })();

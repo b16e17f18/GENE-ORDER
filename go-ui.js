@@ -48,9 +48,9 @@ const geneOrderUI = (() => {
     const override = go.moveEffects(move).filter(({ table, chance }) => table === "battleEffects" && chance > 0)
       .map(({ id }) => data.battleEffects.get(id)).find((effect) => effect && go.battleEffectKind(effect) === "type-override");
     return {
-      multiplier: go.effectivenessFor(move.element, defender.base, data.effectiveness, override),
+      multiplier: go.moveWeaknessMultiplier(defender.base, move, data.effectiveness, override),
       passiveImmune: Boolean(geneOrderPassives.first(defender, "element-immunity",
-        (effect) => effect.element === move.element && effect.value > 0)),
+        (effect) => go.moveHasElement(move, effect.element) && effect.value > 0)),
     };
   }
 
