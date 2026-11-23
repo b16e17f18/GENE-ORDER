@@ -161,3 +161,10 @@
 - 聖域・深淵・延焼、9属性の耐性低下をCSV駆動で追加。設置先と解除可否を明示し、芭蕉扇の自陣追い風を維持。
 - 共通の実戦/プレビュー/AI計算、既存戦闘詳細、GOEのbattle_effect編集を拡張。
 - 既存のデータ性能値を維持し、旧CSV値へ固定された回帰テストの期待値を更新。詳細は docs/field-effects-resistance.md。
+
+## 未リリース：超適応
+
+- on_attack_element_changeを追加し、攻撃後に最大2属性へ一時変化。現在属性を実戦・予測・AI・既存UIで共有。
+- conditional_priority_modifierにpower_lte / 数値conditionを追加。基本威力60以下の優先度加算をCSVどおりに処理。
+- ユーザー確認により、条件付き能力・被ダメージ倍率の空欄条件は無条件として扱う。
+- ユーザー指定の最新passive.csvを値・説明・設定を変えず採用。詳細はdocs/super-adaptation.md。

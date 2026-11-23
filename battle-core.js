@@ -105,6 +105,27 @@ const geneOrderBattle = (() => {
     return [...new Set([move.element, ...(second && second !== "none" ? [second] : [])])];
   }
 
+  // Battle-only attributes never alter the character master.
+  function currentElements(fighter) {
+    const base = fighter.base ?? fighter;
+    return [...new Set(fighter.currentElements ?? [base.element_1, base.element_2].filter(element => element != null))];
+  }
+
+  function attackElementChange(fighter, move, reason, hp = fighter.hp) {
+    if (move.category !== "attack" || fighter.fainted || hp <= 0 || !["hit", "decoy", "absorbed", "reflected", "evaded", "blocked", "passive-immune", "position-miss"].includes(reason)) return null;
+    const effect = geneOrderPassives.first(fighter, "after-attack");
+    if (!effect) return null;
+    const before = currentElements(fighter), after = moveElements(move);
+    return before.length === after.length && before.every((element, i) => element === after[i]) ? null : { effect, before, after };
+  }
+
+  function applyAttackElementChange(fighter, move, reason, side, events) {
+    const change = attackElementChange(fighter, move, reason);
+    if (!change) return;
+    fighter.currentElements = [...change.after];
+    geneOrderPassives.activate(fighter, side, change.effect, events, { fromElements: change.before, toElements: change.after });
+  }
+
   function moveHasElement(move, element) { return moveElements(move).includes(element); }
 
   function moveWeaknessMultiplier(defender, move, chart, override, context = {}) {
@@ -140,7 +161,7 @@ const geneOrderBattle = (() => {
   }
 
   function elementResistanceMultiplier(element, fighter, chart, turn = 1) {
-    return applyResistance(effectivenessFor(element, fighter.base, chart), resistanceEffect(element, fighter.timedEffects?.values(), turn));
+    return applyResistance(effectivenessFor(element, fighter, chart), resistanceEffect(element, fighter.timedEffects?.values(), turn));
   }
 
   const isFieldKind = kind => ["field-speed", "field-guard", "field-element-power", "field-periodic-damage"].includes(kind);
@@ -154,12 +175,12 @@ const geneOrderBattle = (() => {
   }
 
   function sameElementBonusForMove(attacker, move) {
-    return [attacker.base.element_1, attacker.base.element_2].some(element => moveHasElement(move, element)) ? 1.25 : 1;
+    return currentElements(attacker).some(element => moveHasElement(move, element)) ? 1.25 : 1;
   }
 
   function effectivenessFor(element, defender, chart, override, transform = (_, factor) => factor) {
     const row = chart.get(element);
-    const defendingTypes = [defender.element_1, defender.element_2].filter((type) => type != null);
+    const defendingTypes = currentElements(defender);
     if (!row || !defendingTypes.length) throw new Error("攻撃技または防御側の属性が未定義です。");
     let multiplier = 1;
     for (const type of new Set(defendingTypes)) {
@@ -208,7 +229,7 @@ const geneOrderBattle = (() => {
     const baseDamage = Math.floor(22 * power * attack / (50 * defense)) + 2;
     const stab = sameElementBonusForMove(attacker, move);
     const afterStab = roundHalfDown(baseDamage * stab);
-    const effectiveness = moveWeaknessMultiplier(defender.base, move, chart, override, {
+    const effectiveness = moveWeaknessMultiplier(defender, move, chart, override, {
       sourceFields: modifiers.sourceFields, turn: modifiers.turn, resistances: defender.timedEffects?.values(),
     });
     const afterEffectiveness = Math.floor(afterStab * effectiveness);
@@ -613,9 +634,11 @@ const geneOrderBattle = (() => {
     }
     const wakesTarget = wakesOnAttackDamage(defender, actualDamage);
     const targetAfterDamage = wakesTarget ? { ...defender, statuses: defender.statuses.filter(({ definition }) => definition.effect_id !== "sleep") } : defender;
+    const elementChange = attackElementChange(actor, move, result.reason, actorHp);
+    const actorElementsAfter = actorHp > 0 ? elementChange?.after ?? currentElements(actor) : currentElements(actor.base);
     const failureChance = actionFailureChance(actor);
     const executionChance = 1 - failureChance / 100;
-    return { ...result, lifestealHeal, contactResponseDamage, energyCost: effectiveMoveCost(actor, move, battle.turn), hpCost, actualDamage, actualHeal, responseDamage, hpEffects, actorHp, targetHp,
+    return { ...result, elementChange, actorElementsAfter, lifestealHeal, contactResponseDamage, energyCost: effectiveMoveCost(actor, move, battle.turn), hpCost, actualDamage, actualHeal, responseDamage, hpEffects, actorHp, targetHp,
       wakesTarget, targetActionFailureChanceAfterDamage: actionFailureChance(targetAfterDamage),
       actionFailureChance: failureChance, executionChance, expectedDamage: actualDamage * executionChance,
       expectedDecoyDamage: (result.decoyDamage ?? 0) * executionChance, expectedHpCost: hpCost * executionChance };
@@ -1025,6 +1048,8 @@ const geneOrderBattle = (() => {
     const stages = reason === "relay" ? { ...from.stages } : null;
     const decoy = reason === "relay" || reason === "tail-purge" ? from.decoy : null;
     resetStages(from);
+    from.currentElements = null;
+    to.currentElements = null;
     from.timedEffects.clear();
     from.defenses.clear();
     from.nextElementPower.clear();
@@ -1120,6 +1145,7 @@ const geneOrderBattle = (() => {
   }
 
   function recordFaint(battle, side, fighter, events) {
+    fighter.currentElements = null;
     fighter.bind = null;
     fighter.pending = null;
     fighter.decoy = null;
@@ -1388,6 +1414,7 @@ const geneOrderBattle = (() => {
       applyMoveEffects(battle, side, actor, defender, move, actualDamage + decoyDamage,
         move.category === "attack" && result.reason !== "hit", events, pending ? "release" : null);
       if (!pending && !actor.fainted) applyPassiveStages(actor, side, "after-use", events, { move });
+      applyAttackElementChange(actor, move, result.reason, side, events);
       const defenderJustFainted = defender.fainted && !defenderWasFainted;
       if (defenderJustFainted && actualDamage > 0 && !actor.fainted) {
         for (const effect of geneOrderPassives.matching(actor, "on-ko")) {
@@ -1465,7 +1492,7 @@ const geneOrderBattle = (() => {
   }
 
   return { START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, stageDelta, statValue, effectiveStat, changeEnergy,
-    isFieldKind, fieldDestination, fieldClearable, fieldPowerMultiplier, elementResistanceMultiplier, effectivePriority, priorityDetails, moveElements, moveHasElement, moveWeaknessMultiplier, sameElementBonusForMove, calculateDamage, effectivenessFor, previewDamage, previewRelease, previewSwitch, moveEffects, moveEffectsWithPassive, decoyValues, residualDamage,
+    isFieldKind, fieldDestination, fieldClearable, fieldPowerMultiplier, elementResistanceMultiplier, effectivePriority, priorityDetails, currentElements, attackElementChange, moveElements, moveHasElement, moveWeaknessMultiplier, sameElementBonusForMove, calculateDamage, effectivenessFor, previewDamage, previewRelease, previewSwitch, moveEffects, moveEffectsWithPassive, decoyValues, residualDamage,
     naturalRecovery, previewTurnEndRecovery, statusStatMultiplier, actionFailureChance, effectiveEnergyCharge, effectiveMoveCost,
     guardApplies, activeTimed, effectiveSpeed, evasionRate, moveAvailability, unsupportedMoveReason, validAttackStat, effectKind, battleEffectKind, createBattle, activeFighter, switchTargets, checkAction, resolveTurn, continueSwitch };
 })();

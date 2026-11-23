@@ -48,7 +48,7 @@ const geneOrderUI = (() => {
     const override = go.moveEffects(move).filter(({ table, chance }) => table === "battleEffects" && chance > 0)
       .map(({ id }) => data.battleEffects.get(id)).find((effect) => effect && go.battleEffectKind(effect) === "type-override");
     return {
-      multiplier: go.moveWeaknessMultiplier(defender.base, move, data.effectiveness, override, { ...context, resistances: defender.timedEffects?.values() }),
+      multiplier: go.moveWeaknessMultiplier(defender, move, data.effectiveness, override, { ...context, resistances: defender.timedEffects?.values() }),
       passiveImmune: Boolean(geneOrderPassives.first(defender, "element-immunity",
         (effect) => go.moveHasElement(move, effect.element) && effect.value > 0)),
     };
@@ -121,7 +121,7 @@ const geneOrderUI = (() => {
   function captureFrame(battle) {
     const teams = Object.fromEntries(SIDES.map((side) => [side, battle.teams[side].map((fighter) => {
       const { base, hp, maxHp, energy, fainted, dodgeActive, halfGuard, bind, pending, decoy, stages, statuses, defenses, timedEffects, nextElementPower, passive } = fighter;
-      return { base, hp, maxHp, energy, fainted, dodgeActive, halfGuard, bind: bind && { turns: bind.turns },
+      return { base, currentElements: fighter.currentElements && [...fighter.currentElements], hp, maxHp, energy, fainted, dodgeActive, halfGuard, bind: bind && { turns: bind.turns },
         pending: pending && { ...pending }, decoy: decoy && { ...decoy }, stages: { ...stages },
         statuses: statuses.map((status) => ({ ...status })), defenses: new Map([...defenses].map(([id, entry]) => [id, { ...entry }])),
         nextElementPower: new Map(nextElementPower),
@@ -339,6 +339,7 @@ const geneOrderUI = (() => {
     };
     const attributeIcons = (...ids) => ids.filter(Boolean).map(typeBadge).filter(Boolean).join(" ") || "属性未設定";
     const attributes = (base) => attributeIcons(base.element_1, base.element_2);
+    const fighterAttributes = fighter => attributeIcons(...go.currentElements(fighter));
     const moveAttributes = (move) => attributeIcons(move.element, move.element2);
     const picture = (base, className) => base.imageSrc
       ? `<img class="${className}" src="${esc(base.imageSrc)}" alt="${esc(base.name)}">` : '<span class="go-missing-image">画像未設定</span>';
@@ -520,10 +521,10 @@ const geneOrderUI = (() => {
         const hud = $(candidate + "Hud");
         const sprite = $(candidate + "Sprite");
         const meterWidth = 100 * fighter.hp / fighter.maxHp;
-        const key = fighter.base.character_id + "/" + index;
+        const key = fighter.base.character_id + "/" + index + "/" + go.currentElements(fighter).join("/");
         if (hud.dataset.renderedFighterKey !== key) {
           hud.dataset.renderedFighterKey = key;
-          hud.innerHTML = `<div class="hud-row"><div class="hud-name">${attributes(fighter.base)}
+          hud.innerHTML = `<div class="hud-row"><div class="hud-name">${fighterAttributes(fighter)}
           <span class="hud-character-name">${esc(fighter.base.name)}</span></div></div>
           <div class="hp-line"><span>体力</span><div class="meter"><div class="meter-fill hp-fill ${meterWidth <= 28 ? "is-low" : ""}"
             style="width:${meterWidth}%"></div></div><span class="hud-value hp-value"></span></div>
@@ -542,7 +543,7 @@ const geneOrderUI = (() => {
         if (sprite.dataset.renderedFighterKey !== key) {
           sprite.dataset.renderedFighterKey = key;
           sprite.innerHTML = renderSprite({ id: fighter.base.character_id, name: fighter.base.name, base: fighter.base }, candidate, index,
-            attributes(fighter.base), '<span class="go-missing-image">画像未設定</span>');
+            fighterAttributes(fighter), '<span class="go-missing-image">画像未設定</span>');
           const image = sprite.querySelector("img");
           if (image) {
             const setSourceSize = () => {
@@ -609,7 +610,7 @@ const geneOrderUI = (() => {
       return `<div class="battle-inspect-header">
         <div>
           <div class="detail-title">${side === "player" ? "自分情報" : "相手情報"}</div>
-          <div class="detail-subtitle">${esc(fighter.base.name)}</div>
+          <div class="detail-subtitle">${esc(fighter.base.name)} ${fighterAttributes(fighter)}</div>
         </div>
         <button class="small-button battle-inspect-back" type="button" data-go-inspect-back>戻る</button>
       </div>

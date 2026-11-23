@@ -168,7 +168,7 @@ test("natural recovery reloads from character CSV and emits the actual recovered
 });
 
 test("passive type master covers the handlers, configured effects and legacy alias", () => {
-  assert.equal(go.run("state.passiveTypes.size"), 36);
+  assert.equal(go.run("state.passiveTypes.size"), 37);
   assert.equal(go.run('state.passives.size'), passiveRows.filter(row=>row.name).length);
   assert.equal(go.run('[...state.passives.values()].filter(p=>!'+JSON.stringify(pendingPassiveIds)+'.includes(p.passive_id)).every(p=>p.status==="implemented")'),true);
   assert.deepEqual(JSON.parse(go.run('JSON.stringify([...state.passives.values()].filter(p=>p.issues.length).map(p=>[p.passive_id,p.status,p.issues.map(i=>[i.field,i.value])]))')), []);
@@ -503,7 +503,7 @@ test("the HTTP loader re-reads passive values and target attributes for new batt
   const revised = runtime({ transforms: {
     "./data/passive.csv": (csv) => csv.replace("starting_en,none,4", "starting_en,none,3")
       .replace("turn_end_stat_stage,pa,1", "turn_end_stat_stage,pa,2")
-      .replace("element_power_multiplier,neutral,1.2", "element_power_multiplier,neutral,1.3")
+      .replace(/element_power_multiplier,neutral,[0-9.]+/, "element_power_multiplier,neutral,1.4")
       .replace("element_immunity,water,1", "element_immunity,fire,1"),
   } });
   await revised.boot();
@@ -522,8 +522,8 @@ test("the HTTP loader re-reads passive values and target attributes for new batt
         preview("water").immunity?.element ?? "", preview("fire").immunity?.element ?? ""]);
     })()
   `;
-  assert.deepEqual(JSON.parse(go.run(simulate)), [4, 1, 180, "water", ""]);
-  assert.deepEqual(JSON.parse(revised.run(simulate)), [3, 2, 195, "", "fire"]);
+  assert.deepEqual(JSON.parse(go.run(simulate)), [4, 1, Math.round(150*go.run('state.passives.get("passive_006").effects.find(e=>e.phase==="power").value')), "water", ""]);
+  assert.deepEqual(JSON.parse(revised.run(simulate)), [3, 2, 210, "", "fire"]);
 });
 
 test("the data loader diagnoses pending and partial passives using the same registry as battle", async () => {
@@ -545,7 +545,7 @@ test("the data loader diagnoses pending and partial passives using the same regi
 test("the HTTP loader re-reads v0.41 thresholds, multipliers, priority HP costs and poison chance", async () => {
   const revised = runtime({ transforms: {
     "./data/passive.csv": (csv) => csv.replaceAll("self_hp_lte:1/2", "self_hp_lte:2/3")
-      .replace("conditional_stat_multiplier,pa,1.2", "conditional_stat_multiplier,pa,1.4")
+      .replace(/conditional_stat_multiplier,pa,[0-9.]+/, "conditional_stat_multiplier,pa,1.4")
       .replace("opponent_hp_lte:1/3", "opponent_hp_lte:1/2")
       .replace("priority_move_hp_cost,hp,-0.1", "priority_move_hp_cost,hp,-0.2")
       .replace(/(passive_020,.*),1,,/, "$1,2,,")

@@ -111,9 +111,9 @@ test('coexisting statuses keep separate durations, modifiers and damage amounts'
 
 test('rank, conditional passive, status and field multipliers combine without rewriting ranks or base stats',()=>{
   const b=make({player:[base({phy_atk:101,passive_id:'passive_017'})]});const f=active(b);f.hp=100;attach(f,'burn');go.changeStage(f,'phy_atk',1);
-  assert.equal(go.effectiveStat(f,'phy_atk',{fieldMultiplier:1.5}).value,136);
+  assert.equal(go.effectiveStat(f,'phy_atk',{fieldMultiplier:1.5}).value,Math.floor(101*1.5*passives.get("passive_017").effects.find(e=>e.stat==="phy_atk").value*.5*1.5));
   assert.equal(f.base.phy_atk,101);assert.equal(f.stages.phy_atk,1);f.statuses=[];
-  assert.equal(go.statValue(f,'phy_atk'),181);
+  assert.equal(go.statValue(f,'phy_atk'),Math.floor(101*1.5*passives.get('passive_017').effects.find(e=>e.stat==='phy_atk').value));
   const metabolism=make({player:[base({passive_id:'passive_019'})]});attach(active(metabolism),'paralysis');
   assert.equal(go.statValue(active(metabolism),'phy_def'),150);assert.equal(go.effectiveSpeed(metabolism,'player'),60);
 });

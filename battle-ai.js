@@ -1200,7 +1200,7 @@ const geneOrderAI = (() => {
     publicBase.skillIds = skillIds;
     const { hp, maxHp, energy, fainted, dodgeActive, halfGuard, tookDirectDamage, pending, decoy } = fighter;
     const passiveEffects = fighter.passiveEffects.map((effect) => ({ ...effect, condition: effect.condition && { ...effect.condition } }));
-    return { base: publicBase, hp, maxHp, energy, fainted, dodgeActive, halfGuard, tookDirectDamage,
+    return { base: publicBase, currentElements: fighter.currentElements && [...fighter.currentElements], hp, maxHp, energy, fainted, dodgeActive, halfGuard, tookDirectDamage,
       stages: { ...fighter.stages }, pending: pending && { ...pending }, decoy: decoy && { ...decoy },
       statuses: fighter.statuses.map((status) => ({ ...status })), timedEffects: new Map(fighter.timedEffects),
       defenses: new Map(fighter.defenses), nextElementPower: new Map(fighter.nextElementPower), bind: null, passiveEffects,
@@ -1498,6 +1498,21 @@ const geneOrderAI = (() => {
     }).sort((a, b) => b.score - a.score);
   }
 
+  function elementChangeDefense(context, move, result) {
+    if (!result.elementChange || result.executionChance === 0 || result.reason === "charging") return [];
+    const { board, side, actor, position } = context, go = geneOrderBattle;
+    const team = board.teams[side].slice();
+    team[board.active[side]] = { ...actor, currentElements: [...result.actorElementsAfter], hp: result.actorHp };
+    const projected = { ...board, teams: { ...board.teams, [side]: team } };
+    const own = go.effectivePriority(board, side, move);
+    return position.incoming.map(({ move: incoming, preview }) => {
+      const enemy = go.effectivePriority(board, otherSide(side), incoming);
+      const before = own > enemy ? 1 : own < enemy ? 0 : position.speed > position.otherSpeed ? 1 : position.speed < position.otherSpeed ? 0 : 0.5;
+      return { moveId: incoming.skill_id, before: preview.actualDamage,
+        after: go.previewDamage(projected, otherSide(side), incoming).actualDamage, weight: before * result.executionChance };
+    });
+  }
+
   function scoreMove(context, move) {
     const { board, side, actor, target, config, position } = context;
     const go = geneOrderBattle;
@@ -1505,6 +1520,8 @@ const geneOrderAI = (() => {
     const result = position.attacks.get(move.skill_id) ?? go.previewDamage(board, side, move);
     const release = go.previewRelease(board, side, move, result);
     const forecast = release ?? result;
+    const typeDefense = elementChangeDefense(context, move, result);
+    const typeDefenseGain = typeDefense.length ? typeDefense.reduce((sum, entry) => sum + (entry.before - entry.after) * entry.weight, 0) / typeDefense.length : 0;
     const risk = moveRisk(context, move);
     const cost = go.effectiveMoveCost(actor, move, board.turn);
     const damage = forecast.actualDamage * config.BODY_WEIGHT + (forecast.decoyDamage ?? 0) * config.DECOY_WEIGHT;
@@ -1538,7 +1555,7 @@ const geneOrderAI = (() => {
     if (endsKo) score += Math.min(go.MAX_ENERGY - actor.energy + cost,
       geneOrderPassives.matching(actor,"on-ko").reduce((n,e)=>n+e.value,0)) * config.EN_WEIGHT;
     if (cost > 0 && actor.energy - cost <= 0) score -= config.EMPTY_ENERGY_PENALTY;
-    score += supportScore(context, move, result, release) * (1 - risk);
+    score += supportScore(context, move, result, release) * (1 - risk) + typeDefenseGain * config.SUPPORT_RISK;
     if (release) {
       const positionMove = go.moveEffects(move).some(({ id }) => go.battleEffectKind(board.battleEffects.get(id)) === "position");
       const safe = positionMove && !position.incoming.some(({ move: enemyMove }) => enemyMove.hit_type === "sure_hit");
@@ -1563,7 +1580,7 @@ const geneOrderAI = (() => {
     return { action, move, score, fatal, koConfidence: koConfidence * executionChance,
       damage: result.actualDamage, expectedDamage: result.actualDamage * executionChance, decoyDamage: result.decoyDamage ?? 0,
       label: move.name, reason: release ? "予約威力・次の攻撃" : result.reason, forecast: {
-        priority: result.priority, targetHp, actorHp: result.actorHp, hpCost: result.hpCost, energyCost: result.energyCost, response: result.responseDamage, power: result.power,
+        priority: result.priority, elementChangeDefense: typeDefense, actorElementsAfter: forecast.actorElementsAfter, targetHp, actorHp: result.actorHp, hpCost: result.hpCost, energyCost: result.energyCost, response: result.responseDamage, power: result.power,
         executionChance, actionFailureChance: result.actionFailureChance, wakesTarget: result.wakesTarget,
         targetActionFailureChanceAfterDamage: result.targetActionFailureChanceAfterDamage, expectedDamage: result.actualDamage * executionChance,
         actorEndHp: actorEnd.hp, targetEndHp: targetEnd.hp,

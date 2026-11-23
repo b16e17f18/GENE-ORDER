@@ -177,3 +177,7 @@ HP50%以下のSA1.5倍は既存のconditional_stat_multiplier／sa／1.5／self_
 ## 条件付き技優先度
 
 conditional_priority_modifierを追加し、効果タイプは36種類。既存の優先度にCSVの整数を加算し、能力ランクやSPは変更しない。対象5分類、HP・状態異常条件、登場後初回、戦闘中1回を共通処理で扱う。回数制限は実際の使用成立時のみ消費する。HP到達履歴と複合条件の仕様は[優先度パッシブ](priority-passives.md)を参照。
+
+## 超適応と37タイプ
+
+on_attack_element_change / used_element / 1を追加。conditional_priority_modifier / power_lte / 1 / condition=60に対応する。CSV形式・属性復元・空欄条件・既存設定保護は[超適応の記録](super-adaptation.md)を参照。

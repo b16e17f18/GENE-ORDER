@@ -1841,8 +1841,9 @@ test("neutral power modifies move power before damage and self PA falls after th
   const match = passiveBattle(options);
   const attacker = active(match);
   const preview = go.previewDamage(match, "player", neutral);
-  const baseline = go.previewDamage(battle({ ...options, skills: [{ ...neutral, power: 96 }] }), "player", { ...neutral, power: 96 });
-  assert.equal(preview.power, 96);
+  const boosted = Math.round(neutral.power * officialPassives.get("passive_006").effects.find(e=>e.phase==="power").value);
+  const baseline = go.previewDamage(battle({ ...options, skills: [{ ...neutral, power: boosted }] }), "player", { ...neutral, power: boosted });
+  assert.equal(preview.power, boosted);
   assert.equal(preview.damage, baseline.damage);
   assert.equal(attacker.passiveState.uses.size, 0);
   const result = action(match);
@@ -2145,8 +2146,8 @@ test("conditional attack stats use exact half HP, stage multipliers, and current
   holder.hp = 101;
   assert.equal(go.statValue(holder, "phy_atk"), 151);
   holder.hp--;
-  assert.equal(go.statValue(holder, "phy_atk"), 181);
-  assert.equal(go.statValue(holder, "sp_atk"), 192);
+  assert.equal(go.statValue(holder, "phy_atk"), Math.floor(101*1.5*officialPassives.get("passive_017").effects.find(e=>e.stat==="phy_atk").value));
+  assert.equal(go.statValue(holder, "sp_atk"), Math.floor(160*officialPassives.get("passive_017").effects.find(e=>e.stat==="sp_atk").value));
   assert.equal(go.previewDamage(match, "player", shell).attack, holder.base.phy_def);
   const predicted = go.previewDamage(match, "player", strike);
   const turn = action(match);
@@ -2157,7 +2158,7 @@ test("conditional attack stats use exact half HP, stage multipliers, and current
   assert.equal(go.statValue(holder, "sp_atk"), 160);
   holder.hp = 100;
   holder.maxHp = 200;
-  assert.equal(go.statValue(holder, "phy_atk"), 181);
+  assert.equal(go.statValue(holder, "phy_atk"), Math.floor(101*1.5*officialPassives.get("passive_017").effects.find(e=>e.stat==="phy_atk").value));
 });
 
 test("hunter speed uses exact one third, rank and Tailwind, and fixes order at turn start", () => {
@@ -2514,7 +2515,7 @@ test("Full Commitment composes with exact 1 HP power and the existing move cap",
   const actor = active(match);
   full(actor);
   actor.hp = 2;
-  assert.equal(go.previewDamage(match, "player", move).power, 84);
+  assert.equal(go.previewDamage(match, "player", move).power, Math.min(move.power_cap,Math.round(70*officialPassives.get("passive_006").effects.find(e=>e.phase==="power").value)));
   actor.hp = 1;
   assert.equal(go.previewDamage(match, "player", move).power, 160);
   const turn = action(match, move.skill_id);
@@ -2533,7 +2534,7 @@ test("drain and HP cost re-evaluate Adrenaline against live HP and match the for
   actor.hp = 110;
   const preview = go.previewDamage(match, "player", drain);
   assert.equal(preview.hpCost, 20);
-  assert.equal(preview.attack, Math.floor(actor.base.phy_atk * 1.2));
+  assert.equal(preview.attack, Math.floor(actor.base.phy_atk * adrenaline.effects.find(e=>e.stat==="phy_atk").value));
   assert.ok(preview.actorHp > actor.maxHp / 2);
   assert.equal(actor.hp, 110);
   const result = action(match);

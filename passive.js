@@ -430,6 +430,7 @@ const geneOrderPassives = (() => {
   const literalTarget = (target) => (id) => id === target ? {} : null;
   const priorityTargets = new Map([
     ["all", move => ["attack", "status"].includes(move.category)],
+    ["power_lte", move => ["attack", "status"].includes(move.category)],
     ["status", move => move.category === "status"],
     ["attack", move => move.category === "attack"],
     ["physical", move => move.category === "attack" && move.attack_type === "physical"],
@@ -440,6 +441,7 @@ const geneOrderPassives = (() => {
     ["element_immunity", { phase: "element-immunity", target: elementalTarget, targetKind: "element" }],
     ["element_damage_multiplier", { phase: "incoming-damage", target: elementalTarget, targetKind: "element" }],
     ["element_power_multiplier", { phase: "power", target: elementalTarget, targetKind: "element" }],
+    ["on_attack_element_change", { phase: "after-attack", target: literalTarget("used_element"), targetKind: "used_element" }],
     ["on_use_element_stat_stage", { phase: "after-use", target: elementalStage, targetKind: "element_stat" }],
     ["turn_end_stat_stage", { phase: "turn-end", target: statTarget, targetKind: "stat" }],
     ["on_hit_element_stat_stage", { phase: "body-hit", target: elementalStage, targetKind: "element_stat" }],
@@ -539,6 +541,7 @@ const geneOrderPassives = (() => {
   }
 
   function statCondition(raw) {
+    if (!raw) return { kind: "always" };
     if (raw === "status") return { kind: "status" };
     const match = /^(self|opponent)_hp_(lte|eq):(\d+)\/([1-9]\d*)$/.exec(raw);
     if (!match) return null;
@@ -550,6 +553,7 @@ const geneOrderPassives = (() => {
 
   function priorityCondition(raw) {
     if (!raw) return { all: [] };
+    if (/^\d+$/.test(raw) && Number.isSafeInteger(Number(raw))) return { all: [{ kind: "base_power_lte", power: Number(raw) }] };
     const parts = raw.split("&").map(part => part.trim());
     if (parts.some(part => !part) || new Set(parts).size !== parts.length) return null;
     const all = parts.map(part => {
@@ -579,6 +583,7 @@ const geneOrderPassives = (() => {
   function priorityDetails(fighter, move, opponent) {
     const effects = fighter.fainted ? [] : matching(fighter, "move-priority", effect =>
       priorityTargets.get(effect.moveKind)?.(move) && effect.condition.all.every(condition => {
+        if (condition.kind === "base_power_lte") return Number.isFinite(move.power) && move.power >= 0 && move.power <= condition.power;
         if (condition.kind === "first_move_after_entry") return !(fighter.passiveState?.entryMoves ?? 0);
         if (condition.kind === "once_per_battle") return used(fighter, effect) === 0;
         if (condition.kind === "self_hp_reached") {
@@ -623,7 +628,10 @@ const geneOrderPassives = (() => {
       }
       const field = "condition" + slot;
       const condition = definition.condition?.(safeText(row[field]), elements, statuses);
-      if (definition.condition && !condition) {
+      const powerCondition = condition?.all?.some(entry => entry.kind === "base_power_lte");
+      const incompatiblePriority = type === "conditional_priority_modifier" && (target.moveKind === "power_lte"
+        ? !powerCondition || condition.all.length !== 1 : powerCondition);
+      if (definition.condition && (!condition || incompatiblePriority)) {
         issues.push({ field, value: row[field] });
         continue;
       }
@@ -664,6 +672,7 @@ const geneOrderPassives = (() => {
 
   function conditionMatches(fighter, condition, opponent) {
     const { kind, numerator, denominator, operator = "lte" } = condition;
+    if (kind === "always") return true;
     if (kind === "status") return hasStatus(fighter);
     const target = kind === "self" ? fighter : opponent;
     if (!target || target.hp <= 0) return false;

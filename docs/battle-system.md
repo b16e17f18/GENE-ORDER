@@ -105,3 +105,7 @@ AIの入力は公開盤面となる。技・HP・ENの予測、溜め解放、�
 ## フィールド・耐性低下の拡張
 
 陣営フィールドと個体の耐性低下を分離し、威力・相性・予測・AIを共通化しました。[CSV定義と計算順序](field-effects-resistance.md)を参照してください。
+
+## 戦闘中の一時属性
+
+fighter.currentElementsに一時属性を保持し、currentElements()をSTAB・防御相性・AI・画面で共有する。正式baseは変更せず、交代・戦闘不能で復元する。[超適応の仕様と検証](super-adaptation.md)。
