@@ -41,19 +41,21 @@ test('CSV declares five supported statuses and blank new columns retain neutral 
   assert.equal(go.effectKind(old),'status');
 });
 
-test('poison keeps CSV 10 percent, five ticks, MHB rounding and no stat or failure multiplier',()=>{
+test('poison keeps current CSV magnitude/duration, MHB rounding and no stat or failure multiplier',()=>{
   const b=make({player:[base({hp:403})]}); const f=active(b);attach(f,'poison');
   const expected=go.statValue(f,'phy_atk');
-  for(let i=0;i<5;i++){const e=round(b).events.filter(e=>e.type==='residual');assert.equal(e.length,1);assert.equal(e[0].damage,40);assert.equal(go.statValue(f,'phy_atk'),expected);}
-  assert.equal(f.hp,203); assert.equal(f.statuses.length,0); assert.equal(go.actionFailureChance(f),0); assert.equal(round(b).events.some(e=>e.type==='residual'),false);
+  const tick=Math.max(1,Math.round(f.maxHp*effects.get('poison').damage_value/100)),duration=effects.get('poison').turn;
+  for(let i=0;i<duration&&!f.fainted;i++){const before=f.hp,e=round(b).events.filter(e=>e.type==='residual');assert.equal(e.length,1);assert.equal(e[0].damage,Math.min(before,tick));assert.equal(go.statValue(f,'phy_atk'),expected);}
+  assert.equal(f.hp,Math.max(0,403-tick*duration)); assert.equal(f.statuses.length,0); assert.equal(go.actionFailureChance(f),0); if(!b.winner)assert.equal(round(b).events.some(e=>e.type==='residual'),false);else assert.ok(go.checkAction(b,'player',wait));
 });
 for(const [id,stat,normal,half] of [['burn','phy_atk',120,60],['frostbite','sp_atk',160,80]]) {
-  test(id+' uses five 5-percent ticks, halves only its CSV stat and restores automatically',()=>{
+  test(id+' uses CSV damage/duration, halves only its CSV stat and restores automatically',()=>{
     const b=make({player:[base({hp:403})]});const f=active(b);attach(f,id);
     assert.equal(go.statValue(f,stat),half);assert.equal(f.stages[stat],0);
     assert.equal(go.statValue(f,id==='burn'?'sp_atk':'phy_atk'),id==='burn'?160:120);
-    for(let i=0;i<5;i++){const events=round(b).events;assert.equal(events.find(e=>e.type==='residual').damage,20);if(i<4)assert.equal(go.statValue(f,stat),half);}
-    assert.equal(f.hp,303);assert.equal(go.statValue(f,stat),normal);assert.equal(f.statuses.length,0);
+    const tick=Math.max(1,Math.round(f.maxHp*effects.get(id).damage_value/100)),duration=effects.get(id).turn;
+    for(let i=0;i<duration;i++){const before=f.hp,events=round(b).events;assert.equal(events.find(e=>e.type==='residual').damage,Math.min(before,tick));if(i<duration-1)assert.equal(go.statValue(f,stat),half);}
+    assert.equal(f.hp,Math.max(0,403-tick*duration));assert.equal(go.statValue(f,stat),normal);assert.equal(f.statuses.length,0);
   });
 }
 
@@ -93,17 +95,17 @@ test('normal switch is never paralyzed, retains status and pauses turns on the b
 
 for(const id of ['poison','burn','paralysis','frostbite']) test(id+' reapplication refreshes the same instance without stacking and uses the same bench rules',()=>{
   const move=statusMove(id);const b=make({moves:[move],enemy:[base({hp:2000}),base({name:'Bench',hp:2000})]});const f=active(b,'enemy');
-  go.resolveTurn(b,{player:use(move.skill_id),enemy:wait}); assert.equal(f.statuses.length,1); assert.equal(f.statuses[0].turns,4);
-  round(b);assert.equal(f.statuses[0].turns,3);
-  go.resolveTurn(b,{player:use(move.skill_id),enemy:wait});assert.equal(f.statuses.length,1);assert.equal(f.statuses[0].turns,4);
-  go.resolveTurn(b,{player:wait,enemy:{type:'switch',index:1}});assert.equal(f.statuses[0].turns,4);round(b);assert.equal(f.statuses[0].turns,4);
-  go.resolveTurn(b,{player:wait,enemy:{type:'switch',index:0}});assert.equal(f.statuses[0].turns,3);
+  go.resolveTurn(b,{player:use(move.skill_id),enemy:wait}); assert.equal(f.statuses.length,1); assert.equal(f.statuses[0].turns,effects.get(id).turn-1);
+  round(b);assert.equal(f.statuses[0].turns,effects.get(id).turn-2);
+  go.resolveTurn(b,{player:use(move.skill_id),enemy:wait});assert.equal(f.statuses.length,1);assert.equal(f.statuses[0].turns,effects.get(id).turn-1);
+  go.resolveTurn(b,{player:wait,enemy:{type:'switch',index:1}});assert.equal(f.statuses[0].turns,effects.get(id).turn-1);round(b);assert.equal(f.statuses[0].turns,effects.get(id).turn-1);
+  go.resolveTurn(b,{player:wait,enemy:{type:'switch',index:0}});assert.equal(f.statuses[0].turns,effects.get(id).turn-2);
 });
 
 test('coexisting statuses keep separate durations, modifiers and damage amounts',()=>{
   const b=make();const f=active(b);for(const id of ['poison','burn','paralysis','frostbite'])attach(f,id);
   assert.deepEqual(['phy_atk','sp_atk','speed'].map(s=>go.statValue(f,s)),[60,80,60]);
-  const e=round(b).events;assert.equal(e.filter(e=>e.type==='residual').length,3);assert.equal(f.hp,160);assert.equal(f.statuses.length,4);
+  const e=round(b).events;assert.equal(e.filter(e=>e.type==='residual').length,3);assert.equal(f.hp,200-['poison','burn','frostbite'].reduce((n,id)=>n+Math.round(200*effects.get(id).damage_value/100),0));assert.equal(f.statuses.length,4);
   f.statuses=[];assert.deepEqual(['phy_atk','sp_atk','speed'].map(s=>go.statValue(f,s)),[120,160,120]);
 });
 

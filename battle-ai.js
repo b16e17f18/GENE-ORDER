@@ -1272,8 +1272,10 @@ const geneOrderAI = (() => {
     const danger = Math.max(predictedIncoming, unknown);
     const rankValue = STATS.reduce((sum, stat) => sum + fighter.stages[stat], 0) * config.STAGE_WEIGHT / 3;
     const residual = [...fighter.statuses, fighter.bind].filter(Boolean).reduce((sum, status) =>
-      sum + Math.min(config.STATUS_HORIZON, status.turns) * go.residualDamage(fighter, status.definition), 0);
-    const recovery = go.previewTurnEndRecovery(fighter, Math.max(0, fighter.hp - predictedIncoming)).recovered;
+      sum + Math.min(config.STATUS_HORIZON, status.turns) * go.residualDamage(fighter, status.definition), 0) +
+      [...board.fields[side].values()].filter(entry => go.activeTimed(entry, board.turn)).reduce((sum, entry) =>
+        sum + Math.min(config.STATUS_HORIZON, entry.expires - board.turn) * go.residualDamage(fighter, entry.definition), 0);
+    const recovery = go.previewTurnEndRecovery(fighter, Math.max(0, fighter.hp - predictedIncoming), { fields: board.fields[side].values(), turn: board.turn }).recovered;
     const revive = geneOrderPassives.survive(fighter, fighter.hp) ? config.REVIVE_VALUE : 0;
     const speed = go.effectiveSpeed(board, side);
     const otherSpeed = go.effectiveSpeed(board, other);
@@ -1330,6 +1332,19 @@ const geneOrderAI = (() => {
     return statValue + failureValue;
   }
 
+  // Evaluate setup through the same pure damage preview as actual attacks.
+  function fieldAttackGain(board, side, projected) {
+    const go = geneOrderBattle;
+    return Math.max(0, ...availableMoves(board, side, { future: true }).filter(move => move.category === "attack").map(move => {
+      const damage = state => {
+        const start = go.previewDamage(state, side, move);
+        const result = go.previewRelease(state, side, move, start) ?? start;
+        return (result.actualDamage + (result.decoyDamage ?? 0)) * start.executionChance;
+      };
+      return damage(projected) - damage(board);
+    }));
+  }
+
   function supportScore(context, move, result, release) {
     const { board, side, actor, target, position, config } = context;
     const go = geneOrderBattle;
@@ -1359,13 +1374,13 @@ const geneOrderAI = (() => {
     let score = 0;
     for (const { id, chance, target: destination, table } of go.moveEffectsWithPassive(actor, move)) {
       if (!(chance > 0)) continue;
-      const self = destination === "self";
+      const effect = board[table].get(id);
+      const kind = table === "effects" ? go.effectKind(effect) : go.battleEffectKind(effect);
+      const self = (go.isFieldKind(kind) ? go.fieldDestination(effect) : destination) === "self";
       if (self && actor.pending) continue;
       if (!self && (target.fainted || (move.category === "attack" && (release ?? result).reason !== "hit"))) continue;
       const recipient = self ? actor : target;
-      const effect = board[table].get(id);
-      const kind = table === "effects" ? go.effectKind(effect) : go.battleEffectKind(effect);
-      if (!self && move.category === "status" && (positionBlock || (statusBlock && kind !== "clear-field"))) continue;
+      if (!self && move.category === "status" && (positionBlock || (statusBlock && kind !== "clear-field" && !go.isFieldKind(kind)))) continue;
       let value = 0;
       if (kind === "stage") {
         if (self || !geneOrderPassives.blocksStage(recipient, effect.target_stat, effect.damage_value, actor)) {
@@ -1422,10 +1437,31 @@ const geneOrderAI = (() => {
         }
       } else if (kind === "evasion-boost" && !already(actor.timedEffects, id)) {
         value = go.evasionRate(actor, board.turn) / 100 * (effect.damage_value - 1) * config.FIELD_VALUE;
+      } else if (kind === "field-element-power" && !already(board.fields[self ? side : other], id)) {
+        const recipientSide = self ? side : other;
+        const fields = new Map(board.fields[recipientSide]);
+        fields.set(id, { id, definition: effect, starts: board.turn, expires: board.turn + effect.turn });
+        const projected = { ...board, fields: { ...board.fields, [recipientSide]: fields } };
+        value = fieldAttackGain(board, recipientSide, projected) * (self ? 1 : -1);
+      } else if (kind === "field-periodic-damage") {
+        const old = board.fields[self ? side : other].get(id);
+        const addedTurns = Math.max(0, Math.min(effect.turn, config.STATUS_HORIZON) - Math.max(0, (old?.expires ?? board.turn) - board.turn));
+        value = go.residualDamage(recipient, effect) * addedTurns * config.STATUS_DAMAGE_WEIGHT * (self ? -1 : 1);
+      } else if (kind === "element-resistance-down") {
+        const existing = [...recipient.timedEffects.values()].find(e => go.effectKind(e.definition) === kind && e.definition.element === effect.element && go.activeTimed(e, board.turn));
+        if (!existing) {
+          const timedEffects = new Map(recipient.timedEffects);
+          timedEffects.set(id, { id, definition: effect, starts: board.turn, expires: board.turn + effect.turn });
+          const recipientSide = self ? side : other;
+          const team = board.teams[recipientSide].slice();
+          team[board.active[recipientSide]] = { ...recipient, timedEffects };
+          value = fieldAttackGain(board, self ? other : side, { ...board, teams: { ...board.teams, [recipientSide]: team } }) * (self ? -1 : 1);
+        }
       } else if (kind === "clear-field") {
-        value = board.fields[other].size * config.FIELD_VALUE;
+        value = [...board.fields[self ? side : other].values()].filter(e => go.fieldClearable(e.definition) && go.activeTimed(e, board.turn))
+          .reduce((sum, e) => sum + (go.battleEffectKind(e.definition) === "field-periodic-damage" ? -1 : 1) * config.FIELD_VALUE * (self ? -1 : 1), 0);
       } else if (kind === "field-speed" && !already(board.fields[side], id)) {
-        value = (position.speed <= position.otherSpeed ? config.FIELD_VALUE : config.FIELD_VALUE / 3) * effect.damage_value;
+        value = (position.speed <= position.otherSpeed ? config.FIELD_VALUE : config.FIELD_VALUE / 3) * effect.damage_value * (self ? 1 : -1);
       } else if (kind === "clear-buff") {
         value = STATS.reduce((sum, stat) => sum + Math.max(0, target.stages[stat]) * config.STAGE_WEIGHT / 2, 0);
       } else if (kind === "decoy" || kind === "tail-purge") {
@@ -1481,8 +1517,8 @@ const geneOrderAI = (() => {
     const survivingSide = (candidate, hp) => hp > 0 || board.teams[candidate].some((fighter, index) =>
       index !== board.active[candidate] && !fighter.fainted && fighter.hp > 0);
     const recoveryAllowed = survivingSide(side, forecast.actorHp) && survivingSide(otherSide(side), forecast.targetHp);
-    const actorEnd = recoveryAllowed ? go.previewTurnEndRecovery(actor, forecast.actorHp) : { hp: forecast.actorHp, recovered: 0 };
-    const targetEnd = recoveryAllowed ? go.previewTurnEndRecovery(target, forecast.targetHp) : { hp: forecast.targetHp, recovered: 0 };
+    const actorEnd = recoveryAllowed ? go.previewTurnEndRecovery(actor, forecast.actorHp, { fields: board.fields[side].values(), turn: board.turn }) : { hp: forecast.actorHp, recovered: 0 };
+    const targetEnd = recoveryAllowed ? go.previewTurnEndRecovery(target, forecast.targetHp, { fields: board.fields[otherSide(side)].values(), turn: board.turn }) : { hp: forecast.targetHp, recovered: 0 };
     const recoveryValue = actorEnd.recovered * healWeight * enemyAiTypeMultiplier(config, "HEAL_SCORE_MULTIPLIER")
       - targetEnd.recovered * config.BODY_WEIGHT;
     const toxic = result.actualDamage > 0 && result.targetHp > 0
@@ -1568,7 +1604,7 @@ const geneOrderAI = (() => {
       const score = (nextEN > actor.energy ? config.WAIT_BASE : -config.WAITING_PENALTY) +
         (gain >= config.MIN_FUTURE_GAIN ? Math.max(0, gain - config.WAITING_PENALTY) : 0) +
         upkeep * config.STAGE_WEIGHT / 3 - position.danger * config.SUPPORT_RISK +
-        go.previewTurnEndRecovery(actor).recovered * (config.HEAL_BASE_WEIGHT +
+        go.previewTurnEndRecovery(actor, actor.hp, { fields: board.fields[side].values(), turn: board.turn }).recovered * (config.HEAL_BASE_WEIGHT +
           (1 - actor.hp / actor.maxHp) * config.HEAL_MISSING_HP_WEIGHT) * enemyAiTypeMultiplier(config, "HEAL_SCORE_MULTIPLIER");
       candidates.push({ action: { type: "wait" }, score, label: "待機", reason: gain > 0 ? "EN温存" : "行動保留" });
     }

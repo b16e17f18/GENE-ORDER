@@ -546,24 +546,25 @@ test("formal data battle includes status, evasion, guard, heal, ranks, EN, switc
   assert.equal(match.winner, "player");
 });
 
-test("official poison is guaranteed, rounds like MHB, refreshes and ticks the CSV five turns", () => {
+test("official poison is guaranteed, rounds like MHB, refreshes and ticks the current CSV duration", () => {
   const poison = skill("skill_027");
   const match = battle({ ...assets, skills: [poison], player: official("character_007"),
     enemy: [character({ hp: 125, element_1: "water" })], random: () => { throw Error("100% must not roll"); } });
   const victim = active(match, "enemy");
+  const tick=Math.round(victim.maxHp*officialEffects.get("poison").damage_value/100),remaining=officialEffects.get("poison").turn-1;
   go.changeEnergy(active(match), 6);
   const first = action(match, poison.skill_id);
-  assert.equal(first.events.find(e => e.type === "residual").damage, 13);
-  assert.equal(victim.statuses[0].turns, 4);
+  assert.equal(first.events.find(e => e.type === "residual").damage, tick);
+  assert.equal(victim.statuses[0].turns, remaining);
   const pass = () => go.resolveTurn(match, { player: wait, enemy: wait });
   pass();
   victim.hp = victim.maxHp;
   go.changeEnergy(active(match), 6);
   action(match, poison.skill_id);
   assert.equal(victim.statuses.length, 1);
-  assert.equal(victim.statuses[0].turns, 4);
+  assert.equal(victim.statuses[0].turns, remaining);
   victim.hp = victim.maxHp;
-  for (let i = 0; i < 4; i++) assert.equal(pass().events.find(e => e.type === "residual").damage, 13);
+  for (let i = 0; i < remaining; i++) { victim.hp=victim.maxHp; assert.equal(pass().events.find(e => e.type === "residual").damage, tick); }
   assert.equal(victim.statuses.length, 0);
   assert.ok(!pass().events.some(e => e.type === "residual"));
 });
@@ -634,7 +635,7 @@ test("natural recovery follows poison, bind and end passives, before EN and repl
   const energy = events.findIndex((event) => event.type === "energy");
   const replacement = events.findIndex((event) => event.type === "replacement");
   assert.ok(residual < passive && passive < recovered && recovered < energy && energy < replacement);
-  assert.equal(actor.hp, 85);
+  assert.equal(actor.hp, 100 - Math.round(actor.maxHp*officialEffects.get("poison").damage_value/100) - Math.round(actor.maxHp*officialEffects.get("bind").damage_value/100) + 25);
   assert.equal(target.hp, 0);
   assert.equal(target.fainted, true);
   assert.equal(events.some((event) => event.source === "natural" && event.side === "enemy"), false);
@@ -691,7 +692,7 @@ test("natural recovery preview and AI use regen without mutating state or rescui
   assert.equal(board.teams.enemy[0].base.regen_value, 30);
   const candidate = ai.evaluate(board).find((entry) => entry.move?.skill_id === move.skill_id);
   const preview = go.previewTurnEndRecovery(actor);
-  assert.deepEqual([preview.hp, preview.recovered], [105, 25]);
+  assert.deepEqual([preview.hp, preview.recovered], [125-Math.round(actor.maxHp*officialEffects.get("poison").damage_value/100), 25]);
   assert.equal(go.previewTurnEndRecovery(actor, 1).recovered, 0);
   assert.equal(JSON.stringify(match), snapshot);
   const result = action(match);
@@ -878,7 +879,7 @@ test("official teams: 砂煙 persists through a swap, ベノムアシッド pois
   assert.ok(first.events.some(e => e.type === "field-applied"));
   const next = go.resolveTurn(match, { player: { type: "switch", index: 1 }, enemy: select("skill_027") });
   assert.ok(next.events.some(e => e.type === "status-applied" && e.name === "毒"));
-  assert.equal(active(match).statuses[0].turns, 4);
+  assert.equal(active(match).statuses[0].turns, officialEffects.get("poison").turn-1);
   const events = [];
   while (!match.winner && match.turn < 25) {
     const enemy = active(match, "enemy").energy >= 3 ? select("skill_027") : select("skill_026");
@@ -1173,7 +1174,7 @@ test("official burn uses MHB residuals, refreshes once, coexists with poison and
   target.statuses.push({ definition: officialEffects.get("poison"), turns: 2 });
   const first = action(match, move.skill_id);
   assert.equal(first.events.filter(e => e.type === "residual").length, 2);
-  assert.equal(tick(first)[0].damage, 20);
+  assert.equal(tick(first)[0].damage, Math.round(target.maxHp*officialEffects.get("burn").damage_value/100));
   assert.equal(burn().turns, 4);
   const hp = target.hp;
   pass({ type: "switch", index: 1 });
@@ -1184,7 +1185,7 @@ test("official burn uses MHB residuals, refreshes once, coexists with poison and
   target.hp = target.maxHp;
   assert.equal(tick(action(match, move.skill_id)).length, 1);
   assert.equal(burn().turns, 4);
-  for (let i = 0; i < 4; i++) assert.equal(tick(pass())[0].damage, 20);
+  for (let i = 0; i < 4; i++) assert.equal(tick(pass())[0].damage, Math.round(target.maxHp*officialEffects.get("burn").damage_value/100));
   assert.equal(burn(), undefined);
   assert.equal(tick(pass()).length, 0);
 });
@@ -1358,7 +1359,7 @@ test("normalization re-reads CSV tuning for status probability, damage, duration
     return [first.events.find(e => e.type === "residual").damage, active(match).statuses[0].turns,
       first.events.find(e => e.category === "attack").damage, second.damage];
   }
-  assert.deepEqual(simulate(false), [40, 4, 56, 112]);
+  assert.deepEqual(simulate(false), [Math.round(400*officialEffects.get("poison").damage_value/100), officialEffects.get("poison").turn-1, 56, 112]);
   assert.deepEqual(simulate(true), [80, 2, 84, 84]);
   const raw = csv(read("data/skill.csv")).find(row => row.skill_id === "skill_027");
   const move = normalizeSkill({ ...raw, effect_chance1: "50" }, elements);
@@ -1458,9 +1459,10 @@ test("Decoy takes capped damage without overflow, blocks a debuff, and poison st
   assert.equal(turn.events.find(e => e.type === "move").decoyDamage, 72);
   assert.equal(turn.events.find(e => e.type === "move").actualDamage, 0);
   assert.ok(turn.events.some(e => e.type === "decoy-broken"));
-  assert.equal(fighter.hp, hp);
-  assert.equal(turn.events.find((event) => event.type === "residual").damage, 22);
-  assert.equal(turn.events.find((event) => event.source === "natural").recovered, 22);
+  const tick=Math.round(fighter.maxHp*officialEffects.get("poison").damage_value/100);
+  assert.equal(fighter.hp, hp-tick+Math.min(tick,fighter.base.regen_value));
+  assert.equal(turn.events.find((event) => event.type === "residual").damage, tick);
+  assert.equal(turn.events.find((event) => event.source === "natural").recovered, Math.min(tick,fighter.base.regen_value));
   assert.equal(fighter.tookDirectDamage, false);
   assert.equal(fighter.stages.phy_atk, 0);
 });
@@ -1580,7 +1582,7 @@ test("Power Relay passes positive and negative stages and existing decoy, preser
   outgoing.timedEffects.set("test", { starts: 1, expires: 3, definition: officialEffects.get("evasion_up") });
   specialWait(match, "skill_042", 1);
   assert.deepEqual([incoming.stages.phy_atk, incoming.stages.speed, incoming.decoy.hp], [2, -3, 10]);
-  assert.deepEqual([incoming.hp, incoming.energy, incoming.statuses[0], ownPoison.turns], [92, 5, incomingPoison, 5]);
+  assert.deepEqual([incoming.hp, incoming.energy, incoming.statuses[0], ownPoison.turns], [Math.min(incoming.maxHp,80-Math.round(incoming.maxHp*officialEffects.get("poison").damage_value/100)+incoming.base.regen_value), 5, incomingPoison, 5]);
   assert.equal(outgoing.stages.phy_atk, 0);
   assert.equal(outgoing.timedEffects.size, 0);
   assert.equal(match.fields.player.size, 1);

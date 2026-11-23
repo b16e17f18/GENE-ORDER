@@ -42,13 +42,13 @@ const geneOrderUI = (() => {
   const otherSide = (side) => side === "player" ? "enemy" : "player";
 
   // Attribute matchup only: deliberately excludes STAB, guards and power modifiers.
-  function moveMatchup(move, defender, data) {
+  function moveMatchup(move, defender, data, context = {}) {
     if (move.category !== "attack") return null;
     const go = geneOrderBattle;
     const override = go.moveEffects(move).filter(({ table, chance }) => table === "battleEffects" && chance > 0)
       .map(({ id }) => data.battleEffects.get(id)).find((effect) => effect && go.battleEffectKind(effect) === "type-override");
     return {
-      multiplier: go.moveWeaknessMultiplier(defender.base, move, data.effectiveness, override),
+      multiplier: go.moveWeaknessMultiplier(defender.base, move, data.effectiveness, override, { ...context, resistances: defender.timedEffects?.values() }),
       passiveImmune: Boolean(geneOrderPassives.first(defender, "element-immunity",
         (effect) => go.moveHasElement(move, effect.element) && effect.value > 0)),
     };
@@ -501,7 +501,8 @@ const geneOrderUI = (() => {
       if (fighter.pending) labels.push(`予約 ${data.skills.get(fighter.pending.moveId)?.name ?? ""}（威力${fighter.pending.power}）`);
       for (const { definition, expires, starts } of [...fighter.defenses.values(), ...fighter.timedEffects.values(), ...frame.fields[candidate].values()]) {
         if (!["bf_half_guard", "bf_dodge_guard"].includes(definition.battle_effect_id)) {
-          labels.push(`${definition.name}（${starts > frame.turn ? "次ターン" : Math.max(0, expires - frame.turn)}）`);
+          const name = go.effectKind(definition) === "element-resistance-down" ? `${definition.name}［${data.elements.get(definition.element)?.name ?? definition.element}］` : definition.name;
+          labels.push(`${name}（${starts > frame.turn ? "次ターン" : Math.max(0, expires - frame.turn) + "ターン"}）`);
         }
       }
       for (const [element, effect] of fighter.nextElementPower) {
@@ -599,7 +600,7 @@ const geneOrderUI = (() => {
         passive: { ...fighter.passive, text: goStatText(fighter.passive.text) },
       }) : "";
       const resistances = [...data.elements.keys()].map((element) => {
-        const multiplier = go.effectivenessFor(element, fighter.base, data.effectiveness);
+        const multiplier = go.elementResistanceMultiplier(element, fighter, data.effectiveness, battle.turn);
         if (multiplier === 1) return "";
         const style = multiplier > 1 ? "is-weak" : "is-resistant";
         const label = multiplier > 1 ? "弱点" : "耐性";
@@ -687,7 +688,7 @@ const geneOrderUI = (() => {
         const issue = go.checkAction(battle, candidate, { type: "move", moveId: expandedMoveId });
         const releasing = actor.pending?.moveId === expandedMoveId;
         const kind = expanded.category === "attack" ? attackTypeLabel(expanded.attack_type) : "変化";
-        const matchup = moveMatchup(expanded, go.activeFighter(battle, otherSide(candidate)), data);
+        const matchup = moveMatchup(expanded, go.activeFighter(battle, otherSide(candidate)), data, { sourceFields: [...battle.fields[candidate].values()], turn: battle.turn });
         const affinity = matchup ? '<span class="go-move-affinity"><span class="go-move-matchup" aria-label="相手への属性相性 ×' +
           matchup.multiplier + '">×' + matchup.multiplier + '</span>' +
           (matchup.passiveImmune ? '<span class="go-move-immunity">パッシブで無効</span>' : '') + '</span>' : '';

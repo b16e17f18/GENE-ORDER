@@ -4524,6 +4524,9 @@ function normalizeEffect(row) {
     stat_modifier_target: safeText(row.stat_modifier_target, "none"),
     stat_modifier_multiplier: safeText(row.stat_modifier_multiplier) ? Number(row.stat_modifier_multiplier) : 1,
     action_failure_chance: safeText(row.action_failure_chance) ? Number(row.action_failure_chance) : 0,
+    element: safeText(row.element),
+    zero_multiplier: optionalNumber(row.zero_multiplier),
+    max_multiplier: optionalNumber(row.max_multiplier),
   };
 }
 
@@ -4546,6 +4549,10 @@ function normalizeBattleEffect(row, elementNames) {
     hp_cost_ratio: safeText(row.hp_cost_ratio),
     decoy_hp_ratio: safeText(row.decoy_hp_ratio),
     max_uses: optionalNumber(row.max_uses),
+    field_target: safeText(row.field_target),
+    breakthrough_element: safeText(row.breakthrough_element),
+    breakthrough_multiplier: optionalNumber(row.breakthrough_multiplier),
+    field_clearable: safeText(row.field_clearable) ? parseBoolean(row.field_clearable) : true,
     start_text: csvText(row.start_text),
     animation: animationAssetName(row.animation),
     animation_duration_ms: Math.max(0, number(row.animation_duration_ms)),
@@ -9499,6 +9506,7 @@ function describeGeneOrderEvent(event) {
     heal: (e) => `${e.actor}の${e.source === "natural" ? "自然回復で" : ""}HP +${e.recovered}`,
     "effect-energy": (e) => e.actor + "のEN " + (e.recovered < 0 ? "−" : "+") + Math.abs(e.recovered) + "（技効果）",
     "en-drain": (e) => e.user + "は" + e.actor + "のENを" + e.lost + "吸収（自身のEN +" + e.recovered + "）",
+    "resistance-down": (e) => e.actor + "に" + e.name + "（" + e.turns + "ターン" + (e.replaced ? "・更新" : "") + "）",
     "en-modifier": (e) => e.actor + "に" + e.name + "（" + e.turns + "ターン" + (e.replaced ? "・更新" : "") + "）",
     "insufficient-energy": (e) => e.actor + "の" + e.move + "はEN不足で発動しなかった（必要" + e.cost + "／現在" + e.energy + "、EN消費なし）",
     switch: (e) => `${e.actor}から${e.target}に交代` +

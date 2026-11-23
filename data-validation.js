@@ -235,7 +235,7 @@ function validateGeneOrderData(tables, imageExists) {
   }
 
   for (const table of ["effects", "battleEffects", "powerRules"]) {
-    const fields = table === "powerRules" ? ["min_ratio", "max_ratio", "power_multiplier"] : ["damage_value", "turn", "damage_cut", "modifier", "start_delay", "max_uses"];
+    const fields = table === "powerRules" ? ["min_ratio", "max_ratio", "power_multiplier"] : ["damage_value", "turn", "damage_cut", "modifier", "start_delay", "max_uses", "zero_multiplier", "max_multiplier", "breakthrough_multiplier"];
     for (const row of tables[table]) {
       const id = row[GO_DATA_IDS[table]];
       numeric(table, id, row, fields);
@@ -273,7 +273,16 @@ function validateGeneOrderData(tables, imageExists) {
       if (table === "effects" && !geneOrderBattle.effectKind(row)) {
         add("効果未対応", table, id, "damage_type", row.damage_type);
       }
-      if (table === "battleEffects" && row.battle_effect_group === "next_element_power") {
+      if (table === "effects" && row.effect_group === "element_resistance_down") {
+        masterReference(table, id, row, "element", elements, true);
+        range(table, id, row, ["turn"], 1, Infinity, true);
+      }
+      if (table === "battleEffects" && geneOrderBattle.isFieldKind(geneOrderBattle.battleEffectKind(row))) {
+        if (row.field_target && !["self", "enemy"].includes(row.field_target)) add("参照不一致", table, id, "field_target", row.field_target);
+        if (String(row.field_clearable ?? "").trim() && !/^(true|false)$/i.test(row.field_clearable)) add("参照不一致", table, id, "field_clearable", row.field_clearable);
+      }
+      if (table === "battleEffects" && row.battle_effect_group === "field_element_power") masterReference(table, id, row, "breakthrough_element", elements, true);
+      if (table === "battleEffects" && ["next_element_power", "field_element_power"].includes(row.battle_effect_group)) {
         masterReference(table, id, row, "element", elements, true);
         if (!String(row.modifier ?? "").trim() || Number(row.modifier) <= 0) {
           add("数値異常", table, id, "modifier", row.modifier);
