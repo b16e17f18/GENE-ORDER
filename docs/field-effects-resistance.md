@@ -90,3 +90,61 @@ Edge: tools/check-fields.cjsをGO_PLAYWRIGHT_PATH指定で実行。1280pxと390p
 CSV：data/battle_effect.csv、data/effect.csv。
 テスト：test/field-effects.test.mjs（新規）、test/editor.test.mjs、test/battle.test.mjs、test/data.test.mjs、test/status.test.mjs、test/passive28.test.mjs、tools/check-fields.cjs（新規）。
 記録：README.md、CHANGELOG.md、docs/battle-system.md、本書（新規）。
+
+## マージ前の再確認・技への登録例（2026-11-23）
+
+検証開始HEADは1855d65。最新origin/main=0c8349fはこのブランチの祖先で、未取得のmain変更はない。今回の確認では正式CSVや既存技への割り当てを変更していない。以下は設定する場合の例であり、新規技の正式登録ではない。
+
+### 正式な定義
+
+| 効果 | 正式ID | 定義ファイル | 対象 | 持続 | 性能値 |
+|---|---|---|---|---|---|
+| 聖域 | field_sanctuary | battle_effect.csv | 自陣 field_target=self | 3ターン | light威力modifier=1.3、light→earthの0をbreakthrough_multiplier=1へ |
+| 深淵 | field_abyss | battle_effect.csv | 自陣 field_target=self | 3ターン | dark威力modifier=1.3、dark→earthの0を1へ |
+| 延焼 | field_spreading_fire | battle_effect.csv | 敵陣 field_target=enemy | 3ターン | percent_maxhp、damage_value=10（暫定） |
+| 火耐性DOWN | element_resistance_down_fire | effect.csv | 技のeffect_targetで個体を指定 | 3ターン | 非0相性×2、0→0.5、上限4 |
+| 水耐性DOWN | element_resistance_down_water | effect.csv | 同上 | 3ターン | 同上 |
+| 雷耐性DOWN | element_resistance_down_thunder | effect.csv | 同上 | 3ターン | 同上 |
+| 氷耐性DOWN | element_resistance_down_ice | effect.csv | 同上 | 3ターン | 同上 |
+| 風耐性DOWN | element_resistance_down_wind | effect.csv | 同上 | 3ターン | 同上 |
+| 地耐性DOWN | element_resistance_down_earth | effect.csv | 同上 | 3ターン | 同上 |
+| 光耐性DOWN | element_resistance_down_light | effect.csv | 同上 | 3ターン | 同上 |
+| 闇耐性DOWN | element_resistance_down_dark | effect.csv | 同上 | 3ターン | 同上 |
+| 無耐性DOWN | element_resistance_down_none | effect.csv | 同上 | 3ターン | 同上。noneは有効な属性ID |
+
+耐性DOWNの倍率はdamage_value=2、zero_multiplier=0.5、max_multiplier=4。各持続は定義側turnで変更可能。技CSVにturnを追加する必要はない。
+
+### skill.csv の具体例
+
+| 設定例 | category | attack_type | power | target | battle_effect1 | battle_effect_chance1 | effect1 | effect_target1 | effect_chance1 |
+|---|---|---|---|---|---|---|---|---|---|
+| 聖域を張る変化技 | status | none | 0 | self | field_sanctuary | 100 | none | enemy | 0 |
+| 深淵を張る変化技 | status | none | 0 | self | field_abyss | 100 | none | enemy | 0 |
+| 延焼を敵陣へ設置 | status | none | 0 | enemy | field_spreading_fire | 100 | none | enemy | 0 |
+| 光耐性を下げる変化技 | status | none | 0 | enemy | none | 0 | element_resistance_down_light | enemy | 100 |
+| 攻撃の追加効果で水耐性低下 | attack | physical または special | 既存の技威力 | enemy | none | 0 | element_resistance_down_water | enemy | 100（任意に変更可能） |
+
+battle_effect2 / battle_effect_chance2も利用可能。通常効果はeffect2/3・effect_target2/3・effect_chance2/3も利用可能。未使用枠はnone、発動率0。技自身のelement/element2は別に設定し、耐性DOWNの対象属性はeffect.csvのelementで決まる。技の消費ENや優先度は任意の既存設定を維持する。
+
+battle_effect_target列は存在しない。フィールドの設置先はbattle_effect.csvのfield_targetが正本で、skill.csvのtargetに左右されない。たとえば芭蕉扇のtarget=enemyでも追い風は自陣へ付与される。聖域＋延焼を1技に設定する場合はbattle_effect1=field_sanctuary、battle_effect2=field_spreading_fire、両確率100として、自陣と敵陣へ別々に設置できる。
+
+### 発見した問題と修正
+
+1. GOEのeffect/battle_effectのelement候補が日本語名になっており、正式IDを要求するエンジンと一致していなかった。これら2種類の定義だけ候補の値を正式IDへ変更し、日本語名はラベルに残した。none候補の「無」ラベルを上書きしないようにした。skill/characterの日本語属性選択は維持。ID専用欄へ日本語名を入力すると検証エラーになる。
+2. 睡眠テストがGit管理外のMBHdata/effect.csvへ依存していた。別PR #2の修正と同じ比較用fixtureを採用し、test/sleep.test.mjsの参照先を変更した。状態異常の仕様や正式CSVを変更していない。
+
+### GUIと実戦の往復確認
+
+Edge1280px/390pxで上表の5例をGOEの新規・複製で登録、skill.csvへ出力し、再読み込み後のID・対象・発動率を検証。その出力CSVをnormalizeSkill→createBattleへ渡し、3フィールドと個体耐性DOWNが実際に付与されることを確認した。正式skill.csvは書き換えていない。
+
+属性定義候補は日本語ラベル付きIDで保存され、9属性の耐性DOWNはeffect1～3に設定できる。フィールドと耐性DOWNの数値編集・保存・再読み込み、戦闘詳細と残りターン・ログも成功。
+
+複合属性の計算順序は上記を維持。光・風→地は通常2倍、聖域のみでも2倍、聖域＋光耐性DOWNで4倍。光→地は0→聖域で1→耐性DOWNで2。属性無効パッシブは突破しない。光/闇×物理/特殊×複合防御を追加検証し、AI・プレビュー・実戦の威力/ダメージ一致と予測の無副作用を確認した。
+
+陣営フィールドは交代後も残り、個体の耐性DOWNは交代で消えてパワーリレーで渡さない。芭蕉扇は相手側の解除可能フィールドだけを消し、個体効果や自陣のフィールドは残す。追い風の自陣付与を維持。
+
+### 再確認の最終結果
+
+全自動テスト775件成功、失敗0、スキップ0（約55秒）。関連227件も成功。Edgeは1280px/390px各3シナリオ、合計6シナリオ成功。正式データの多数対戦2505戦：完走2440、例外0、検証上限65。新効果3モード36戦は36完走、例外0。今回の追加修正はGOEとテスト/検証記録のみで、戦闘エンジン・AI・正式CSVには差分なし。
+
+対象ブランチはmainより先行する3コミットに、画像中心線制約・UMA・優先度変更・ユーザーCSV編集も含む。フィールド以外の既存変更を失わないよう、そのまま保持して確認した。mainへのマージは実行していない。今回の最終確認修正はローカルのみで、コミット・pushは実行していない。GitHubでマージする際にはこの修正を対象ブランチへ反映する必要がある。
