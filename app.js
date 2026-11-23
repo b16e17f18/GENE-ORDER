@@ -3966,8 +3966,9 @@ async function loadGameData() {
   if (passiveTypes.issues.length) {
     throw new Error("./data/passive_type.csv: " + passiveTypes.issues.map((issue) => issue.id + " " + issue.field).join(" / "));
   }
+  const passiveFields = new Map(tables.battleEffects.map(d => [d.battle_effect_id, d]));
   const passives = new Map(tables.passives.filter((row) => row.passive_id && row.name).map((row) => (
-    [row.passive_id, geneOrderPassives.normalize(row, elementNames, statusIds, passiveTypes)]
+    [row.passive_id, geneOrderPassives.normalize(row, elementNames, statusIds, passiveTypes, passiveFields)]
   )));
   for (const character of characters) {
     character.passive = passives.get(character.passive_id) ?? null;
@@ -4524,6 +4525,9 @@ function normalizeEffect(row) {
     stat_modifier_target: safeText(row.stat_modifier_target, "none"),
     stat_modifier_multiplier: safeText(row.stat_modifier_multiplier) ? Number(row.stat_modifier_multiplier) : 1,
     action_failure_chance: safeText(row.action_failure_chance) ? Number(row.action_failure_chance) : 0,
+    element: safeText(row.element),
+    zero_multiplier: optionalNumber(row.zero_multiplier),
+    max_multiplier: optionalNumber(row.max_multiplier),
   };
 }
 
@@ -4546,6 +4550,10 @@ function normalizeBattleEffect(row, elementNames) {
     hp_cost_ratio: safeText(row.hp_cost_ratio),
     decoy_hp_ratio: safeText(row.decoy_hp_ratio),
     max_uses: optionalNumber(row.max_uses),
+    field_target: safeText(row.field_target),
+    breakthrough_element: safeText(row.breakthrough_element),
+    breakthrough_multiplier: optionalNumber(row.breakthrough_multiplier),
+    field_clearable: safeText(row.field_clearable) ? parseBoolean(row.field_clearable) : true,
     start_text: csvText(row.start_text),
     animation: animationAssetName(row.animation),
     animation_duration_ms: Math.max(0, number(row.animation_duration_ms)),
@@ -9461,10 +9469,12 @@ function describeGeneOrderEvent(event) {
     if (quietDefense || quietEvasion) return "";
   }
   const statLabels = { phy_atk: "物理攻撃", phy_def: "物理防御", sp_atk: "特殊攻撃", sp_def: "特殊防御", speed: "敏捷" };
-  const sideName = (side) => side === "player" ? "自分側" : "相手側";
+  const sideName = (side) => side === "shared" ? "共通フィールド" : side === "player" ? "自分側" : "相手側";
   const describe = {
     passive: (event) => {
-      const detail = event.multiplier ? '（' + (statLabels[event.stat] ?? "被ダメージ") + ' ×' + event.multiplier + '）' :
+      const detail = event.toElements ? '（属性：' + event.toElements.map(id => state.elements?.get(id)?.name ?? id).join('・') + '）' :
+        event.priorityDelta != null ? '（優先度' + (event.priorityDelta >= 0 ? "+" : "") + event.priorityDelta + " → " + event.priority + "）" :
+        event.multiplier ? '（' + (statLabels[event.stat] ?? "被ダメージ") + ' ×' + event.multiplier + '）' :
         event.damage ? '（HP −' + event.damage + '）' : '';
       return event.text + detail + (event.lostEnergy != null ? `（${event.target}のEN −${event.lostEnergy}）` : "") +
         (event.recoveredEnergy != null ? `（EN +${event.recoveredEnergy}）` : "");
@@ -9498,6 +9508,7 @@ function describeGeneOrderEvent(event) {
     heal: (e) => `${e.actor}の${e.source === "natural" ? "自然回復で" : ""}HP +${e.recovered}`,
     "effect-energy": (e) => e.actor + "のEN " + (e.recovered < 0 ? "−" : "+") + Math.abs(e.recovered) + "（技効果）",
     "en-drain": (e) => e.user + "は" + e.actor + "のENを" + e.lost + "吸収（自身のEN +" + e.recovered + "）",
+    "resistance-down": (e) => e.actor + "に" + e.name + "（" + e.turns + "ターン" + (e.replaced ? "・更新" : "") + "）",
     "en-modifier": (e) => e.actor + "に" + e.name + "（" + e.turns + "ターン" + (e.replaced ? "・更新" : "") + "）",
     "insufficient-energy": (e) => e.actor + "の" + e.move + "はEN不足で発動しなかった（必要" + e.cost + "／現在" + e.energy + "、EN消費なし）",
     switch: (e) => `${e.actor}から${e.target}に交代` +

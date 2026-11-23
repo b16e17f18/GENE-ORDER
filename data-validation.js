@@ -217,6 +217,7 @@ function validateGeneOrderData(tables, imageExists) {
   const statusIds = geneOrderStatusIds(tables.effects);
   const passiveTypes = geneOrderPassives.readTypes(tables.passiveTypes);
   for (const issue of passiveTypes.issues) add("種別定義不正", "passiveTypes", issue.id, issue.field, issue.value);
+  const passiveFields = new Map(tables.battleEffects.map(d => [d.battle_effect_id, d]));
   for (const row of tables.passives) {
     const id = row.passive_id;
     numeric("passives", id, row, ["value1", "value2", "value3"]);
@@ -224,7 +225,7 @@ function validateGeneOrderData(tables, imageExists) {
       add("予約行", "passives", id, "name");
       continue;
     }
-    const passive = geneOrderPassives.normalize(row, elements, statusIds, passiveTypes);
+    const passive = geneOrderPassives.normalize(row, elements, statusIds, passiveTypes, passiveFields);
     if (passive.status === "pending" && !passive.issues.length) {
       add("効果未設定", "passives", id, "passive_type", row.name);
     }
@@ -235,7 +236,7 @@ function validateGeneOrderData(tables, imageExists) {
   }
 
   for (const table of ["effects", "battleEffects", "powerRules"]) {
-    const fields = table === "powerRules" ? ["min_ratio", "max_ratio", "power_multiplier"] : ["damage_value", "turn", "damage_cut", "modifier", "start_delay", "max_uses"];
+    const fields = table === "powerRules" ? ["min_ratio", "max_ratio", "power_multiplier"] : ["damage_value", "turn", "damage_cut", "modifier", "start_delay", "max_uses", "zero_multiplier", "max_multiplier", "breakthrough_multiplier"];
     for (const row of tables[table]) {
       const id = row[GO_DATA_IDS[table]];
       numeric(table, id, row, fields);
@@ -273,7 +274,16 @@ function validateGeneOrderData(tables, imageExists) {
       if (table === "effects" && !geneOrderBattle.effectKind(row)) {
         add("効果未対応", table, id, "damage_type", row.damage_type);
       }
-      if (table === "battleEffects" && row.battle_effect_group === "next_element_power") {
+      if (table === "effects" && row.effect_group === "element_resistance_down") {
+        masterReference(table, id, row, "element", elements, true);
+        range(table, id, row, ["turn"], 1, Infinity, true);
+      }
+      if (table === "battleEffects" && geneOrderBattle.isFieldKind(geneOrderBattle.battleEffectKind(row))) {
+        if (row.field_target && !["self", "enemy", "both"].includes(row.field_target)) add("参照不一致", table, id, "field_target", row.field_target);
+        if (String(row.field_clearable ?? "").trim() && !/^(true|false)$/i.test(row.field_clearable)) add("参照不一致", table, id, "field_clearable", row.field_clearable);
+      }
+      if (table === "battleEffects" && row.battle_effect_group === "field_element_power") masterReference(table, id, row, "breakthrough_element", elements, true);
+      if (table === "battleEffects" && ["next_element_power", "field_element_power"].includes(row.battle_effect_group)) {
         masterReference(table, id, row, "element", elements, true);
         if (!String(row.modifier ?? "").trim() || Number(row.modifier) <= 0) {
           add("数値異常", table, id, "modifier", row.modifier);

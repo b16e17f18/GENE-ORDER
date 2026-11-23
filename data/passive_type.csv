@@ -33,3 +33,7 @@ on_ko_stat_stage,撃破時能力ランク変化,on_ko_stat_stage,on-ko,stat,inte
 on_switch_out_heal,通常交代時HP回復,on_switch_out_heal,normal-switch-heal,hp,number,0,1,TRUE,TRUE,none,,通常交代が成立した時に控えへ戻る本人の最大HPに対する割合で回復する。0.2は20%。
 on_hit_enemy_stat_stage,攻撃命中時相手能力ランク変化,on_hit_enemy_stat_stage,hit-enemy-stage,stat,integer,,,TRUE,TRUE,none,,攻撃で生存中の相手の本体HPを減らした時に相手の指定能力ランクを変える。1技につき最大1回。
 on_enemy_ko_en_restore,味方戦闘不能後登場時EN回復,on_enemy_ko_en_restore,replacement-entry,energy,integer,0,,TRUE,TRUE,none,,味方戦闘不能による補充登場時だけ自分のENを回復する。通常交代では発動しない。
+adaptive_stat_multiplier,最大能力差に適応,adaptive_stat_multiplier,stat-multiplier,adaptive_stat,number,0,,FALSE,TRUE,none,,相手より低い基礎能力のうち差が最大の1種類に倍率を掛ける。同差はPA・PD・SA・SD・SPの順。対象はauto。
+conditional_priority_modifier,条件付き技優先度変更,conditional_priority_modifier,move-priority,move_category,integer,,,TRUE,TRUE,priority_condition,,対象分類の技優先度に整数を加算する。条件は&でAND結合。回数制限は技使用成立時のみ消費する。
+on_attack_element_change,攻撃後属性変化,on_attack_element_change,after-attack,used_element,integer,1,1,TRUE,TRUE,none,,攻撃技の処理後に使用した技の最大2属性へ変化する。交代・戦闘不能で元の属性に戻る。
+on_entry_field_effect,登場時フィールド発生,on_entry_field_effect,entry,field,integer,1,1,TRUE,TRUE,empty,,登場時にtarget_idのフィールドを設置する。設置先・効果量・持続はbattle_effect.csvを参照。
