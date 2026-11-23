@@ -2,14 +2,14 @@
 
 ## 定義と保存先
 
-陣営フィールドは battle.fields.player/enemy のMap、個体の耐性低下は fighter.timedEffects に保存する。旧MHBエンジンは変更しない。正式な既存技・キャラクター・個別パッシブ・相性表の値は変更していない。専用ブランチは feature/field-effects-resistance。
+陣営フィールドは battle.fields.player/enemy、共通フィールドは battle.fields.shared の単一Map、個体の耐性低下は fighter.timedEffects に保存する。旧MHBエンジンは変更しない。正式な既存技・キャラクター・個別パッシブ・相性表の値は変更していない。当初の実装ブランチは feature/field-effects-resistance。後続の共通フィールド・登場時パッシブは [登場時フィールド仕様](entry-field-effects.md) を参照。
 
 ### battle_effect.csv の追加定義
 
 | ID | 名称 | battle_effect_group | element / modifier | damage_type / damage_value | turn | field_target |
 |---|---|---|---|---|---|---|
-| field_sanctuary | 聖域 | field_element_power | light / 1.3 | none / 0 | 3 | self |
-| field_abyss | 深淵 | field_element_power | dark / 1.3 | none / 0 | 3 | self |
+| field_sanctuary | 聖域 | field_element_power | light / 1.3 | none / 0 | 3 | both |
+| field_abyss | 深淵 | field_element_power | dark / 1.3 | none / 0 | 3 | both |
 | field_spreading_fire | 延焼 | field_periodic_damage | 空欄 | percent_maxhp / 10 | 3 | enemy |
 
 新設列は field_target、breakthrough_element、breakthrough_multiplier、field_clearable。聖域・深淵は earth / 1 / TRUE、延焼は突破列空欄 / TRUE。延焼の10%・3ターンは動作する暫定初期値で、バランスの確定値ではない。延焼以外の継続ダメージフィールドは追加していない。
@@ -52,7 +52,7 @@ moveWeaknessMultiplierに明示的なcontextを追加し、calculateDamage / pre
 
 ## 芭蕉扇
 
-clear_fieldは対象陣営のfield_clearableがTRUE（省略もTRUE）のフィールドを共通に削除し、解除名をログへ出す。個別IDの列挙はしない。相手側の追い風・聖域・深淵・延焼・既存の防御フィールド・同グループの将来定義が対象。FALSEのフィールドは残す。個体の耐性低下・状態異常・能力ランク・デコイ・パッシブ、自分側の既存フィールドを消さない。その後の自分側追い風3ターン・SP1.5は従来どおり。
+clear_fieldは対象陣営のfield_clearableがTRUE（省略もTRUE）のフィールドを共通に削除し、解除名をログへ出す。個別IDの列挙はしない。相手側の追い風・延焼・既存の防御フィールドと、共通の聖域・深淵・同グループの将来定義が対象。FALSEのフィールドは残す。個体の耐性低下・状態異常・能力ランク・デコイ・パッシブ、自分側の既存フィールドを消さない。その後の自分側追い風3ターン・SP1.5は従来どおり。
 
 ## GOE・UI・AI
 
@@ -99,8 +99,8 @@ CSV：data/battle_effect.csv、data/effect.csv。
 
 | 効果 | 正式ID | 定義ファイル | 対象 | 持続 | 性能値 |
 |---|---|---|---|---|---|
-| 聖域 | field_sanctuary | battle_effect.csv | 自陣 field_target=self | 3ターン | light威力modifier=1.3、light→earthの0をbreakthrough_multiplier=1へ |
-| 深淵 | field_abyss | battle_effect.csv | 自陣 field_target=self | 3ターン | dark威力modifier=1.3、dark→earthの0を1へ |
+| 聖域 | field_sanctuary | battle_effect.csv | 戦場共通 field_target=both | 3ターン | light威力modifier=1.3、light→earthの0をbreakthrough_multiplier=1へ |
+| 深淵 | field_abyss | battle_effect.csv | 戦場共通 field_target=both | 3ターン | dark威力modifier=1.3、dark→earthの0を1へ |
 | 延焼 | field_spreading_fire | battle_effect.csv | 敵陣 field_target=enemy | 3ターン | percent_maxhp、damage_value=10（暫定） |
 | 火耐性DOWN | element_resistance_down_fire | effect.csv | 技のeffect_targetで個体を指定 | 3ターン | 非0相性×2、0→0.5、上限4 |
 | 水耐性DOWN | element_resistance_down_water | effect.csv | 同上 | 3ターン | 同上 |
@@ -126,7 +126,7 @@ CSV：data/battle_effect.csv、data/effect.csv。
 
 battle_effect2 / battle_effect_chance2も利用可能。通常効果はeffect2/3・effect_target2/3・effect_chance2/3も利用可能。未使用枠はnone、発動率0。技自身のelement/element2は別に設定し、耐性DOWNの対象属性はeffect.csvのelementで決まる。技の消費ENや優先度は任意の既存設定を維持する。
 
-battle_effect_target列は存在しない。フィールドの設置先はbattle_effect.csvのfield_targetが正本で、skill.csvのtargetに左右されない。たとえば芭蕉扇のtarget=enemyでも追い風は自陣へ付与される。聖域＋延焼を1技に設定する場合はbattle_effect1=field_sanctuary、battle_effect2=field_spreading_fire、両確率100として、自陣と敵陣へ別々に設置できる。
+battle_effect_target列は存在しない。フィールドの設置先はbattle_effect.csvのfield_targetが正本で、skill.csvのtargetに左右されない。たとえば芭蕉扇のtarget=enemyでも追い風は自陣へ付与される。聖域＋延焼を1技に設定する場合はbattle_effect1=field_sanctuary、battle_effect2=field_spreading_fire、両確率100として、共通フィールドと敵陣フィールドへ設置できる。
 
 ### 発見した問題と修正
 
@@ -141,7 +141,7 @@ Edge1280px/390pxで上表の5例をGOEの新規・複製で登録、skill.csvへ
 
 複合属性の計算順序は上記を維持。光・風→地は通常2倍、聖域のみでも2倍、聖域＋光耐性DOWNで4倍。光→地は0→聖域で1→耐性DOWNで2。属性無効パッシブは突破しない。光/闇×物理/特殊×複合防御を追加検証し、AI・プレビュー・実戦の威力/ダメージ一致と予測の無副作用を確認した。
 
-陣営フィールドは交代後も残り、個体の耐性DOWNは交代で消えてパワーリレーで渡さない。芭蕉扇は相手側の解除可能フィールドだけを消し、個体効果や自陣のフィールドは残す。追い風の自陣付与を維持。
+陣営フィールドは交代後も残り、個体の耐性DOWNは交代で消えてパワーリレーで渡さない。芭蕉扇は相手側と共通領域の解除可能フィールドを消し、個体効果や自陣のフィールドは残す。追い風の自陣付与を維持。
 
 ### 再確認の最終結果
 

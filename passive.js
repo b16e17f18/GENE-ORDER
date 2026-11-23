@@ -436,7 +436,16 @@ const geneOrderPassives = (() => {
     ["physical", move => move.category === "attack" && move.attack_type === "physical"],
     ["special", move => move.category === "attack" && move.attack_type === "special"],
   ]);
+  function isFieldDefinition(d) {
+    if (!d || !(Number(d.turn) > 0) || (d.field_target && !["self", "enemy", "both"].includes(d.field_target))) return false;
+    return ["field_speed", "field_element_power", "field_periodic_damage"].includes(d.battle_effect_group) ||
+      (d.battle_effect_group === "guard" && d.battle_effect_id !== "bf_half_guard" &&
+        d.guard_type?.endsWith("_damage") && Number(d.damage_cut) > 0 && Number(d.damage_cut) <= 100);
+  }
   const definitions = new Map([
+    ["on_entry_field_effect", { phase: "entry", target: (id, elements, statuses, fields) =>
+      isFieldDefinition(fields?.get(id)) ? { fieldId: id } : null, targetKind: "field", conditionKind: "empty",
+      condition: raw => raw === "" ? {} : null }],
     ["starting_en", { phase: "battle-start", target: (id) => ["en", "none"].includes(id) ? {} : null, targetKind: "energy" }],
     ["element_immunity", { phase: "element-immunity", target: elementalTarget, targetKind: "element" }],
     ["element_damage_multiplier", { phase: "incoming-damage", target: elementalTarget, targetKind: "element" }],
@@ -603,7 +612,7 @@ const geneOrderPassives = (() => {
     fighter.passiveState.entryMoves = (fighter.passiveState.entryMoves ?? 0) + 1;
   }
 
-  function normalize(row, elements, statuses = new Set(), catalog = readTypes()) {
+  function normalize(row, elements, statuses = new Set(), catalog = readTypes(), fields = new Map()) {
     const passive = normalizePassive(row);
     const issues = [];
     const effects = [];
@@ -615,7 +624,7 @@ const geneOrderPassives = (() => {
         issues.push({ field: "passive_type" + slot, value: original.type });
         continue;
       }
-      const target = definition.target(target_id, elements, statuses);
+      const target = definition.target(target_id, elements, statuses, fields);
       if (!target) {
         issues.push({ field: "target_id" + slot, value: target_id });
         continue;
@@ -749,5 +758,5 @@ const geneOrderPassives = (() => {
       slot: effect.slot, text: title + (message ? "：" + message : "が発動"), ...details });
   }
 
-  return { readTypes, normalize, matching, first, used, survive, blocksStage, hasStatus, conditionMatches, priorityCondition, priorityDetails, recordMoveUse, copyState, recordLowestHp, adaptiveStat, statModifiers, damageModifiers, useStageEffects, moveCosts, statusMoveBlock, statusBlock, attackEffects, effectChance, healBlock, criticalBlock, activate };
+  return { isFieldDefinition, readTypes, normalize, matching, first, used, survive, blocksStage, hasStatus, conditionMatches, priorityCondition, priorityDetails, recordMoveUse, copyState, recordLowestHp, adaptiveStat, statModifiers, damageModifiers, useStageEffects, moveCosts, statusMoveBlock, statusBlock, attackEffects, effectChance, healBlock, criticalBlock, activate };
 })();

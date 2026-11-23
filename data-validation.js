@@ -217,6 +217,7 @@ function validateGeneOrderData(tables, imageExists) {
   const statusIds = geneOrderStatusIds(tables.effects);
   const passiveTypes = geneOrderPassives.readTypes(tables.passiveTypes);
   for (const issue of passiveTypes.issues) add("種別定義不正", "passiveTypes", issue.id, issue.field, issue.value);
+  const passiveFields = new Map(tables.battleEffects.map(d => [d.battle_effect_id, d]));
   for (const row of tables.passives) {
     const id = row.passive_id;
     numeric("passives", id, row, ["value1", "value2", "value3"]);
@@ -224,7 +225,7 @@ function validateGeneOrderData(tables, imageExists) {
       add("予約行", "passives", id, "name");
       continue;
     }
-    const passive = geneOrderPassives.normalize(row, elements, statusIds, passiveTypes);
+    const passive = geneOrderPassives.normalize(row, elements, statusIds, passiveTypes, passiveFields);
     if (passive.status === "pending" && !passive.issues.length) {
       add("効果未設定", "passives", id, "passive_type", row.name);
     }
@@ -278,7 +279,7 @@ function validateGeneOrderData(tables, imageExists) {
         range(table, id, row, ["turn"], 1, Infinity, true);
       }
       if (table === "battleEffects" && geneOrderBattle.isFieldKind(geneOrderBattle.battleEffectKind(row))) {
-        if (row.field_target && !["self", "enemy"].includes(row.field_target)) add("参照不一致", table, id, "field_target", row.field_target);
+        if (row.field_target && !["self", "enemy", "both"].includes(row.field_target)) add("参照不一致", table, id, "field_target", row.field_target);
         if (String(row.field_clearable ?? "").trim() && !/^(true|false)$/i.test(row.field_clearable)) add("参照不一致", table, id, "field_clearable", row.field_clearable);
       }
       if (table === "battleEffects" && row.battle_effect_group === "field_element_power") masterReference(table, id, row, "breakthrough_element", elements, true);

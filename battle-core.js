@@ -326,7 +326,7 @@ const geneOrderBattle = (() => {
 
   function battleEffectKind(effect) {
     if (!effect || Number(effect.turn) < 1) return null;
-    if (effect.field_target && !["self", "enemy"].includes(effect.field_target)) return null;
+    if (effect.field_target && !["self", "enemy", "both"].includes(effect.field_target)) return null;
     if (effect.battle_effect_group === "field_element_power" && effect.element && Number(effect.modifier) > 0 &&
       Number.isFinite(Number(effect.modifier)) && effect.breakthrough_element && Number.isFinite(Number(effect.breakthrough_multiplier)) &&
       Number(effect.breakthrough_multiplier) >= 0) return "field-element-power";
@@ -479,7 +479,31 @@ const geneOrderBattle = (() => {
   }
 
   function fieldEffectsForSide(battle, side) {
-    return battle.fields[side];
+    if (!battle.fields.shared?.size) return battle.fields[side] ?? new Map();
+    return new Map([...(battle.fields[side] ?? []), ...(battle.fields.shared ?? [])]);
+  }
+
+  // Store a global field once; expose it to either side for calculation/display.
+  function installField(battle, side, definition, events = [], turn = battle.turn) {
+    if (!isFieldKind(battleEffectKind(definition))) throw new Error("フィールド定義が不正です。");
+    const destination = fieldDestination(definition);
+    const fieldSide = destination === "both" ? "shared" : destination === "self" ? side : opposingSide(side);
+    const fields = battle.fields[fieldSide] ??= new Map();
+    const timed = setTimedEffect(fields, definition, turn, Number(definition.start_delay ?? 0));
+    events.push({ type: "field-applied", side: fieldSide, actor: activeFighter(battle, side).base.name,
+      effect: timed.id, name: definition.name, starts: timed.starts, expires: timed.expires });
+    return timed;
+  }
+
+  function clearFields(battle, side) {
+    const removed = [];
+    for (const fields of [battle.fields[side], battle.fields.shared]) {
+      for (const [key, entry] of fields ?? []) if (fieldClearable(entry.definition)) {
+        removed.push(entry.definition.name);
+        fields.delete(key);
+      }
+    }
+    return removed;
   }
 
   function setTimedEffect(effects, definition, turn, delay = 0) {
@@ -706,8 +730,8 @@ const geneOrderBattle = (() => {
       const kind = table === "battleEffects" ? battleEffectKind(effect) : effectKind(effect);
       const target = isFieldKind(kind) ? fieldDestination(effect) : slotTarget;
       if (actor.fainted ||
-        (phase === "charge" && target !== "self") || (phase === "release" && target === "self")) continue;
-      const recipient = target === "self" ? actor : defender;
+        (phase === "charge" && !["self", "both"].includes(target)) || (phase === "release" && ["self", "both"].includes(target))) continue;
+      const recipient = target === "self" || target === "both" ? actor : defender;
       if (recipient === defender && (defender.fainted || blocked)) continue;
       if (recipient === defender && defender.pending?.definition.battle_effect_group === "position" &&
         move.category === "status" && move.hit_type !== defender.pending.definition.weak_hit_type) continue;
@@ -740,8 +764,7 @@ const geneOrderBattle = (() => {
           actor.nextElementPower.set(effect.element, effect);
           events.push({ ...event, type: "next-power-ready", element: effect.element, multiplier: effect.modifier, replaced });
         } else if (isFieldKind(kind)) {
-          const timed = setTimedEffect(fieldEffectsForSide(battle, event.side), effect, battle.turn, Number(effect.start_delay ?? 0));
-          events.push({ ...event, type: "field-applied", name: effect.name, starts: timed.starts, expires: timed.expires });
+          installField(battle, side, effect, events);
         } else {
           const timed = setTimedEffect(actor.defenses, effect, battle.turn);
           if (kind === "guard" || kind === "absorb") {
@@ -771,12 +794,7 @@ const geneOrderBattle = (() => {
         events.push({ ...event, type: "evasion-boost", starts: timed.starts,
           delay: timed.starts - battle.turn, duration: timed.expires - timed.starts, multiplier: value });
       } else if (kind === "clear-field") {
-        const fields = fieldEffectsForSide(battle, event.side);
-        const removed = [];
-        for (const [key, entry] of fields) if (fieldClearable(entry.definition)) {
-          removed.push(entry.definition.name);
-          fields.delete(key);
-        }
+        const removed = clearFields(battle, event.side);
         events.push({ ...event, type: "field-cleared", removed });
       } else if (kind === "stage") {
         const delta = changeStage(recipient, effect.target_stat, value, { source: actor, side: event.side, events });
@@ -829,7 +847,13 @@ const geneOrderBattle = (() => {
     const fighter = activeFighter(battle, side), opponent = activeFighter(battle, opposingSide(side));
     if (fighter.fainted) return;
     for (const effect of geneOrderPassives.matching(fighter, "entry")) {
-      if (effect.handler === "on_entry_enemy_en_drain") {
+      if (effect.handler === "on_entry_field_effect") {
+        const definition = battle.battleEffects.get(effect.fieldId);
+        if (!definition) throw new Error("登場時フィールドが未定義です: " + effect.fieldId);
+        geneOrderPassives.activate(fighter, side, effect, events);
+        // Replacements enter after this round's effects have already ticked.
+        installField(battle, side, definition, events, battle.turn + (replacement ? 1 : 0));
+      } else if (effect.handler === "on_entry_enemy_en_drain") {
         if (opponent.fainted) continue;
         const before = opponent.energy;
         changeEnergy(opponent, -effect.value);
@@ -932,7 +956,7 @@ const geneOrderBattle = (() => {
     }
     const battle = {
       teams, startEvents,
-      active: { player: 0, enemy: 0 }, fields: { player: new Map(), enemy: new Map() }, skills, effectiveness, effects, battleEffects, powerRules, random, turn: 1, winner: null, manualSwitches, onSwitch, captureFrame, pendingSwitch: null,
+      active: { player: 0, enemy: 0 }, fields: { player: new Map(), enemy: new Map(), shared: new Map() }, skills, effectiveness, effects, battleEffects, powerRules, random, turn: 1, winner: null, manualSwitches, onSwitch, captureFrame, pendingSwitch: null,
     };
     for (const side of SIDES) applyEntryPassive(battle, side, startEvents);
     return battle;
@@ -1088,7 +1112,8 @@ const geneOrderBattle = (() => {
     const opponents = battle.teams[other].slice();
     opponents[battle.active[other]] = clone(activeFighter(battle, other));
     const projected = { ...battle, onSwitch: null, pendingSwitch: null, active: { ...battle.active },
-      teams: { [side]: team, [other]: opponents } };
+      teams: { [side]: team, [other]: opponents },
+      fields: Object.fromEntries(Object.entries(battle.fields).map(([key, fields]) => [key, new Map(fields)])) };
     if (decoy) activeFighter(projected, side).decoy = decoy;
     const mapSource = (original, copy) => {
       if (!original.bind) return;
@@ -1218,10 +1243,10 @@ const geneOrderBattle = (() => {
     }
     for (const { side, fighter } of defeated) recordFaint(battle, side, fighter, events);
     determineWinner(battle, events);
+    for (const [side, fields] of Object.entries(battle.fields)) {
+      tickTimedEffects(fields, battle.turn, effect => events.push({ type: "field-expired", side, name: effect.definition.name }));
+    }
     for (const side of SIDES) {
-      tickTimedEffects(fieldEffectsForSide(battle, side), battle.turn, (effect) => {
-        events.push({ type: "field-expired", side, name: effect.definition.name });
-      });
       for (const fighter of battle.teams[side]) {
         tickTimedEffects(fighter.timedEffects, battle.turn, (effect) => {
           events.push({ type: "effect-expired", side, actor: fighter.base.name, name: effect.definition.name });
@@ -1491,7 +1516,7 @@ const geneOrderBattle = (() => {
     }
   }
 
-  return { START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, stageDelta, statValue, effectiveStat, changeEnergy,
+  return { fieldEffectsForSide, installField, clearFields, START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, stageDelta, statValue, effectiveStat, changeEnergy,
     isFieldKind, fieldDestination, fieldClearable, fieldPowerMultiplier, elementResistanceMultiplier, effectivePriority, priorityDetails, currentElements, attackElementChange, moveElements, moveHasElement, moveWeaknessMultiplier, sameElementBonusForMove, calculateDamage, effectivenessFor, previewDamage, previewRelease, previewSwitch, moveEffects, moveEffectsWithPassive, decoyValues, residualDamage,
     naturalRecovery, previewTurnEndRecovery, statusStatMultiplier, actionFailureChance, effectiveEnergyCharge, effectiveMoveCost,
     guardApplies, activeTimed, effectiveSpeed, evasionRate, moveAvailability, unsupportedMoveReason, validAttackStat, effectKind, battleEffectKind, createBattle, activeFighter, switchTargets, checkAction, resolveTurn, continueSwitch };

@@ -129,7 +129,7 @@ const geneOrderUI = (() => {
         passiveState: geneOrderPassives.copyState(fighter), passive };
     })]));
     return { teams, active: { ...battle.active }, turn: battle.turn,
-      fields: Object.fromEntries(SIDES.map((side) => [side, new Map([...battle.fields[side]].map(([id, entry]) => [id, { ...entry }]))])) };
+      fields: Object.fromEntries([...SIDES, "shared"].map((side) => [side, new Map([...(battle.fields[side] ?? [])].map(([id, entry]) => [id, { ...entry }]))])) };
   }
 
   function createMatch(data, settings, { limit = TEAM_LIMIT, random, aiRoll = aiRandom } = {}) {
@@ -500,7 +500,7 @@ const geneOrderUI = (() => {
       if (fighter.halfGuard || fighter.defenses.has("bf_half_guard")) labels.push("半減防御");
       if (fighter.decoy) labels.push(`デコイ 体力 ${fighter.decoy.hp}/${fighter.decoy.maxHp}`);
       if (fighter.pending) labels.push(`予約 ${data.skills.get(fighter.pending.moveId)?.name ?? ""}（威力${fighter.pending.power}）`);
-      for (const { definition, expires, starts } of [...fighter.defenses.values(), ...fighter.timedEffects.values(), ...frame.fields[candidate].values()]) {
+      for (const { definition, expires, starts } of [...fighter.defenses.values(), ...fighter.timedEffects.values(), ...go.fieldEffectsForSide(frame, candidate).values()]) {
         if (!["bf_half_guard", "bf_dodge_guard"].includes(definition.battle_effect_id)) {
           const name = go.effectKind(definition) === "element-resistance-down" ? `${definition.name}［${data.elements.get(definition.element)?.name ?? definition.element}］` : definition.name;
           labels.push(`${name}（${starts > frame.turn ? "次ターン" : Math.max(0, expires - frame.turn) + "ターン"}）`);
@@ -689,7 +689,7 @@ const geneOrderUI = (() => {
         const issue = go.checkAction(battle, candidate, { type: "move", moveId: expandedMoveId });
         const releasing = actor.pending?.moveId === expandedMoveId;
         const kind = expanded.category === "attack" ? attackTypeLabel(expanded.attack_type) : "変化";
-        const matchup = moveMatchup(expanded, go.activeFighter(battle, otherSide(candidate)), data, { sourceFields: [...battle.fields[candidate].values()], turn: battle.turn });
+        const matchup = moveMatchup(expanded, go.activeFighter(battle, otherSide(candidate)), data, { sourceFields: [...go.fieldEffectsForSide(battle, candidate).values()], turn: battle.turn });
         const affinity = matchup ? '<span class="go-move-affinity"><span class="go-move-matchup" aria-label="相手への属性相性 ×' +
           matchup.multiplier + '">×' + matchup.multiplier + '</span>' +
           (matchup.passiveImmune ? '<span class="go-move-immunity">パッシブで無効</span>' : '') + '</span>' : '';

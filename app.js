@@ -3966,8 +3966,9 @@ async function loadGameData() {
   if (passiveTypes.issues.length) {
     throw new Error("./data/passive_type.csv: " + passiveTypes.issues.map((issue) => issue.id + " " + issue.field).join(" / "));
   }
+  const passiveFields = new Map(tables.battleEffects.map(d => [d.battle_effect_id, d]));
   const passives = new Map(tables.passives.filter((row) => row.passive_id && row.name).map((row) => (
-    [row.passive_id, geneOrderPassives.normalize(row, elementNames, statusIds, passiveTypes)]
+    [row.passive_id, geneOrderPassives.normalize(row, elementNames, statusIds, passiveTypes, passiveFields)]
   )));
   for (const character of characters) {
     character.passive = passives.get(character.passive_id) ?? null;
@@ -9468,7 +9469,7 @@ function describeGeneOrderEvent(event) {
     if (quietDefense || quietEvasion) return "";
   }
   const statLabels = { phy_atk: "物理攻撃", phy_def: "物理防御", sp_atk: "特殊攻撃", sp_def: "特殊防御", speed: "敏捷" };
-  const sideName = (side) => side === "player" ? "自分側" : "相手側";
+  const sideName = (side) => side === "shared" ? "共通フィールド" : side === "player" ? "自分側" : "相手側";
   const describe = {
     passive: (event) => {
       const detail = event.toElements ? '（属性：' + event.toElements.map(id => state.elements?.get(id)?.name ?? id).join('・') + '）' :
