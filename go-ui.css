@@ -336,6 +336,21 @@
   object-fit: contain;
 }
 
+/* PC: use natural size, shrinking only to stay inside this fighter's half. */
+@media (min-width: 601px) and (orientation: portrait), (min-width: 901px) and (orientation: landscape) {
+  #go-app[data-go-sprite-sizing="native-pc"] .battle-view .fighter-sprite {
+    width: 50%;
+    max-width: 50%;
+    min-width: 0;
+  }
+  #go-app[data-go-sprite-sizing="native-pc"] .battle-view .sprite-image-wrap { min-width: 0; }
+  #go-app[data-go-sprite-sizing="native-pc"] .battle-view .sprite-image-wrap .sprite-image {
+    width: auto;
+    max-width: 100%;
+    max-height: none;
+  }
+}
+
 /* Common two-step move selection on every device. */
 #go-app .go-move-card { display: grid; position: relative; min-width: 0; }
   #go-app .battle-view .go-move-card .move-button {

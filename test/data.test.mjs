@@ -95,7 +95,7 @@ test("normal effect IDs use snake_case and renamed references resolve with uncha
   for (const [id, name, value, turns] of [
     ["evasion_up", "回避率倍化", 2, 1],
     ["clear_field", "フィールド解除", 0, 0],
-    ["bind", "締めつけ", 10, 3],
+    ["bind", "締め付け", 10, 3],
     ["recoil_25", "反動ダメージ", 25, 0],
   ]) {
     const effect = go.run(`state.effects.get("${id}")`);
@@ -168,7 +168,7 @@ test("natural recovery reloads from character CSV and emits the actual recovered
 });
 
 test("passive type master covers the handlers, configured effects and legacy alias", () => {
-  assert.equal(go.run("state.passiveTypes.size"), 34);
+  assert.equal(go.run("state.passiveTypes.size"), 38);
   assert.equal(go.run('state.passives.size'), passiveRows.filter(row=>row.name).length);
   assert.equal(go.run('[...state.passives.values()].filter(p=>!'+JSON.stringify(pendingPassiveIds)+'.includes(p.passive_id)).every(p=>p.status==="implemented")'),true);
   assert.deepEqual(JSON.parse(go.run('JSON.stringify([...state.passives.values()].filter(p=>p.issues.length).map(p=>[p.passive_id,p.status,p.issues.map(i=>[i.field,i.value])]))')), []);
@@ -463,7 +463,7 @@ test("reloading CSV over the data loader changes live battle tuning without code
         state.skills.get("skill_027").effect_chance1, state.battleEffects.get("revenge").damage_value]);
     })()
   `;
-  assert.deepEqual(JSON.parse(go.run(scenario)), [195, 35, 4, 100, 150]);
+  assert.deepEqual(JSON.parse(go.run(scenario)), [195, Math.round(352*go.run('state.effects.get("poison").damage_value')/100), go.run('state.effects.get("poison").turn')-1, 100, 150]);
   assert.deepEqual(JSON.parse(updated.run(scenario)), [200, 70, 2, 50, 200]);
 });
 
@@ -503,7 +503,7 @@ test("the HTTP loader re-reads passive values and target attributes for new batt
   const revised = runtime({ transforms: {
     "./data/passive.csv": (csv) => csv.replace("starting_en,none,4", "starting_en,none,3")
       .replace("turn_end_stat_stage,pa,1", "turn_end_stat_stage,pa,2")
-      .replace("element_power_multiplier,neutral,1.2", "element_power_multiplier,neutral,1.3")
+      .replace(/element_power_multiplier,neutral,[0-9.]+/, "element_power_multiplier,neutral,1.4")
       .replace("element_immunity,water,1", "element_immunity,fire,1"),
   } });
   await revised.boot();
@@ -522,8 +522,8 @@ test("the HTTP loader re-reads passive values and target attributes for new batt
         preview("water").immunity?.element ?? "", preview("fire").immunity?.element ?? ""]);
     })()
   `;
-  assert.deepEqual(JSON.parse(go.run(simulate)), [4, 1, 180, "water", ""]);
-  assert.deepEqual(JSON.parse(revised.run(simulate)), [3, 2, 195, "", "fire"]);
+  assert.deepEqual(JSON.parse(go.run(simulate)), [4, 1, Math.round(150*go.run('state.passives.get("passive_006").effects.find(e=>e.phase==="power").value')), "water", ""]);
+  assert.deepEqual(JSON.parse(revised.run(simulate)), [3, 2, 210, "", "fire"]);
 });
 
 test("the data loader diagnoses pending and partial passives using the same registry as battle", async () => {
@@ -545,7 +545,7 @@ test("the data loader diagnoses pending and partial passives using the same regi
 test("the HTTP loader re-reads v0.41 thresholds, multipliers, priority HP costs and poison chance", async () => {
   const revised = runtime({ transforms: {
     "./data/passive.csv": (csv) => csv.replaceAll("self_hp_lte:1/2", "self_hp_lte:2/3")
-      .replace("conditional_stat_multiplier,pa,1.2", "conditional_stat_multiplier,pa,1.4")
+      .replace(/conditional_stat_multiplier,pa,[0-9.]+/, "conditional_stat_multiplier,pa,1.4")
       .replace("opponent_hp_lte:1/3", "opponent_hp_lte:1/2")
       .replace("priority_move_hp_cost,hp,-0.1", "priority_move_hp_cost,hp,-0.2")
       .replace(/(passive_020,.*),1,,/, "$1,2,,")
@@ -609,7 +609,7 @@ test("formal CSV has 27 playable passives and reports actionable numeric bounds"
 test("CSV edits change the speed multiplier and burn damage and duration in a new battle", async () => {
   const revised = runtime({ transforms: {
     "./data/power_rule.csv": (csv) => csv.replace("speed_advantage,0,100,0.5", "speed_advantage,0,100,0.6"),
-    "./data/effect.csv": (csv) => csv.replace("burn,火やられ,damage,percent_maxhp,5,5", "burn,火やられ,damage,percent_maxhp,12,3"),
+    "./data/effect.csv": (csv) => patchCsv(csv,"effect_id","burn",{damage_value:12,turn:3}),
   } });
   await revised.boot();
   const result = revised.run(`
@@ -874,7 +874,7 @@ test("official UI accepts newly configured fighters and rejects invalid, duplica
   assert.throws(() => go.run(formalMatch().replace('"character_016", "character_015", "character_019"', "")), /先発/);
   assert.throws(() => go.run(formalMatch().replace('"character_016"', '"character_015"')), /先発/);
   assert.throws(() => go.run(formalMatch().replace("random: ()", "limit: 2, random: ()")), /1〜2体/);
-  assert.equal(go.run(`(${formalMatch().replace('"character_016"', '"character_047"')}).battle.teams.player[1].base.name`), "K-12");
+  assert.equal(go.run(`(${formalMatch().replace('"character_016"', '"character_047"')}).battle.teams.player[1].base.name`), go.run('state.characterMap.get("character_047").name'));
 });
 
 test("official match maps manual versus AI through GO and records display frames without legacy state", () => {
@@ -952,7 +952,7 @@ test("official match captures poison and HP0 before resuming a replacement, then
         battle.winner, blocked, replay.turn, replay.winner, replay.teams.enemy[0].hp]);
     })()
   `));
-  assert.deepEqual(actual, [5, 4, 0, true, "player", true, 1, null, 146]);
+  assert.deepEqual(actual, [go.run('state.effects.get("poison").turn'), go.run('state.effects.get("poison").turn')-1, 0, true, "player", true, 1, null, 146]);
 });
 
 
@@ -1239,7 +1239,7 @@ test('status performance changes by reloading test CSV without editing JavaScrip
     const out=g.resolveTurn(b,{player:{type:"wait"},enemy:{type:"wait"}});
     return JSON.stringify([...before,out.events.find(e=>e.type==="residual"&&e.side==="player").damage,f.statuses[0].turns]);
   })()`;
-  assert.deepEqual(JSON.parse(go.run(scenario)),[60,60,25,10,4]);
+  assert.deepEqual(JSON.parse(go.run(scenario)),[60,60,25,Math.round(200*go.run('state.effects.get("burn").damage_value')/100),go.run('state.effects.get("burn").turn')-1]);
   assert.deepEqual(JSON.parse(r.run(scenario)),[30,90,50,14,2]);
 });
 

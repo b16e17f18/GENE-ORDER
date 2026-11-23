@@ -22,7 +22,7 @@ py -3 -m http.server 8000 --bind 127.0.0.1
 | `go-ui.js`, `go-ui.css`, `styles.css` | 正式対戦の操作・表示とMHB由来のスタイル |
 | `data-validation.js` | ID・データ型・相性組・素材参照の診断 |
 | `data/*.csv` | UTF-8の正式マスタ（技とアニメーション定義を含む） |
-| `data/passive_type.csv` | パッシブ効果34タイプの種別ID・名称・発動タイミング・対象形式・効果量条件・別名 |
+| `data/passive_type.csv` | パッシブ効果36タイプの種別ID・名称・発動タイミング・対象形式・効果量条件・別名 |
 | `data/reference/` | 旧10属性資料とMHB由来の敵編成 |
 | `asset/character/` | キャラクター画像 |
 | `asset/battle-animation/`, `asset/bgm/`, `asset/element/` | 対戦アニメーション、BGM、属性アイコン |
@@ -31,7 +31,7 @@ py -3 -m http.server 8000 --bind 127.0.0.1
 | `test/` | データ基盤・戦闘ルールの自動テスト |
 | `docs/data-foundation.md` | データ契約・検証結果・未解決事項 |
 | `docs/battle-system.md` | 基本戦闘の仕様と暫定ルール |
-| `docs/passive-system.md` | 共通34タイプ、個別パッシブ、CSV調整、発動順と暫定仕様 |
+| `docs/passive-system.md` | 共通36タイプ、個別パッシブ、CSV調整、発動順と暫定仕様 |
 
 全65技の対応状況は技一覧に記録しています。 [技一覧](docs/skill-effects.md)
 
@@ -57,3 +57,9 @@ v0.61〜v0.63の正式表示は7属性の共通アイコン、日本語の能力
 被弾・撃破・通常交代・味方戦闘不能後の登場に対応する5効果を加え、正式マスタは34タイプです。設定例・MHB比較・検証結果は [イベント型パッシブ追加](docs/passive-events-34.md) を参照してください。
 
 2属性の攻撃技を正式対応しました。0倍を除外した相性乗算、1回限りのSTAB、属性パッシブ・AI・UI・GOEの動作は[複合属性技の記録](docs/dual-elements.md)を参照してください。
+
+陣営フィールド（聖域・深淵・延焼）と個体の属性耐性低下をCSVから設定できます。[定義・設置先・計算順序・検証記録](docs/field-effects-resistance.md)を参照してください。
+
+超適応（攻撃後の一時属性変化・基本威力による優先度補正）は[実装記録](docs/super-adaptation.md)を参照してください。
+
+共通フィールド（聖域・深淵）と登場時フィールド発生パッシブは[設定・発動順・検証方法](docs/entry-field-effects.md)を参照してください。

@@ -1,0 +1,2 @@
+﻿effect_id,name,effect_group,damage_type,damage_value,turn,can_move,target_stat,start_text
+sleep,睡眠,control,none,0,3,FALSE,none,{target}は{name}状態になった！

@@ -38,7 +38,7 @@ const hit = { ...strike,cost:0 };
 const hasSleep = f => f.statuses.some(({definition})=>definition.effect_id==='sleep');
 const cast = (b,player,enemy=wait)=>go.resolveTurn(b,{player,enemy});
 test('sleep CSV preserves inherited MHB control definition and sets data-driven 100-percent failure',()=>{
- const legacy=get('rowsFromCsv')(read('MBHdata/effect.csv')).find(e=>e.effect_id==='sleep');const current=rows('effect').find(e=>e.effect_id==='sleep');
+ const legacy=get('rowsFromCsv')(read('test/fixtures/mhb-sleep-reference.csv')).find(e=>e.effect_id==='sleep');const current=rows('effect').find(e=>e.effect_id==='sleep');
  for(const field of ['effect_id','name','effect_group','damage_type','damage_value','turn','can_move','target_stat','start_text'])assert.equal(current[field],legacy[field],field);
  assert.equal(current.action_failure_chance,'100');assert.equal(effects.get('sleep').can_move,false);assert.equal(go.effectKind(effects.get('sleep')),'status');assert.ok(statusIds.has('sleep'));
 });

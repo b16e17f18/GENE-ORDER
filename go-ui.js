@@ -42,13 +42,13 @@ const geneOrderUI = (() => {
   const otherSide = (side) => side === "player" ? "enemy" : "player";
 
   // Attribute matchup only: deliberately excludes STAB, guards and power modifiers.
-  function moveMatchup(move, defender, data) {
+  function moveMatchup(move, defender, data, context = {}) {
     if (move.category !== "attack") return null;
     const go = geneOrderBattle;
     const override = go.moveEffects(move).filter(({ table, chance }) => table === "battleEffects" && chance > 0)
       .map(({ id }) => data.battleEffects.get(id)).find((effect) => effect && go.battleEffectKind(effect) === "type-override");
     return {
-      multiplier: go.moveWeaknessMultiplier(defender.base, move, data.effectiveness, override),
+      multiplier: go.moveWeaknessMultiplier(defender, move, data.effectiveness, override, { ...context, resistances: defender.timedEffects?.values() }),
       passiveImmune: Boolean(geneOrderPassives.first(defender, "element-immunity",
         (effect) => go.moveHasElement(move, effect.element) && effect.value > 0)),
     };
@@ -121,14 +121,15 @@ const geneOrderUI = (() => {
   function captureFrame(battle) {
     const teams = Object.fromEntries(SIDES.map((side) => [side, battle.teams[side].map((fighter) => {
       const { base, hp, maxHp, energy, fainted, dodgeActive, halfGuard, bind, pending, decoy, stages, statuses, defenses, timedEffects, nextElementPower, passive } = fighter;
-      return { base, hp, maxHp, energy, fainted, dodgeActive, halfGuard, bind: bind && { turns: bind.turns },
+      return { base, currentElements: fighter.currentElements && [...fighter.currentElements], hp, maxHp, energy, fainted, dodgeActive, halfGuard, bind: bind && { turns: bind.turns },
         pending: pending && { ...pending }, decoy: decoy && { ...decoy }, stages: { ...stages },
         statuses: statuses.map((status) => ({ ...status })), defenses: new Map([...defenses].map(([id, entry]) => [id, { ...entry }])),
         nextElementPower: new Map(nextElementPower),
-        timedEffects: new Map([...timedEffects].map(([id, entry]) => [id, { ...entry }])), passive };
+        timedEffects: new Map([...timedEffects].map(([id, entry]) => [id, { ...entry }])),
+        passiveState: geneOrderPassives.copyState(fighter), passive };
     })]));
     return { teams, active: { ...battle.active }, turn: battle.turn,
-      fields: Object.fromEntries(SIDES.map((side) => [side, new Map([...battle.fields[side]].map(([id, entry]) => [id, { ...entry }]))])) };
+      fields: Object.fromEntries([...SIDES, "shared"].map((side) => [side, new Map([...(battle.fields[side] ?? [])].map(([id, entry]) => [id, { ...entry }]))])) };
   }
 
   function createMatch(data, settings, { limit = TEAM_LIMIT, random, aiRoll = aiRandom } = {}) {
@@ -338,6 +339,7 @@ const geneOrderUI = (() => {
     };
     const attributeIcons = (...ids) => ids.filter(Boolean).map(typeBadge).filter(Boolean).join(" ") || "属性未設定";
     const attributes = (base) => attributeIcons(base.element_1, base.element_2);
+    const fighterAttributes = fighter => attributeIcons(...go.currentElements(fighter));
     const moveAttributes = (move) => attributeIcons(move.element, move.element2);
     const picture = (base, className) => base.imageSrc
       ? `<img class="${className}" src="${esc(base.imageSrc)}" alt="${esc(base.name)}">` : '<span class="go-missing-image">画像未設定</span>';
@@ -498,9 +500,10 @@ const geneOrderUI = (() => {
       if (fighter.halfGuard || fighter.defenses.has("bf_half_guard")) labels.push("半減防御");
       if (fighter.decoy) labels.push(`デコイ 体力 ${fighter.decoy.hp}/${fighter.decoy.maxHp}`);
       if (fighter.pending) labels.push(`予約 ${data.skills.get(fighter.pending.moveId)?.name ?? ""}（威力${fighter.pending.power}）`);
-      for (const { definition, expires, starts } of [...fighter.defenses.values(), ...fighter.timedEffects.values(), ...frame.fields[candidate].values()]) {
+      for (const { definition, expires, starts } of [...fighter.defenses.values(), ...fighter.timedEffects.values(), ...go.fieldEffectsForSide(frame, candidate).values()]) {
         if (!["bf_half_guard", "bf_dodge_guard"].includes(definition.battle_effect_id)) {
-          labels.push(`${definition.name}（${starts > frame.turn ? "次ターン" : Math.max(0, expires - frame.turn)}）`);
+          const name = go.effectKind(definition) === "element-resistance-down" ? `${definition.name}［${data.elements.get(definition.element)?.name ?? definition.element}］` : definition.name;
+          labels.push(`${name}（${starts > frame.turn ? "次ターン" : Math.max(0, expires - frame.turn) + "ターン"}）`);
         }
       }
       for (const [element, effect] of fighter.nextElementPower) {
@@ -518,10 +521,10 @@ const geneOrderUI = (() => {
         const hud = $(candidate + "Hud");
         const sprite = $(candidate + "Sprite");
         const meterWidth = 100 * fighter.hp / fighter.maxHp;
-        const key = fighter.base.character_id + "/" + index;
+        const key = fighter.base.character_id + "/" + index + "/" + go.currentElements(fighter).join("/");
         if (hud.dataset.renderedFighterKey !== key) {
           hud.dataset.renderedFighterKey = key;
-          hud.innerHTML = `<div class="hud-row"><div class="hud-name">${attributes(fighter.base)}
+          hud.innerHTML = `<div class="hud-row"><div class="hud-name">${fighterAttributes(fighter)}
           <span class="hud-character-name">${esc(fighter.base.name)}</span></div></div>
           <div class="hp-line"><span>体力</span><div class="meter"><div class="meter-fill hp-fill ${meterWidth <= 28 ? "is-low" : ""}"
             style="width:${meterWidth}%"></div></div><span class="hud-value hp-value"></span></div>
@@ -540,7 +543,7 @@ const geneOrderUI = (() => {
         if (sprite.dataset.renderedFighterKey !== key) {
           sprite.dataset.renderedFighterKey = key;
           sprite.innerHTML = renderSprite({ id: fighter.base.character_id, name: fighter.base.name, base: fighter.base }, candidate, index,
-            attributes(fighter.base), '<span class="go-missing-image">画像未設定</span>');
+            fighterAttributes(fighter), '<span class="go-missing-image">画像未設定</span>');
           const image = sprite.querySelector("img");
           if (image) {
             const setSourceSize = () => {
@@ -598,7 +601,7 @@ const geneOrderUI = (() => {
         passive: { ...fighter.passive, text: goStatText(fighter.passive.text) },
       }) : "";
       const resistances = [...data.elements.keys()].map((element) => {
-        const multiplier = go.effectivenessFor(element, fighter.base, data.effectiveness);
+        const multiplier = go.elementResistanceMultiplier(element, fighter, data.effectiveness, battle.turn);
         if (multiplier === 1) return "";
         const style = multiplier > 1 ? "is-weak" : "is-resistant";
         const label = multiplier > 1 ? "弱点" : "耐性";
@@ -607,7 +610,7 @@ const geneOrderUI = (() => {
       return `<div class="battle-inspect-header">
         <div>
           <div class="detail-title">${side === "player" ? "自分情報" : "相手情報"}</div>
-          <div class="detail-subtitle">${esc(fighter.base.name)}</div>
+          <div class="detail-subtitle">${esc(fighter.base.name)} ${fighterAttributes(fighter)}</div>
         </div>
         <button class="small-button battle-inspect-back" type="button" data-go-inspect-back>戻る</button>
       </div>
@@ -686,7 +689,7 @@ const geneOrderUI = (() => {
         const issue = go.checkAction(battle, candidate, { type: "move", moveId: expandedMoveId });
         const releasing = actor.pending?.moveId === expandedMoveId;
         const kind = expanded.category === "attack" ? attackTypeLabel(expanded.attack_type) : "変化";
-        const matchup = moveMatchup(expanded, go.activeFighter(battle, otherSide(candidate)), data);
+        const matchup = moveMatchup(expanded, go.activeFighter(battle, otherSide(candidate)), data, { sourceFields: [...go.fieldEffectsForSide(battle, candidate).values()], turn: battle.turn });
         const affinity = matchup ? '<span class="go-move-affinity"><span class="go-move-matchup" aria-label="相手への属性相性 ×' +
           matchup.multiplier + '">×' + matchup.multiplier + '</span>' +
           (matchup.passiveImmune ? '<span class="go-move-immunity">パッシブで無効</span>' : '') + '</span>' : '';
