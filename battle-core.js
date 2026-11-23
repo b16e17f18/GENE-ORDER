@@ -708,7 +708,7 @@ const geneOrderBattle = (() => {
     const actorElementsAfter = actorHp > 0 ? elementChange?.after ?? currentElements(actor) : currentElements(actor.base);
     const failureChance = actionFailureChance(actor);
     const executionChance = 1 - failureChance / 100;
-    const transformation = !["charging", "hp-cost-faint", "no-target"].includes(result.reason) && actorHp > 0 ? previewTransform(battle, side, move) : null;
+    const transformation = move.category === "status" && !["charging", "hp-cost-faint", "no-target"].includes(result.reason) && actorHp > 0 ? previewTransform(battle, side, move) : null;
     return { ...result, transformation, elementChange, actorElementsAfter, lifestealHeal, contactResponseDamage, energyCost: effectiveMoveCost(actor, move, battle.turn), hpCost, actualDamage, actualHeal, responseDamage, hpEffects, actorHp, targetHp,
       wakesTarget, targetActionFailureChanceAfterDamage: actionFailureChance(targetAfterDamage),
       actionFailureChance: failureChance, executionChance, expectedDamage: actualDamage * executionChance,
@@ -779,9 +779,15 @@ const geneOrderBattle = (() => {
       if (actor.fainted ||
         (phase === "charge" && !["self", "both"].includes(target)) || (phase === "release" && ["self", "both"].includes(target))) continue;
       const recipient = target === "self" || target === "both" ? actor : defender;
-      if (recipient === defender && (defender.fainted || blocked)) continue;
+      if (recipient === defender && (defender.fainted || blocked)) {
+        if (kind === "transform") events.push({ type: "transform-failed", side, actor: actor.base.name, reason: "対象に効果を適用できない" });
+        continue;
+      }
       if (recipient === defender && defender.pending?.definition.battle_effect_group === "position" &&
-        move.category === "status" && move.hit_type !== defender.pending.definition.weak_hit_type) continue;
+        move.category === "status" && move.hit_type !== defender.pending.definition.weak_hit_type) {
+        if (kind === "transform") events.push({ type: "transform-failed", side, actor: actor.base.name, reason: "相手を捉えられない" });
+        continue;
+      }
       if (["charge", "position", "type-override", "hit-power", "decoy", "tail-purge", "relay", "post-attack"].includes(kind) ||
         (kind === "revenge" && slots.some((slot) => battleEffectKind(battle.battleEffects.get(slot.id)) === "reflection"))) continue;
       if (recipient === defender && statusBlock && kind !== "clear-field" && !isFieldKind(kind)) {
@@ -789,6 +795,7 @@ const geneOrderBattle = (() => {
           geneOrderPassives.activate(defender, opposingSide(side), statusBlock, events);
           blockedStatus = true;
         }
+        if (kind === "transform" && chance > 0) events.push({ type: "transform-failed", side, actor: actor.base.name, reason: "変化技が無効" });
         continue;
       }
       if (!rollChance(chance, battle.random)) continue;

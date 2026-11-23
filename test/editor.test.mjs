@@ -80,3 +80,11 @@ test('GOE entry field passive lists only field IDs, validates and roundtrips eve
 test('GOE shared scope survives save serialization and reload with 3 turns and CSV multiplier',()=>{
  run("sharedCopy=parse(fieldCsv);sharedCopy.dirty=true;sharedCopy.rows.find(r=>r.battle_effect_id==='field_sanctuary').modifier='1.7';sharedBack=parse(serialize(sharedCopy))");assert.equal(run('validate(sharedBack,"battle_effect").length'),0);assert.equal(run("sharedBack.rows.find(r=>r.battle_effect_id==='field_sanctuary').field_target"),'both');assert.equal(run("sharedBack.rows.find(r=>r.battle_effect_id==='field_sanctuary').modifier"),'1.7');assert.equal(run("sharedBack.rows.find(r=>r.battle_effect_id==='field_sanctuary').turn"),'3');
 });
+
+
+test('GOE transform effect and status skill references roundtrip all three slots without altering official files',()=>{
+ assert.equal(run('db.effect.rows.find(r=>r.effect_id==="transform").effect_group'),'transform');run("tab='effect'");assert.ok(run('choices("effect_group").has("transform")'));
+ ctx.transformSkill=readFileSync(new URL('../data/skill.csv',import.meta.url),'utf8');
+ run("transformSkill=parse(transformSkill);transformSkill.dirty=true;transformSkill.rows=[{...transformSkill.rows[0],skill_id:'fixture_transform',name:'へんしん',category:'status',attack_type:'none',power:'0',cost:'3',target:'enemy',effect1:'transform',effect_target1:'enemy',effect_chance1:'100',effect2:'transform',effect_target2:'enemy',effect_chance2:'50',effect3:'transform',effect_target3:'enemy',effect_chance3:'0',battle_effect1:'none',battle_effect2:'none'}];transformSkillBack=parse(serialize(transformSkill));tab='skill'");
+ assert.equal(run('validate(transformSkillBack,"skill").length'),0);for(const slot of [1,2,3]){ctx.slot=slot;assert.ok(run('choices("effect"+slot).has("transform")'));assert.equal(run('transformSkillBack.rows[0]["effect"+slot]'),'transform');assert.equal(run('transformSkillBack.rows[0]["effect_target"+slot]'),'enemy');}assert.equal(run('transformSkillBack.rows[0].cost'),'3');assert.equal(run('transformSkillBack.rows[0].effect_chance2'),'50');assert.equal(run('transformSkillBack.rows[0].effect_chance3'),'0');
+});

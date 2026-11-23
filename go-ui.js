@@ -121,7 +121,7 @@ const geneOrderUI = (() => {
   function captureFrame(battle) {
     const teams = Object.fromEntries(SIDES.map((side) => [side, battle.teams[side].map((fighter) => {
       const { base, hp, maxHp, energy, fainted, dodgeActive, halfGuard, bind, pending, decoy, stages, statuses, defenses, timedEffects, nextElementPower, passive } = fighter;
-      return { base, currentElements: fighter.currentElements && [...fighter.currentElements], hp, maxHp, energy, fainted, dodgeActive, halfGuard, bind: bind && { turns: bind.turns },
+      return { base, transform: fighter.transform, currentElements: fighter.currentElements && [...fighter.currentElements], hp, maxHp, energy, fainted, dodgeActive, halfGuard, bind: bind && { turns: bind.turns },
         pending: pending && { ...pending }, decoy: decoy && { ...decoy }, stages: { ...stages },
         statuses: statuses.map((status) => ({ ...status })), defenses: new Map([...defenses].map(([id, entry]) => [id, { ...entry }])),
         nextElementPower: new Map(nextElementPower),
@@ -495,6 +495,7 @@ const geneOrderUI = (() => {
     function flags(fighter, frame, candidate) {
       const labels = fighter.statuses.map(({ definition, turns }) => `${definition.name}（${turns}）`);
       if (fighter.fainted) labels.push("戦闘不能");
+      if (fighter.transform) labels.push("へんしん：" + go.battleAppearance(fighter).name);
       if (fighter.bind) labels.push(`締め付け（${fighter.bind.turns}）`);
       if (fighter.dodgeActive) labels.push("回避状態");
       if (fighter.halfGuard || fighter.defenses.has("bf_half_guard")) labels.push("半減防御");
@@ -521,7 +522,7 @@ const geneOrderUI = (() => {
         const hud = $(candidate + "Hud");
         const sprite = $(candidate + "Sprite");
         const meterWidth = 100 * fighter.hp / fighter.maxHp;
-        const key = fighter.base.character_id + "/" + index + "/" + go.currentElements(fighter).join("/");
+        const key = fighter.base.character_id + "/" + index + "/" + (fighter.transform?.targetId ?? "original") + "/" + go.currentElements(fighter).join("/");
         if (hud.dataset.renderedFighterKey !== key) {
           hud.dataset.renderedFighterKey = key;
           hud.innerHTML = `<div class="hud-row"><div class="hud-name">${fighterAttributes(fighter)}
@@ -542,7 +543,7 @@ const geneOrderUI = (() => {
           `<span class="pip ${member.fainted ? "is-fainted" : "is-alive"} ${index === i ? "is-active" : ""}"></span>`).join("");
         if (sprite.dataset.renderedFighterKey !== key) {
           sprite.dataset.renderedFighterKey = key;
-          sprite.innerHTML = renderSprite({ id: fighter.base.character_id, name: fighter.base.name, base: fighter.base }, candidate, index,
+          sprite.innerHTML = renderSprite({ id: go.battleAppearance(fighter).character_id, name: fighter.base.name, base: go.battleAppearance(fighter) }, candidate, index,
             fighterAttributes(fighter), '<span class="go-missing-image">画像未設定</span>');
           const image = sprite.querySelector("img");
           if (image) {
@@ -596,9 +597,10 @@ const geneOrderUI = (() => {
         const value = stat === "speed" ? go.effectiveSpeed(battle, side) : go.statValue(fighter, stat, { opponent });
         return battleStatMarkup(stat, value, fighter.stages[stat], hidden);
       });
-      if (!hidden) stats.push(battleStatMarkup("regen_value", fighter.base.regen_value));
-      const passive = fighter.passive ? renderDexPassiveSection({
-        passive: { ...fighter.passive, text: goStatText(fighter.passive.text) },
+      if (!hidden) stats.push(battleStatMarkup("regen_value", go.battleBase(fighter).regen_value));
+      const currentPassive = go.battlePassive(fighter);
+      const passive = currentPassive ? renderDexPassiveSection({
+        passive: { ...currentPassive, text: goStatText(currentPassive.text) },
       }) : "";
       const resistances = [...data.elements.keys()].map((element) => {
         const multiplier = go.elementResistanceMultiplier(element, fighter, data.effectiveness, battle.turn);
@@ -683,7 +685,7 @@ const geneOrderUI = (() => {
         $("moveGrid").innerHTML = '<button class="move-button" type="button" data-go-turn>AIのターンを実行</button>';
         return;
       }
-      const moveIds = [...new Set(actor.base.skillIds)].filter((id) => id !== DODGE);
+      const moveIds = [...new Set(go.battleSkills(actor))].filter((id) => id !== DODGE);
       const expanded = moveIds.includes(expandedMoveId) ? data.skills.get(expandedMoveId) : null;
       if (expanded) {
         const issue = go.checkAction(battle, candidate, { type: "move", moveId: expandedMoveId });
@@ -707,7 +709,7 @@ const geneOrderUI = (() => {
           '</button><button class="small-button go-move-back" type="button" data-go-move-back>戻る</button></div>';
         return;
       }
-      const buttons = [...new Set(actor.base.skillIds)].filter((id) => id !== DODGE).map((id) => {
+      const buttons = [...new Set(go.battleSkills(actor))].filter((id) => id !== DODGE).map((id) => {
         const move = data.skills.get(id);
         if (!move) return "";
         const issue = go.checkAction(battle, candidate, { type: "move", moveId: id });

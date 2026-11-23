@@ -1174,7 +1174,7 @@ const geneOrderAI = (() => {
   const COMMON_DODGE = "skill_000";
   const STATS = ["phy_atk", "phy_def", "sp_atk", "sp_def", "speed"];
   const otherSide = (side) => side === "player" ? "enemy" : "player";
-  const identity = (fighter) => fighter.base.character_id || fighter.base.name;
+  const identity = fighter => (fighter.base.character_id || fighter.base.name) + (fighter.transform ? "/" + fighter.transform.targetId : "");
   const fraction = (value) => Math.min(1, Math.max(0, value));
   const average = (values) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
 
@@ -1186,7 +1186,7 @@ const geneOrderAI = (() => {
     for (const event of events) {
       if (!event.moveId || !["move", "charge"].includes(event.type)) continue;
       const side = history[event.side];
-      const key = event.characterId || event.actor;
+      const key = (event.characterId || event.actor) + (event.formId ? "/" + event.formId : "");
       if (!side.has(key)) side.set(key, new Set());
       side.get(key).add(event.moveId);
     }
@@ -1197,10 +1197,16 @@ const geneOrderAI = (() => {
     const publicBase = Object.fromEntries(["character_id", "name", "element_1", "element_2", "energy_charge",
       "evasion_percent", "regen_value", ...STATS].map((key) => [key, base[key]]));
     if (own) Object.assign(publicBase, { ai_type: base.ai_type, ai_setup_skill: base.ai_setup_skill, ai_main_skill: base.ai_main_skill });
-    publicBase.skillIds = skillIds;
+    publicBase.skillIds = fighter.transform && own ? [...base.skillIds] : skillIds;
     const { hp, maxHp, energy, fainted, dodgeActive, halfGuard, tookDirectDamage, pending, decoy } = fighter;
     const passiveEffects = fighter.passiveEffects.map((effect) => ({ ...effect, condition: effect.condition && { ...effect.condition } }));
-    return { base: publicBase, currentElements: fighter.currentElements && [...fighter.currentElements], hp, maxHp, energy, fainted, dodgeActive, halfGuard, tookDirectDamage,
+    const profile = geneOrderBattle.battleBase(fighter);
+    const transformation = fighter.transform && { ...fighter.transform,
+      appearance: { character_id: fighter.transform.appearance.character_id, name: fighter.transform.appearance.name },
+      originalStages: { ...fighter.transform.originalStages },
+      base: { ...publicBase, ...Object.fromEntries([...STATS, "regen_value"].map(k => [k, profile[k]])), skillIds: [...skillIds] },
+      passiveEffects: [...fighter.transform.passiveEffects] };
+    return { base: publicBase, passive: fighter.passive, transform: transformation, currentElements: fighter.currentElements && [...fighter.currentElements], hp, maxHp, energy, fainted, dodgeActive, halfGuard, tookDirectDamage,
       stages: { ...fighter.stages }, pending: pending && { ...pending }, decoy: decoy && { ...decoy },
       statuses: fighter.statuses.map((status) => ({ ...status })), timedEffects: new Map(fighter.timedEffects),
       defenses: new Map(fighter.defenses), nextElementPower: new Map(fighter.nextElementPower), bind: null, passiveEffects,
@@ -1211,10 +1217,10 @@ const geneOrderAI = (() => {
     const go = geneOrderBattle;
     const other = otherSide(side);
     const target = go.activeFighter(battle, other);
-    const known = revealFixedMoves ? target.base.skillIds : history?.[other].get(identity(target));
+    const known = revealFixedMoves ? go.battleSkills(target) : history?.[other].get(identity(target));
     const seenMoves = [...new Set([...(known ?? []), target.pending?.moveId].filter(Boolean))];
     const own = battle.teams[side];
-    const team = own.map((fighter) => publicFighter(fighter, [...fighter.base.skillIds], true));
+    const team = own.map((fighter) => publicFighter(fighter, go.battleSkills(fighter), true));
     const opponent = publicFighter(target, seenMoves, false);
     const copyBind = (original, snapshot) => {
       if (!original.bind) return;
@@ -1223,7 +1229,7 @@ const geneOrderAI = (() => {
     };
     own.forEach((fighter, index) => copyBind(fighter, team[index]));
     copyBind(target, opponent);
-    const moveIds = new Set([COMMON_DODGE, ...seenMoves, ...team.flatMap((fighter) => fighter.base.skillIds),
+    const moveIds = new Set([COMMON_DODGE, ...seenMoves, ...team.flatMap(fighter => [...go.battleSkills(fighter), ...fighter.base.skillIds]),
       ...team.map((fighter) => fighter.pending?.moveId)]);
     const skills = new Map();
     for (const id of moveIds) if (battle.skills.has(id)) skills.set(id, battle.skills.get(id));
@@ -1241,7 +1247,7 @@ const geneOrderAI = (() => {
     const go = geneOrderBattle;
     const fighter = go.activeFighter(board, side);
     if (fighter.fainted) return [];
-    const ids = fighter.pending ? [fighter.pending.moveId] : [...new Set([...fighter.base.skillIds, COMMON_DODGE])];
+    const ids = fighter.pending ? [fighter.pending.moveId] : [...new Set([...go.battleSkills(fighter), COMMON_DODGE])];
     return ids.map((id) => board.skills.get(id)).filter((move) => move &&
       (future ? !go.moveAvailability(move, board).issues.length :
         !go.checkAction(board, side, { type: "move", moveId: move.skill_id })));
@@ -1385,7 +1391,15 @@ const geneOrderAI = (() => {
       const recipient = self ? actor : target;
       if (!self && move.category === "status" && (positionBlock || (statusBlock && kind !== "clear-field" && !go.isFieldKind(kind)))) continue;
       let value = 0;
-      if (kind === "stage") {
+      if (kind === "transform") {
+        const transformation = result.transformation;
+        if (transformation?.success) {
+          const team = board.teams[side].slice();
+          team[board.active[side]] = { ...transformation.fighter, hp: result.actorHp, energy: Math.max(0, actor.energy - result.energyCost) };
+          const projected = { ...board, teams: { ...board.teams, [side]: team } };
+          value = matchup(projected, side, config).score - position.score;
+        } else value = -config.FIELD_VALUE;
+      } else if (kind === "stage") {
         if (self || !geneOrderPassives.blocksStage(recipient, effect.target_stat, effect.damage_value, actor)) {
           value = stageValue(recipient, effect.target_stat, effect.damage_value) * (self ?
             enemyAiSelfBuffTypeMultiplier(effect.target_stat, config) : -enemyAiTypeMultiplier(config, "DEBUFF_SCORE_MULTIPLIER"));
