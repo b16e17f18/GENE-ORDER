@@ -168,7 +168,7 @@ test("natural recovery reloads from character CSV and emits the actual recovered
 });
 
 test("passive type master covers the handlers, configured effects and legacy alias", () => {
-  assert.equal(go.run("state.passiveTypes.size"), 34);
+  assert.equal(go.run("state.passiveTypes.size"), 36);
   assert.equal(go.run('state.passives.size'), passiveRows.filter(row=>row.name).length);
   assert.equal(go.run('[...state.passives.values()].filter(p=>!'+JSON.stringify(pendingPassiveIds)+'.includes(p.passive_id)).every(p=>p.status==="implemented")'),true);
   assert.deepEqual(JSON.parse(go.run('JSON.stringify([...state.passives.values()].filter(p=>p.issues.length).map(p=>[p.passive_id,p.status,p.issues.map(i=>[i.field,i.value])]))')), []);

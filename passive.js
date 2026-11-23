@@ -428,6 +428,13 @@ const geneOrderPassives = (() => {
   const energyTarget = id => ["en", "none"].includes(id) ? {} : null;
   const attackTarget = id => ["physical", "special", "all"].includes(id) ? { attackType: id } : null;
   const literalTarget = (target) => (id) => id === target ? {} : null;
+  const priorityTargets = new Map([
+    ["all", move => ["attack", "status"].includes(move.category)],
+    ["status", move => move.category === "status"],
+    ["attack", move => move.category === "attack"],
+    ["physical", move => move.category === "attack" && move.attack_type === "physical"],
+    ["special", move => move.category === "attack" && move.attack_type === "special"],
+  ]);
   const definitions = new Map([
     ["starting_en", { phase: "battle-start", target: (id) => ["en", "none"].includes(id) ? {} : null, targetKind: "energy" }],
     ["element_immunity", { phase: "element-immunity", target: elementalTarget, targetKind: "element" }],
@@ -441,8 +448,11 @@ const geneOrderPassives = (() => {
     ["on_evade_stat_stage", { phase: "evaded", target: statTarget, targetKind: "stat" }],
     ["conditional_damage_multiplier", { phase: "incoming-damage", target: attackTarget, targetKind: "attack_type",
       conditionKind: "stat_condition", condition: statCondition }],
+    ["adaptive_stat_multiplier", { phase: "stat-multiplier", target: literalTarget("auto"), targetKind: "adaptive_stat" }],
     ["conditional_stat_multiplier", { phase: "stat-multiplier", target: statTarget, targetKind: "stat",
       conditionKind: "stat_condition", condition: statCondition }],
+    ["conditional_priority_modifier", { phase: "move-priority", target: id => priorityTargets.has(id) ? { moveKind: id } : null,
+      targetKind: "move_category", conditionKind: "priority_condition", condition: priorityCondition }],
     ["priority_move_hp_cost", { phase: "move-cost", target: literalTarget("hp"), targetKind: "hp",
       conditionKind: "priority", condition: (raw) => {
         const priority = Number(raw);
@@ -538,6 +548,56 @@ const geneOrderPassives = (() => {
       ? { kind: match[1], operator: match[2], numerator, denominator } : null;
   }
 
+  function priorityCondition(raw) {
+    if (!raw) return { all: [] };
+    const parts = raw.split("&").map(part => part.trim());
+    if (parts.some(part => !part) || new Set(parts).size !== parts.length) return null;
+    const all = parts.map(part => {
+      if (["first_move_after_entry", "once_per_battle"].includes(part)) return { kind: part };
+      if (part.startsWith("self_hp_reached_lte:")) {
+        const parsed = statCondition(part.replace("self_hp_reached_lte:", "self_hp_lte:"));
+        return parsed ? { ...parsed, kind: "self_hp_reached" } : null;
+      }
+      return statCondition(part);
+    });
+    return all.every(Boolean) ? { all } : null;
+  }
+
+  function copyState(fighter) {
+    const state = fighter.passiveState ?? {};
+    return { ...state, uses: new Map(state.uses ?? []), lowestHp: state.lowestHp && { ...state.lowestHp } };
+  }
+
+  function recordLowestHp(fighter) {
+    const state = fighter.passiveState;
+    if (!state || !Number.isFinite(fighter.hp) || !(fighter.maxHp > 0)) return;
+    if (!state.lowestHp || fighter.hp * state.lowestHp.maxHp < state.lowestHp.hp * fighter.maxHp) {
+      state.lowestHp = { hp: fighter.hp, maxHp: fighter.maxHp };
+    }
+  }
+
+  function priorityDetails(fighter, move, opponent) {
+    const effects = fighter.fainted ? [] : matching(fighter, "move-priority", effect =>
+      priorityTargets.get(effect.moveKind)?.(move) && effect.condition.all.every(condition => {
+        if (condition.kind === "first_move_after_entry") return !(fighter.passiveState?.entryMoves ?? 0);
+        if (condition.kind === "once_per_battle") return used(fighter, effect) === 0;
+        if (condition.kind === "self_hp_reached") {
+          const low = fighter.passiveState?.lowestHp;
+          return fighter.hp * condition.denominator <= fighter.maxHp * condition.numerator ||
+            Boolean(low && low.hp * condition.denominator <= low.maxHp * condition.numerator);
+        }
+        return conditionMatches(fighter, condition, opponent);
+      }));
+    const modifier = effects.reduce((sum, effect) => sum + effect.value, 0);
+    return { base: move.priority, modifier, value: move.priority + modifier, effects };
+  }
+
+  function recordMoveUse(fighter, details, side, events) {
+    for (const effect of details.effects) activate(fighter, side, effect, events,
+      { priority: details.value, priorityDelta: effect.value });
+    fighter.passiveState.entryMoves = (fighter.passiveState.entryMoves ?? 0) + 1;
+  }
+
   function normalize(row, elements, statuses = new Set(), catalog = readTypes()) {
     const passive = normalizePassive(row);
     const issues = [];
@@ -611,10 +671,22 @@ const geneOrderPassives = (() => {
     return operator === "eq" ? current === threshold : current <= threshold;
   }
 
+  // Compare immutable base stats only; never invoke effectiveStat here.
+  function adaptiveStat(fighter, opponent) {
+    if (!opponent || opponent.fainted) return null;
+    let selected = null, largestGap = 0;
+    for (const stat of ["phy_atk", "phy_def", "sp_atk", "sp_def", "speed"]) {
+      const gap = opponent.base[stat] - fighter.base[stat];
+      if (gap > largestGap) { selected = stat; largestGap = gap; }
+    }
+    return selected;
+  }
+
   function statModifiers(fighter, stat, opponent) {
     if (fighter.fainted) return [];
-    return matching(fighter, "stat-multiplier", effect =>
-      effect.stat === stat && conditionMatches(fighter, effect.condition, opponent));
+    return matching(fighter, "stat-multiplier", effect => effect.handler === "adaptive_stat_multiplier"
+      ? adaptiveStat(fighter, opponent) === stat
+      : effect.stat === stat && conditionMatches(fighter, effect.condition, opponent));
   }
 
   function damageModifiers(fighter, move, opponent) {
@@ -668,5 +740,5 @@ const geneOrderPassives = (() => {
       slot: effect.slot, text: title + (message ? "：" + message : "が発動"), ...details });
   }
 
-  return { readTypes, normalize, matching, first, used, survive, blocksStage, hasStatus, conditionMatches, statModifiers, damageModifiers, useStageEffects, moveCosts, statusMoveBlock, statusBlock, attackEffects, effectChance, healBlock, criticalBlock, activate };
+  return { readTypes, normalize, matching, first, used, survive, blocksStage, hasStatus, conditionMatches, priorityCondition, priorityDetails, recordMoveUse, copyState, recordLowestHp, adaptiveStat, statModifiers, damageModifiers, useStageEffects, moveCosts, statusMoveBlock, statusBlock, attackEffects, effectChance, healBlock, criticalBlock, activate };
 })();

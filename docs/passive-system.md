@@ -2,7 +2,7 @@
 
 ## パッシブ種別マスタ
 
-`data/passive_type.csv` に34タイプの定義を置き、`passive.csv` の各効果を検証する。UTF-8で保存し、再読み込み後の新規戦闘に反映する。
+`data/passive_type.csv` に36タイプの定義を置き、`passive.csv` の各効果を検証する。UTF-8で保存し、再読み込み後の新規戦闘に反映する。
 
 | 列 | 内容 |
 |---|---|
@@ -19,7 +19,7 @@
 
 流動体質は `element_damage_multiplier` を使う。種別マスタは効果量を0より大きく1以下の倍率に制限し、個別パッシブの `value1=0.5` で半減する。`neutral` は無属性ID `none` へ正規化する。未設定の効果スロットを表す `passive_type=none` は種別マスタへの登録を必要としない。旧種別ID `start_energy` はマスタの `aliases` に記録し、`starting_en` として解決する。
 
-既存の処理方式を使う種別は、新しい `passive_type_id` と既存の `handler` を指定した行を追加して利用できる。新しい処理方式を作る場合はJavaScriptにもハンドラーを実装する。発動タイミング・対象形式・条件形式がハンドラーと食い違う行、重複ID・別名、未登録ハンドラー、矛盾した数値範囲、正式34タイプの定義欠落は起動時エラーになる。個別パッシブの不正な対象・効果量・種別IDはデータ診断で検出する。
+既存の処理方式を使う種別は、新しい `passive_type_id` と既存の `handler` を指定した行を追加して利用できる。新しい処理方式を作る場合はJavaScriptにもハンドラーを実装する。発動タイミング・対象形式・条件形式がハンドラーと食い違う行、重複ID・別名、未登録ハンドラー、矛盾した数値範囲、正式36タイプの定義欠落は起動時エラーになる。個別パッシブの不正な対象・効果量・種別IDはデータ診断で検出する。
 
 種別検証には `geneOrderPassives.readTypes(rows)`、パッシブの正規化には `normalize(row, elements, statuses, catalog)` を使う。ローダー・診断・テストへ同じ種別マスタを渡し、JavaScript側に範囲定義の代替データを持たせない。
 
@@ -169,3 +169,11 @@ HP50%以下のSA1.5倍は既存のconditional_stat_multiplier／sa／1.5／self_
 ## 被弾・撃破・交代イベントの5タイプ追加
 
 既存29タイプを維持し、on_damage_en_restore、on_ko_stat_stage、on_switch_out_heal、on_hit_enemy_stat_stage、on_enemy_ko_en_restoreを追加した。合計34タイプ。個別キャラクター・技・passive.csvの設定は変更しない。発動順・除外条件・値の範囲・GOEの確認は[イベント型パッシブ追加](passive-events-34.md)を参照。
+
+## 未確認生物：適応型能力倍率
+
+効果タイプadaptive_stat_multiplierを追加し、全35タイプ。passive_035（UMA）にauto／1.5／条件空欄を設定する。基礎PA・PD・SA・SD・SPの相手との差が最大の正数である能力を1つ選ぶ。同差はこの順で優先し、HP・能力ランク・パッシブ・状態異常・場の補正は比較に含めない。実効能力を読むたびに選び直す純粋関数で、交代や再登場時の古い倍率を保持しない。仕様と検証は[適応型パッシブ](adaptive-passive.md)を参照。
+
+## 条件付き技優先度
+
+conditional_priority_modifierを追加し、効果タイプは36種類。既存の優先度にCSVの整数を加算し、能力ランクやSPは変更しない。対象5分類、HP・状態異常条件、登場後初回、戦闘中1回を共通処理で扱う。回数制限は実際の使用成立時のみ消費する。HP到達履歴と複合条件の仕様は[優先度パッシブ](priority-passives.md)を参照。

@@ -20,7 +20,7 @@ skill_017,ニードルブレイク,attack,50,無,none,physical,normal,sd_down1,e
 skill_018,スパークニードル,attack,80,雷,none,physical,normal,none,enemy,0,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,2,ENが高い程威力が上がる。最大140。,attack_slashfire01_custom,250,1,en_value,140,,,,,
 skill_019,吸血,attack,60,闇,none,physical,normal,drain_50,self,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,1,与えたダメージの50%を回復する。,magic_shadow01,500,1,,,,,,,
 skill_020,発電,status,0,雷,none,none,normal,sd_up1,self,100,none,enemy,0,none,enemy,0,next_thunder_power_150,100,none,0,self,0,0,自分のSDが1段階上がる。次に使用する雷属性の攻撃技の威力が1.5倍になる。,magic_lightning01_akira,250,2,,,,,,,
-skill_021,ドラミングビート,status,0,無,none,none,normal,pa_up2,self,100,pd_up1,self,100,none,enemy,0,none,0,none,0,self,0,0,自分のPAが1段階、PDが1段階上がる。,attack_beat01,350,1,,,,,,,
+skill_021,ドラミングビート,status,0,無,none,none,normal,pa_up1,self,100,pd_up1,self,100,none,enemy,0,none,0,none,0,self,0,0,自分のPAが1段階、PDが1段階上がる。,attack_beat01,350,1,,,,,,,
 skill_022,コンビネーション,attack,120,無,none,physical,normal,pd_down1,self,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,2,攻撃後、自分のPDが1段階下がる。,attack_hit01,250,2,,,,,,,
 skill_023,ギガストンプ,attack,150,無,none,physical,normal,sp_down1,enemy,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,5,相手のSPを1段階下げる。,magic_stone01,500,1,,,,,,,
 skill_024,再生,status,0,水,none,none,normal,heal_half,self,100,sa_up1,self,100,none,enemy,0,none,0,none,0,self,0,3,最大HPの1/2回復。自分のSAが1段階上がる。,magic_healrain01,500,1,,,,,,,
@@ -32,7 +32,7 @@ skill_029,アイスショット,attack,60,氷,none,special,normal,sd_down1,enemy
 skill_030,アイスリフレクション,status,0,氷,none,none,normal,none,enemy,0,none,enemy,0,none,enemy,0,revenge,100,reflection,100,self,2,2,優先度+2。特殊技の被ダメージを無効にし、1.5倍にして返す。,magic_square01,250,1,,,,,,,
 skill_031,アイスウォール,status,0,氷,none,none,normal,none,enemy,0,none,enemy,0,none,enemy,0,none,0,protect,100,self,4,0,優先度+4。被ダメージを1/2にする。,magic_ice01,250,1,,,,,,,
 skill_032,大地の恵み,status,0,地,none,none,normal,heal_en,self,100,none,enemy,0,none,enemy,0,none,0,protect,100,self,1,0,優先度+1。自分のENを1plusし、被ダメージを1/2にする。,magic_starfall01,500,1,,,,,,,
-skill_033,シェルハード,attack,70,無,none,physical,normal,pd_down1,self,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,1,PAではなく、PDを参照してダメージ計算する。攻撃後、自分のPDが1段階下がる。,attack_hit02,250,1,,,,,,,phy_def
+skill_033,シェルハード,attack,90,無,none,physical,normal,pd_down1,self,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,1,PAではなく、PDを参照してダメージ計算する。攻撃後、自分のPDが1段階下がる。,attack_hit02,250,1,,,,,,,phy_def
 skill_034,ブロッサムシャイン,attack,80,光,none,special,normal,evasion_up,self,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,2,攻撃した次のターンの回避率が2倍。,magic_holy01,500,1,,,,,,,
 skill_035,サウンドウォール,attack,90,雷,none,physical,ignore_dodge,none,enemy,0,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,2,回避不可。,magic_sound01_custom,350,1,,,,,,,
 skill_036,鉤爪ブレイク,attack,50,無,none,physical,normal,pa_down1,enemy,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,1,相手のPAを1段階下げる。,attack_slash03,250,1,,,,,,,
@@ -84,7 +84,7 @@ skill_081,UCCHARI,attack,80,無,none,physical,normal,none,enemy,0,none,enemy,0,n
 skill_082,エレキファング,attack,50,雷,none,physical,normal,bf_pd_down1,enemy,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,1,相手のPDを1段階下げる。,attack_spear01,500,1,,,,,,,
 skill_083,サンダーブレイク,attack,70,雷,none,physical,normal,bf_sd_down2,enemy,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,3,相手のSDを2段階下げる。,magic_lightning01_akira,500,1,,,,,,,
 skill_084,奪う光,attack,50,光,none,none,normal,en_down1,enemy,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,1,相手のENを1減らす。,magic_holy01,500,1,,,,,,,
-skill_085,ハイドロジェット,attack,40,水,none,none,normal,none,enemy,0,none,enemy,0,none,enemy,0,none,0,none,0,enemy,1,1,優先度+1。,magic_mist02,500,1,,,,,,,
+skill_085,急発進,attack,40,無,none,none,normal,none,enemy,0,none,enemy,0,none,enemy,0,none,0,none,0,enemy,1,1,優先度+1。,magic_mist02,500,1,,,,,,,
 skill_086,激流,attack,90,水,none,none,ignore_dodge,none,enemy,0,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,2,回避不可。,magic_mist02,500,1,,,,,,,
 skill_087,浄化,attack,170,光,none,none,ignore_dodge,bf_sa_down3,self,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,6,攻撃後、SAが1段階下がる。回避不可。,magic_holy02,500,1,,,,,,,
 skill_088,毒霧散布,status,0,無,none,none,normal,poison,enemy,100,poison,self,100,none,enemy,0,none,0,none,0,enemy,0,0,自分と相手を毒にする。,magic_mist02,500,1,,,,,,,
