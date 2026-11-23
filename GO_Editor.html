@@ -47,7 +47,7 @@ function choices(f){
   }
   let categorical=/^(category|attack_type|hit_type|target|effect_target\d|effect_group|battle_effect_group|field_target|field_clearable|damage_type|target_stat|can_move|stat_modifier_target|passive_type\d|target_id\d|condition\d|ai_type|attack_stat|element.*|species_id|power_rule|learn_.*|sub_color)$/;
   if(ref||categorical.test(f)){
-    if(f==='effect_group')for(let v of ['heal','status','control','en_drain','en_charge_modifier','en_cost_modifier','element_resistance_down'])opts.set(v,v);
+    if(f==='effect_group')for(let v of ['heal','status','control','en_drain','en_charge_modifier','en_cost_modifier','element_resistance_down','transform'])opts.set(v,v);
     if(f==='effect_target1'||f==='effect_target2'||f==='effect_target3')for(let v of ['self','enemy'])opts.set(v,v);
     if(f==='field_target')for(let v of ['self','enemy','both'])opts.set(v,v);
     if(f==='field_clearable')for(let v of ['TRUE','FALSE'])opts.set(v,v);

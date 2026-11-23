@@ -75,6 +75,7 @@ function normalizePassiveEffect(passive, slot) {
 }
 
 function passiveEffectsOf(fighter) {
+  if (fighter?.transform) return fighter.transform.passiveEffects;
   if (Array.isArray(fighter?.passiveEffects)) return fighter.passiveEffects;
   if (Array.isArray(fighter?.passive?.effects)) return fighter.passive.effects;
   return [];
@@ -578,7 +579,7 @@ const geneOrderPassives = (() => {
 
   function copyState(fighter) {
     const state = fighter.passiveState ?? {};
-    return { ...state, uses: new Map(state.uses ?? []), lowestHp: state.lowestHp && { ...state.lowestHp } };
+    return { ...state, uses: new Map(state.uses ?? []), copiedUses: new Map([...(state.copiedUses ?? [])].map(([id, uses]) => [id, new Map(uses)])), lowestHp: state.lowestHp && { ...state.lowestHp } };
   }
 
   function recordLowestHp(fighter) {
@@ -661,8 +662,17 @@ const geneOrderPassives = (() => {
     return findPassiveEffect(fighter, (effect) => effect.phase === phase && predicate(effect));
   }
 
+  function passiveUseMap(fighter, effect, create = false) {
+    const state = fighter.passiveState;
+    if (!state) return null;
+    if (!fighter.transform || effect.passive_id === fighter.passive?.passive_id) return state.uses;
+    if (!state.copiedUses && create) state.copiedUses = new Map();
+    if (create && !state.copiedUses.has(effect.passive_id)) state.copiedUses.set(effect.passive_id, new Map());
+    return state.copiedUses?.get(effect.passive_id);
+  }
+
   function used(fighter, effect) {
-    return fighter.passiveState?.uses.get(effect.slot) ?? 0;
+    return passiveUseMap(fighter, effect)?.get(effect.slot) ?? 0;
   }
 
   function survive(fighter, damage) {
@@ -694,7 +704,7 @@ const geneOrderPassives = (() => {
     if (!opponent || opponent.fainted) return null;
     let selected = null, largestGap = 0;
     for (const stat of ["phy_atk", "phy_def", "sp_atk", "sp_def", "speed"]) {
-      const gap = opponent.base[stat] - fighter.base[stat];
+      const gap = geneOrderBattle.battleBase(opponent)[stat] - geneOrderBattle.battleBase(fighter)[stat];
       if (gap > largestGap) { selected = stat; largestGap = gap; }
     }
     return selected;
@@ -751,7 +761,7 @@ const geneOrderPassives = (() => {
   function criticalBlock(fighter) { return first(fighter, "before-critical"); }
 
   function activate(fighter, side, effect, events, details = {}) {
-    fighter.passiveState.uses.set(effect.slot, used(fighter, effect) + 1);
+    passiveUseMap(fighter, effect, true).set(effect.slot, used(fighter, effect) + 1);
     const title = fighter.base.name + "の「" + effect.passive_name + "」";
     const message = passiveActivationLogEvents(fighter, effect)[0]?.text;
     events.push({ type: "passive", phase: effect.phase, actor: fighter.base.name, side, passive: effect.passive_id,

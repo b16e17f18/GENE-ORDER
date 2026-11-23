@@ -57,10 +57,54 @@ const geneOrderBattle = (() => {
       failure + (1 - failure / 100) * statusNumber(definition.action_failure_chance, 0), 0);
   }
 
+  // Identity/HP/EN stay on the original individual; only this battle profile changes.
+  const battleBase = fighter => fighter.transform?.base ?? fighter.base ?? fighter;
+  const battlePassive = fighter => fighter.transform ? fighter.transform.passive : fighter.passive;
+  const battleSkills = fighter => battleBase(fighter).skillIds ?? [];
+  const battleAppearance = fighter => fighter.transform?.appearance ?? fighter.base;
+
+  function transformFailure(battle, side, move) {
+    const actor = activeFighter(battle, side), target = activeFighter(battle, opposingSide(side));
+    if (actor.fainted || actor.hp <= 0) return "使用者が戦闘不能";
+    if (!target || target.fainted || target.hp <= 0) return "変身先がいない";
+    if (actor.transform) return "すでに変身している";
+    if (target.transform) return "相手が変身している";
+    if (move.category !== "status") return "変化技ではない";
+    if (geneOrderPassives.statusMoveBlock(target, actor, move)) return "変化技が無効";
+    if (target.pending?.definition.battle_effect_group === "position" && move.hit_type !== target.pending.definition.weak_hit_type) return "相手を捉えられない";
+    return "";
+  }
+
+  function transformedFighter(actor, target) {
+    const source = battleBase(target), base = { ...battleBase(actor), skillIds: [...battleSkills(target)] };
+    for (const stat of [...STATS, "regen_value"]) base[stat] = source[stat];
+    const passive = battlePassive(target);
+    return { ...actor, stages: { ...target.stages }, currentElements: currentElements(target),
+      transform: { base, appearance: { ...battleAppearance(target) }, passive,
+        passiveEffects: [...passiveEffectsOf(target)], originalStages: { ...actor.stages }, targetId: target.base.character_id },
+      passiveState: geneOrderPassives.copyState(actor), moveUses: new Map(actor.moveUses) };
+  }
+
+  function previewTransform(battle, side, move) {
+    const slot = moveEffectsWithPassive(activeFighter(battle, side), move).find(s => s.table === "effects" && effectKind(battle.effects.get(s.id)) === "transform" && s.chance > 0);
+    if (!slot) return null;
+    const reason = transformFailure(battle, side, move);
+    return { success: !reason, reason, chance: slot.chance,
+      fighter: reason ? null : transformedFighter(activeFighter(battle, side), activeFighter(battle, opposingSide(side))) };
+  }
+
+  function clearTransform(fighter, events = [], side) {
+    if (!fighter.transform) return;
+    fighter.stages = { ...fighter.transform.originalStages };
+    fighter.transform = null;
+    fighter.currentElements = null;
+    events.push({ type: "transform-ended", side, actor: fighter.base.name });
+  }
+
   function effectiveStat(fighter, stat, { opponent, fieldMultiplier = 1 } = {}) {
     if (!STATS.includes(stat)) throw new Error("無効な能力です。");
     const stage = fighter.stages[stat];
-    const base = fighter.base[stat];
+    const base = battleBase(fighter)[stat];
     const ranked = stage >= 0 ? base * (2 + stage) / 2 : base * 2 / (2 - stage);
     const passives = geneOrderPassives.statModifiers(fighter, stat, opponent);
     const statusMultiplier = statusStatMultiplier(fighter, stat);
@@ -107,7 +151,7 @@ const geneOrderBattle = (() => {
 
   // Battle-only attributes never alter the character master.
   function currentElements(fighter) {
-    const base = fighter.base ?? fighter;
+    const base = battleBase(fighter);
     return [...new Set(fighter.currentElements ?? [base.element_1, base.element_2].filter(element => element != null))];
   }
 
@@ -299,6 +343,7 @@ const geneOrderBattle = (() => {
     if (effect.effect_group === "evasion" && effect.damage_type === "multiplier" &&
       effect.target_stat === "evasion_percent" && value >= 0 && lasting &&
       Number.isSafeInteger(delay) && delay >= 0) return "evasion-boost";
+    if (effect.effect_group === "transform" && effect.damage_type === "none" && Number(effect.turn) === 0) return "transform";
     if (effect.effect_group === "clear_field") return "clear-field";
     if (effect.effect_group === "clear_buff") return "clear-buff";
     if (effect.effect_group === "recoil" && effect.damage_type === "actual_damage_percent" && value > 0) return "recoil";
@@ -454,6 +499,7 @@ const geneOrderBattle = (() => {
       const kind = table === "effects" ? effectKind(definition) : battleEffectKind(definition);
       if (kind) supportedParts++;
       else issues.push(id);
+      if (kind === "transform" && (move.category !== "status" || target !== "enemy")) issues.push("変身は相手対象の変化技のみ");
       if (kind === "bind-damage" && target !== "enemy") issues.push("締め付けの対象は相手のみ");
     }
     for (const slot of slots) {
@@ -662,7 +708,8 @@ const geneOrderBattle = (() => {
     const actorElementsAfter = actorHp > 0 ? elementChange?.after ?? currentElements(actor) : currentElements(actor.base);
     const failureChance = actionFailureChance(actor);
     const executionChance = 1 - failureChance / 100;
-    return { ...result, elementChange, actorElementsAfter, lifestealHeal, contactResponseDamage, energyCost: effectiveMoveCost(actor, move, battle.turn), hpCost, actualDamage, actualHeal, responseDamage, hpEffects, actorHp, targetHp,
+    const transformation = !["charging", "hp-cost-faint", "no-target"].includes(result.reason) && actorHp > 0 ? previewTransform(battle, side, move) : null;
+    return { ...result, transformation, elementChange, actorElementsAfter, lifestealHeal, contactResponseDamage, energyCost: effectiveMoveCost(actor, move, battle.turn), hpCost, actualDamage, actualHeal, responseDamage, hpEffects, actorHp, targetHp,
       wakesTarget, targetActionFailureChanceAfterDamage: actionFailureChance(targetAfterDamage),
       actionFailureChance: failureChance, executionChance, expectedDamage: actualDamage * executionChance,
       expectedDecoyDamage: (result.decoyDamage ?? 0) * executionChance, expectedHpCost: hpCost * executionChance };
@@ -775,7 +822,17 @@ const geneOrderBattle = (() => {
         continue;
       }
       const value = effect.damage_value;
-      if (kind === "recoil") {
+      if (kind === "transform") {
+        const reason = transformFailure(battle, side, move);
+        if (reason) events.push({ type: "transform-failed", side, actor: actor.base.name, reason });
+        else {
+          const projected = transformedFighter(actor, defender);
+          actor.transform = projected.transform;
+          actor.stages = projected.stages;
+          actor.currentElements = projected.currentElements;
+          events.push({ type: "transformed", side, actor: actor.base.name, target: defender.base.name });
+        }
+      } else if (kind === "recoil") {
         const damage = hpEffectAmount(kind, recipient, actualDamage, value);
         if (damage > 0) events.push({ ...event, type: "recoil", damage: applyHPDamage(recipient, damage) });
       } else if (kind === "clear-buff") {
@@ -976,7 +1033,7 @@ const geneOrderBattle = (() => {
       if (fighter.bind) return "締め付けで交代できません。";
       return switchTargets(battle, side).includes(action.index) ? "" : "交代先に指定できません。";
     }
-    if (action?.type !== "move" || (action.moveId !== COMMON_MOVE_ID && !fighter.base.skillIds.includes(action.moveId))) return "選択できない技です。";
+    if (action?.type !== "move" || (action.moveId !== COMMON_MOVE_ID && !battleSkills(fighter).includes(action.moveId))) return "選択できない技です。";
     const move = battle.skills.get(action.moveId);
     const unsupported = unsupportedMoveReason(move, battle);
     if (unsupported) return unsupported;
@@ -1071,6 +1128,7 @@ const geneOrderBattle = (() => {
     }
     const stages = reason === "relay" ? { ...from.stages } : null;
     const decoy = reason === "relay" || reason === "tail-purge" ? from.decoy : null;
+    clearTransform(from, events, side);
     resetStages(from);
     from.currentElements = null;
     to.currentElements = null;
@@ -1170,6 +1228,7 @@ const geneOrderBattle = (() => {
   }
 
   function recordFaint(battle, side, fighter, events) {
+    clearTransform(fighter, events, side);
     fighter.currentElements = null;
     fighter.bind = null;
     fighter.pending = null;
@@ -1195,7 +1254,7 @@ const geneOrderBattle = (() => {
   }
 
   function naturalRecovery(fighter, hp = fighter.hp) {
-    const value = fighter.base.regen_value;
+    const value = battleBase(fighter).regen_value;
     if (fighter.fainted || hp <= 0 || !Number.isFinite(value) || value <= 0) return 0;
     return Math.max(0, Math.min(fighter.maxHp - hp, value));
   }
@@ -1381,7 +1440,7 @@ const geneOrderBattle = (() => {
       }
       if (result.reason === "charging") {
         actor.pending = { moveId: move.skill_id, power: result.power, definition: battle.battleEffects.get(chargeSlot(move, battle).id) };
-        events.push({ type: "charge", side, actor: actor.base.name, characterId: actor.base.character_id, move: move.name, moveId: move.skill_id, priority, cost, power: result.power });
+        events.push({ type: "charge", side, actor: actor.base.name, characterId: actor.base.character_id, formId: actor.transform?.targetId, move: move.name, moveId: move.skill_id, priority, cost, power: result.power });
         applyMoveEffects(battle, side, actor, defender, move, 0, false, events, "charge");
         if (!actor.fainted) applyPassiveStages(actor, side, "after-use", events, { move });
         continue;
@@ -1411,7 +1470,7 @@ const geneOrderBattle = (() => {
         }
       }
       if (actualDamage > 0) defender.tookDirectDamage = true;
-      events.push({ type: "move", side, actor: actor.base.name, target: defender.base.name, move: move.name, characterId: actor.base.character_id, moveId: move.skill_id,
+      events.push({ type: "move", side, actor: actor.base.name, target: defender.base.name, move: move.name, characterId: actor.base.character_id, formId: actor.transform?.targetId, moveId: move.skill_id,
         category: move.category, priority, elements: move.category === "attack" ? moveElements(move) : [], effectiveness: result.effectiveness, cost, power: result.power, damage: result.damage, actualDamage, decoyDamage, reason: result.reason });
       if (result.reason === "evaded") {
         events.push({ type: "evaded", side: other, actor: defender.base.name, move: move.name });
@@ -1516,7 +1575,7 @@ const geneOrderBattle = (() => {
     }
   }
 
-  return { fieldEffectsForSide, installField, clearFields, START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, stageDelta, statValue, effectiveStat, changeEnergy,
+  return { battleBase, battlePassive, battleSkills, battleAppearance, transformedFighter, previewTransform, transformFailure, clearTransform, fieldEffectsForSide, installField, clearFields, START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, stageDelta, statValue, effectiveStat, changeEnergy,
     isFieldKind, fieldDestination, fieldClearable, fieldPowerMultiplier, elementResistanceMultiplier, effectivePriority, priorityDetails, currentElements, attackElementChange, moveElements, moveHasElement, moveWeaknessMultiplier, sameElementBonusForMove, calculateDamage, effectivenessFor, previewDamage, previewRelease, previewSwitch, moveEffects, moveEffectsWithPassive, decoyValues, residualDamage,
     naturalRecovery, previewTurnEndRecovery, statusStatMultiplier, actionFailureChance, effectiveEnergyCharge, effectiveMoveCost,
     guardApplies, activeTimed, effectiveSpeed, evasionRate, moveAvailability, unsupportedMoveReason, validAttackStat, effectKind, battleEffectKind, createBattle, activeFighter, switchTargets, checkAction, resolveTurn, continueSwitch };
