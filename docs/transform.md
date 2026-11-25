@@ -14,7 +14,7 @@ feature/entry-shared-fieldsの先行実装と途中実装は、外部操作でma
 | can_move / target_stat | TRUE / none |
 | start_text | {user}は{target}にへんしんした！ |
 
-skill.csvで新規技を作る際は、category=status、attack_type=none、power=0、target=enemy、effect1=transform、effect_target1=enemy、effect_chance1=100を指定する。cost・priority・animation_id等は通常の技と同様に設定する。effect2/3でも参照可能。攻撃技やself対象への指定は戦闘データ診断で拒否する。
+skill.csvで新規技を作る際は、category=status、attack_type=none、power=0、target=enemy、effect1=transform、effect_target1=enemy、effect_chance1=100を指定する。cost・priority・animation_id等は通常の技と同様に設定する。effect2/3でも参照可能。攻撃技にも設定可能（下記参照）。self対象への指定は戦闘データ診断で拒否する。
 
 ## コピーと参照
 
@@ -69,3 +69,44 @@ AIは変身後の性能・技で共通のダメージ／速度計算を使用す
 今回のコード差分を適用しない64450aeのbattle-core.js・battle-ai.js・go-ui.js・app.jsを読み取り時だけ差し込む検証で、上記5件のみを再実行し、同じ5件の失敗を確認した。正式CSVは作業開始時からバイト単位のGit差分なし。新技の性能・演出や既存キャラクターの技構成を独断で補完せず、旧テストの期待値もこの作業では変更しない。
 
 ログ：.cache/transform-related.log、.cache/transform-final-related.log、.cache/transform-edge.log、.cache/transform-full.log、.cache/transform-baseline-failures.log（Git管理外）。mainへのマージ・Push・コミットは行わない。
+
+
+## 攻撃技への追加効果対応（2026-11-24）
+
+作業ブランチ：feature/attack-transform。基準はmainのcdc303b。既存の変化技へんしんを維持し、同じeffect_id=transformを物理・特殊の攻撃技にも設定可能にする。新しいCSV列・効果ID・個別技への割り当ては追加しない。
+
+| skill.csv列 | 攻撃技の設定例（実データは変更しない） |
+|---|---|
+| category | attack |
+| attack_type | physical または special（noneは未対応） |
+| power | その技の基本威力 |
+| element / element2 | 正式な技属性 |
+| target | enemy |
+| effect1（effect2/3でも可） | transform |
+| effect_target1 | enemy |
+| effect_chance1 | 発動確率0～100 |
+| cost | 技自身のCSV設定値を使用 |
+
+### 成立条件と順序
+
+- 実際に相手の本体HPを1以上減らした場合のみ発動判定する。回避・相性0・パッシブ無効・完全軽減・デコイのみへのダメージでは発動せず、変身用の乱数も消費しない。
+- 相手を倒した場合も変身する。コピー元の基礎能力・ランク・現在属性・外見・パッシブは、ダメージ適用直前の情報を固定する。攻撃の他の追加効果や被弾パッシブが後からランクを変えても、この攻撃でコピーする情報は固定済みのものを使う。通常の変化技のコピー時点は変更しない。
+- ダメージ・被弾反応・反撃／反射・すべての通常追加効果（反動を含む）・元のパッシブの使用後／撃破時処理の後、変身を適用する。途中で使用者が戦闘不能になったら発動しない。変身が反動より前の効果欄にあっても同じ。
+- コピーしたパッシブの登場時効果や撃破時効果を、この攻撃へ遡って発動しない。元の撃破時パッシブの処理は維持する。勝敗確定は変身の後なので最後の相手を倒した場合もコピーできる。
+- 攻撃技では最初の発動率が正のtransform枠を1回だけ評価する。repeat_countで追加の変身や確率判定は増やさない。重複したtransform枠は設定しないことを推奨する。
+- 溜め開始時には変身せず、解放攻撃で条件を満たした時だけ発動。既存の変身済み自身／相手への失敗・HP/EN維持・使用履歴・交代解除も継続する。
+
+previewDamageのtransformation、およびpreviewTransformは同じ本体ダメージ・応答／反動後HPを使い、KO後のコピー可否も予測する。actorElementsAfterはコピー成立時の属性を返す。確率が100%未満ならコピー後性能は成立した場合の分岐であり、乱数を消費しない。AIの変身評価もその候補を利用し、超適応の防御評価との二重加点を防ぐ。実際の攻撃ダメージ計算、EN費用、パッシブ倍率・相性表は変更しない。
+
+追加検証：test/attack-transform.test.mjs。従来のtest/transform.test.mjsの攻撃技拒否チェックだけを対応済みの期待へ更新し、self対象の拒否は維持。test/editor.test.mjsに攻撃技としてのCSV往復を追加。tools/check-transform.cjsはPC／スマホ相当の両方で変化技・攻撃技のGOE往復と実戦表示を検証する。
+
+
+### 攻撃技対応の検証結果（2026-11-25）
+
+- 新規28件：攻撃変身27件＋GOE攻撃技CSV往復1件、すべて成功。関連テスト156件成功。
+- Edge PC1280px・スマートフォン相当390pxで、変化技／攻撃技それぞれのGOE登録・CSV往復と実戦表示を計8シナリオ確認し成功。正式CSVを編集せずブラウザ内の検証用技で行った。
+- 最終全テストは今回1回実行：924件中919件成功、5件失敗、スキップ0（約234秒）。失敗は上記の既知5件と同一で、新規の失敗はない。多数対戦2,505戦も実行され、例外・不正行動なし。
+- 全体テストは既知5件が残るため未合格。旧技設定・演出・編成・固定件数期待値の残件は今回変更しない。既存テストの削除・スキップ化は行わない。
+- 変更ファイル：battle-core.js、battle-ai.js、test/attack-transform.test.mjs（新規）、test/transform.test.mjs、test/editor.test.mjs、tools/check-transform.cjs、docs/transform.md。正式CSVは全て無変更。
+- 作業はfeature/attack-transformに保持し、コミット・Push・mainへのマージは実行しない。
+- ログ：.cache/attack-transform-final-related.log、.cache/attack-transform-edge.log、.cache/attack-transform-full.log。

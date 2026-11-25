@@ -1523,7 +1523,7 @@ const geneOrderAI = (() => {
   }
 
   function elementChangeDefense(context, move, result) {
-    if (!result.elementChange || result.executionChance === 0 || result.reason === "charging") return [];
+    if (result.transformation?.success || !result.elementChange || result.executionChance === 0 || result.reason === "charging") return [];
     const { board, side, actor, position } = context, go = geneOrderBattle;
     const team = board.teams[side].slice();
     team[board.active[side]] = { ...actor, currentElements: [...result.actorElementsAfter], hp: result.actorHp };
@@ -1604,6 +1604,7 @@ const geneOrderAI = (() => {
     return { action, move, score, fatal, koConfidence: koConfidence * executionChance,
       damage: result.actualDamage, expectedDamage: result.actualDamage * executionChance, decoyDamage: result.decoyDamage ?? 0,
       label: move.name, reason: release ? "予約威力・次の攻撃" : result.reason, forecast: {
+        transformation: result.transformation && { success: result.transformation.success, reason: result.transformation.reason, chance: result.transformation.chance },
         priority: result.priority, elementChangeDefense: typeDefense, actorElementsAfter: forecast.actorElementsAfter, targetHp, actorHp: result.actorHp, hpCost: result.hpCost, energyCost: result.energyCost, response: result.responseDamage, power: result.power,
         executionChance, actionFailureChance: result.actionFailureChance, wakesTarget: result.wakesTarget,
         targetActionFailureChanceAfterDamage: result.targetActionFailureChanceAfterDamage, expectedDamage: result.actualDamage * executionChance,
