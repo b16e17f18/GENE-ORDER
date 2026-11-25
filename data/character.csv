@@ -39,7 +39,7 @@ character_037,ギガビスカス,地,,植物族,167,119,78,126,108,52,10,22,2,47
 character_038,ジュブライト,風,無,鳥獣族,155,100,80,105,135,105,70,15,2,50,skill_028,skill_099,skill_101,skill_100,character_038,#FFFFFF,8,,,,,38,,,,passive_038,
 character_039,ディープコア,地,氷,天使族,153,115,173,125,74,60,5,15,2,52,skill_079,skill_109,skill_007,skill_111,character_039,#FFFFFF,8,,,,,39,,,,passive_039,
 character_040,コペン,風,,悪魔族,152,77,77,77,138,89,75,25,1,43,skill_110,skill_041,skill_045,skill_112,character_040,#FFFFFF,8,,,,,40,,,,passive_040,
-character_041,オーガヘッド,雷,地,異体族,188,133,133,93,93,70,45,18,1,52,skill_113,skill_114,skill_010,skill_115,character_041,#FFFFFF,8,,,,,41,,,,passive_041,
+character_041,オーガヘッド,雷,地,異体族,188,133,133,93,93,70,45,18,2,52,skill_113,skill_114,skill_010,skill_115,character_041,#FFFFFF,8,,,,,41,,,,passive_041,
 character_042,センチュリオン,水,雷,水棲族,150,117,141,115,80,107,65,15,1,53,,,,,character_042,#FFFFFF,8,,,,,42,,,,passive_042,
 character_043,クアンタム,無,,爬虫類族,166,113,79,111,102,79,70,21,2,47,,,,,character_043,#FFFFFF,8,,,,,43,,,,passive_043,
 character_044,マスタング,地,闇,植物族,210,103,99,99,99,40,10,21,1,47,,,,,character_044,#FFFFFF,8,,,,,44,,,,passive_044,
