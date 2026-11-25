@@ -1523,7 +1523,7 @@ const geneOrderAI = (() => {
   }
 
   function elementChangeDefense(context, move, result) {
-    if (!result.elementChange || result.executionChance === 0 || result.reason === "charging") return [];
+    if (result.transformation?.success || !result.elementChange || result.executionChance === 0 || result.reason === "charging") return [];
     const { board, side, actor, position } = context, go = geneOrderBattle;
     const team = board.teams[side].slice();
     team[board.active[side]] = { ...actor, currentElements: [...result.actorElementsAfter], hp: result.actorHp };
@@ -1590,7 +1590,7 @@ const geneOrderAI = (() => {
       const effect = board.battleEffects.get(id);
       const kind = go.battleEffectKind(effect);
       if (!["tail-purge", "relay", "post-attack"].includes(kind)) continue;
-      if (kind === "post-attack" && result.actualDamage + (result.decoyDamage ?? 0) <= 0) continue;
+      if (kind === "post-attack" && !go.postMoveSwitchApplies(move, result.actualDamage, result.decoyDamage ?? 0)) continue;
       const indices = go.switchTargets(board, side);
       if (!indices.length) continue;
       const decoy = kind === "tail-purge" ? go.decoyValues(actor, effect) : null;
@@ -1604,6 +1604,7 @@ const geneOrderAI = (() => {
     return { action, move, score, fatal, koConfidence: koConfidence * executionChance,
       damage: result.actualDamage, expectedDamage: result.actualDamage * executionChance, decoyDamage: result.decoyDamage ?? 0,
       label: move.name, reason: release ? "予約威力・次の攻撃" : result.reason, forecast: {
+        transformation: result.transformation && { success: result.transformation.success, reason: result.transformation.reason, chance: result.transformation.chance },
         priority: result.priority, elementChangeDefense: typeDefense, actorElementsAfter: forecast.actorElementsAfter, targetHp, actorHp: result.actorHp, hpCost: result.hpCost, energyCost: result.energyCost, response: result.responseDamage, power: result.power,
         executionChance, actionFailureChance: result.actionFailureChance, wakesTarget: result.wakesTarget,
         targetActionFailureChanceAfterDamage: result.targetActionFailureChanceAfterDamage, expectedDamage: result.actualDamage * executionChance,
