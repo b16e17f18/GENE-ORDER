@@ -1194,7 +1194,7 @@ const geneOrderAI = (() => {
 
   function publicFighter(fighter, skillIds, own) {
     const { base } = fighter;
-    const publicBase = Object.fromEntries(["character_id", "name", "element_1", "element_2", "energy_charge",
+    const publicBase = Object.fromEntries(["character_id", "name", "hp", "element_1", "element_2", "energy_charge",
       "evasion_percent", "regen_value", ...STATS].map((key) => [key, base[key]]));
     if (own) Object.assign(publicBase, { ai_type: base.ai_type, ai_setup_skill: base.ai_setup_skill, ai_main_skill: base.ai_main_skill });
     publicBase.skillIds = fighter.transform && own ? [...base.skillIds] : skillIds;
@@ -1206,7 +1206,8 @@ const geneOrderAI = (() => {
       originalStages: { ...fighter.transform.originalStages },
       base: { ...publicBase, ...Object.fromEntries([...STATS, "regen_value"].map(k => [k, profile[k]])), skillIds: [...skillIds] },
       passiveEffects: [...fighter.transform.passiveEffects] };
-    return { base: publicBase, passive: fighter.passive, transform: transformation, currentElements: fighter.currentElements && [...fighter.currentElements], hp, maxHp, energy, fainted, dodgeActive, halfGuard, tookDirectDamage,
+    const ownForm=fighter.form && {...fighter.form,base:{...publicBase,...Object.fromEntries(["hp",...STATS,"regen_value","evasion_percent","energy_charge"].map(k=>[k,fighter.form.base[k]]))}};
+    return { base: publicBase, form:ownForm, formDefs:fighter.formDefs, formUses:new Map(fighter.formUses??[]), passive: fighter.passive, transform: transformation, currentElements: fighter.currentElements && [...fighter.currentElements], hp, maxHp, energy, fainted, dodgeActive, halfGuard, tookDirectDamage,
       stages: { ...fighter.stages }, pending: pending && { ...pending }, decoy: decoy && { ...decoy },
       statuses: fighter.statuses.map((status) => ({ ...status })), timedEffects: new Map(fighter.timedEffects),
       defenses: new Map(fighter.defenses), nextElementPower: new Map(fighter.nextElementPower), bind: null, passiveEffects,
@@ -1558,8 +1559,8 @@ const geneOrderAI = (() => {
     const survivingSide = (candidate, hp) => hp > 0 || board.teams[candidate].some((fighter, index) =>
       index !== board.active[candidate] && !fighter.fainted && fighter.hp > 0);
     const recoveryAllowed = survivingSide(side, forecast.actorHp) && survivingSide(otherSide(side), forecast.targetHp);
-    const actorEnd = recoveryAllowed ? go.previewTurnEndRecovery(actor, forecast.actorHp, { fields: go.fieldEffectsForSide(board, side).values(), turn: board.turn }) : { hp: forecast.actorHp, recovered: 0 };
-    const targetEnd = recoveryAllowed ? go.previewTurnEndRecovery(target, forecast.targetHp, { fields: go.fieldEffectsForSide(board, otherSide(side)).values(), turn: board.turn }) : { hp: forecast.targetHp, recovered: 0 };
+    const actorEnd = recoveryAllowed ? go.previewTurnEndRecovery(forecast.actorAfter??actor, forecast.actorHp, { fields: go.fieldEffectsForSide(board, side).values(), turn: board.turn }) : { hp: forecast.actorHp, recovered: 0 };
+    const targetEnd = recoveryAllowed ? go.previewTurnEndRecovery(forecast.targetAfter??target, forecast.targetHp, { fields: go.fieldEffectsForSide(board, otherSide(side)).values(), turn: board.turn }) : { hp: forecast.targetHp, recovered: 0 };
     const recoveryValue = actorEnd.recovered * healWeight * enemyAiTypeMultiplier(config, "HEAL_SCORE_MULTIPLIER")
       - targetEnd.recovered * config.BODY_WEIGHT;
     const toxic = result.actualDamage > 0 && result.targetHp > 0
@@ -1571,10 +1572,11 @@ const geneOrderAI = (() => {
           return added ? sum + go.residualDamage(actor, status) * added * effect.value : sum;
         }, 0) : 0;
     const response = result.responseDamage + result.actualHeal;
+    const formValue=(result.formEvents??[]).reduce((n,e)=>n+(e.side===side?e.hpGain*config.HEAL_BASE_WEIGHT:-e.hpGain*config.BODY_WEIGHT),0);
     let score = damage * enemyAiTypeMultiplier(config, "ATTACK_SCORE_MULTIPLIER") * (1 - risk)
       + (result.survival ? config.REVIVE_VALUE : 0) + koConfidence * config.KO_BONUS
       + healing * (healing > 0 ? healWeight * enemyAiTypeMultiplier(config, "HEAL_SCORE_MULTIPLIER") : config.RESPONSE_WEIGHT) + recoveryValue
-      - response * config.RESPONSE_WEIGHT - result.hpCost - toxic * config.STATUS_DAMAGE_WEIGHT
+      + formValue - response * config.RESPONSE_WEIGHT - result.hpCost - toxic * config.STATUS_DAMAGE_WEIGHT
       - cost * config.ENERGY_COST_PENALTY;
     if (endsKo) score += Math.min(go.MAX_ENERGY - actor.energy + cost,
       geneOrderPassives.matching(actor,"on-ko").reduce((n,e)=>n+e.value,0)) * config.EN_WEIGHT;
@@ -1605,7 +1607,7 @@ const geneOrderAI = (() => {
       damage: result.actualDamage, expectedDamage: result.actualDamage * executionChance, decoyDamage: result.decoyDamage ?? 0,
       label: move.name, reason: release ? "予約威力・次の攻撃" : result.reason, forecast: {
         transformation: result.transformation && { success: result.transformation.success, reason: result.transformation.reason, chance: result.transformation.chance },
-        priority: result.priority, elementChangeDefense: typeDefense, actorElementsAfter: forecast.actorElementsAfter, targetHp, actorHp: result.actorHp, hpCost: result.hpCost, energyCost: result.energyCost, response: result.responseDamage, power: result.power,
+        formChanges:result.formEvents??[], priority: result.priority, elementChangeDefense: typeDefense, actorElementsAfter: forecast.actorElementsAfter, targetHp, actorHp: result.actorHp, hpCost: result.hpCost, energyCost: result.energyCost, response: result.responseDamage, power: result.power,
         executionChance, actionFailureChance: result.actionFailureChance, wakesTarget: result.wakesTarget,
         targetActionFailureChanceAfterDamage: result.targetActionFailureChanceAfterDamage, expectedDamage: result.actualDamage * executionChance,
         actorEndHp: actorEnd.hp, targetEndHp: targetEnd.hp,

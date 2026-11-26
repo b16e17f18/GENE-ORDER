@@ -23,12 +23,13 @@ function canonicalizeGeneOrderSkill(row) {
 
 const GO_DATA_IDS = {
   characters: "character_id", passives: "passive_id", skills: "skill_id",
-  passiveTypes: "passive_type_id",
+  passiveTypes: "passive_type_id", forms: "form_id",
   effects: "effect_id", battleEffects: "battle_effect_id", powerRules: "power_rule_id",
   elements: "element_id", effectiveness: "attack_element", species: "species_id", animations: "animation_id",
 };
 
 const GO_REQUIRED_COLUMNS = {
+  forms: ["character_id", "name", "trigger_type", "trigger_value", "hp", "pa", "pd", "sa", "sd", "sp", "regen_value", "evasion_percent", "cost_charge", "image_id", "hp_change_mode", "once_per_battle", "persist_on_switch"],
   passiveTypes: ["name", "handler", "phase", "target_kind", "value_type", "value_min", "value_max",
     "min_inclusive", "max_inclusive", "condition_kind", "aliases", "description"],
   characters: ["name", "element_1", "element_2", "species_id", "evasion_percent", "image", "passive_id",
@@ -82,6 +83,39 @@ function geneOrderStatusIds(rows) {
   return new Set(rows.filter((row) => row.name && ["status-damage", "status"].includes(geneOrderBattle.effectKind(normalizeEffect(row))))
     .map((row) => row.effect_id));
 }
+
+const geneOrderFormData = (() => {
+  const columns = "form_id,character_id,name,trigger_type,trigger_value,hp,pa,pd,sa,sd,sp,regen_value,evasion_percent,cost_charge,image_id,hp_change_mode,once_per_battle,persist_on_switch".split(",");
+  const stats = {hp:"hp",pa:"phy_atk",pd:"phy_def",sa:"sp_atk",sd:"sp_def",sp:"speed",regen_value:"regen_value",evasion_percent:"evasion_percent",cost_charge:"energy_charge"};
+  const blank = value => value == null || String(value).trim() === "";
+  function normalize(row) {
+    const overrides = Object.fromEntries(Object.entries(stats).filter(([key]) => !blank(row[key])).map(([key,stat]) => [stat,Number(row[key])]));
+    return {...row, overrides, imageSrc: characterImagePath(row.image_id), once: row.once_per_battle === true || row.once_per_battle === "TRUE", persist: row.persist_on_switch === true || row.persist_on_switch === "TRUE"};
+  }
+  function issues(rows, characters = new Map(), elements = new Map(), imageExists) {
+    const errors=[],seen=new Set(),images=new Set();
+    const add=(row,field,value=row[field])=>errors.push({id:row.form_id,field,value});
+    for(const row of rows){
+      if(!row.form_id||seen.has(row.form_id))add(row,"form_id");seen.add(row.form_id);
+      if(!row.name)add(row,"name");
+      if(!characters.has(row.character_id))add(row,"character_id");
+      if(!["passive","element_change"].includes(row.trigger_type))add(row,"trigger_type");
+      if(row.trigger_type==="passive"&&!blank(row.trigger_value))add(row,"trigger_value");
+      if(row.trigger_type==="element_change"){
+        if(!elements.has(row.trigger_value))add(row,"trigger_value");
+        const key=row.character_id+"/"+row.trigger_value;
+        if(images.has(key))add(row,"trigger_value","属性別画像の重複");images.add(key);
+        for(const key of Object.keys(stats))if(!blank(row[key]))add(row,key,"属性連動フォルムは画像のみ");
+      }
+      for(const key of Object.keys(stats))if(!blank(row[key])){const n=Number(row[key]);if(!Number.isSafeInteger(n)||n<(["regen_value","evasion_percent","cost_charge"].includes(key)?0:1)||(key==="evasion_percent"&&n>100))add(row,key);}
+      for(const key of ["once_per_battle","persist_on_switch"])if(!blank(row[key])&&!["TRUE","FALSE",true,false].includes(row[key]))add(row,key);
+      if(!blank(row.hp_change_mode)&&!["add_max_hp_difference","preserve_current_hp"].includes(row.hp_change_mode))add(row,"hp_change_mode");
+      const path=characterImagePath(row.image_id);if(!path||(imageExists&&!imageExists(path)))add(row,"image_id");
+    }
+    return errors;
+  }
+  return {columns, stats, normalize, issues};
+})();
 
 function validateGeneOrderData(tables, imageExists) {
   const diagnostics = [];
@@ -217,7 +251,8 @@ function validateGeneOrderData(tables, imageExists) {
   const statusIds = geneOrderStatusIds(tables.effects);
   const passiveTypes = geneOrderPassives.readTypes(tables.passiveTypes);
   for (const issue of passiveTypes.issues) add("種別定義不正", "passiveTypes", issue.id, issue.field, issue.value);
-  const passiveFields = new Map(tables.battleEffects.map(d => [d.battle_effect_id, d]));
+  const passiveFields = new Map([...tables.battleEffects.map(d => [d.battle_effect_id, d]), ...(tables.forms ?? []).map(d => [d.form_id,d])]);
+  for (const issue of geneOrderFormData.issues(tables.forms ?? [], ids.characters, elementNames, imageExists)) add("フォルム定義不正", "forms", issue.id, issue.field, issue.value);
   for (const row of tables.passives) {
     const id = row.passive_id;
     numeric("passives", id, row, ["value1", "value2", "value3"]);
@@ -226,6 +261,7 @@ function validateGeneOrderData(tables, imageExists) {
       continue;
     }
     const passive = geneOrderPassives.normalize(row, elements, statusIds, passiveTypes, passiveFields);
+    for (const effect of passive.effects) if (effect.handler === "form_change" && !ids.forms?.has(effect.formId)) add("参照不一致", "passives", id, "target_id" + effect.slot, effect.formId);
     if (passive.status === "pending" && !passive.issues.length) {
       add("効果未設定", "passives", id, "passive_type", row.name);
     }

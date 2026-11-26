@@ -85,7 +85,7 @@ test("production scripts parse and evaluate in index.html order", () => {
 
 test("reads only the official UTF-8 tables", () => {
   assert.deepEqual(go.requested.sort(), ["animation", "battle_effect", "character", "effect", "element",
-    "element_effectiveness", "passive", "passive_type", "power_rule", "skill", "species"].map((name) => "./data/" + name + ".csv"));
+    "element_effectiveness", "form", "passive", "passive_type", "power_rule", "skill", "species"].map((name) => "./data/" + name + ".csv"));
   assert.equal(go.run("state.enemyParties.size"), 0);
   assert.equal(go.run("state.rankBattles.size"), 0);
 });
@@ -168,7 +168,7 @@ test("natural recovery reloads from character CSV and emits the actual recovered
 });
 
 test("passive type master covers the handlers, configured effects and legacy alias", () => {
-  assert.equal(go.run("state.passiveTypes.size"), 38);
+  assert.equal(go.run("state.passiveTypes.size"), 39);
   assert.equal(go.run('state.passives.size'), passiveRows.filter(row=>row.name).length);
   assert.equal(go.run('[...state.passives.values()].filter(p=>!'+JSON.stringify(pendingPassiveIds)+'.includes(p.passive_id)).every(p=>p.status==="implemented")'),true);
   assert.deepEqual(JSON.parse(go.run('JSON.stringify([...state.passives.values()].filter(p=>p.issues.length).map(p=>[p.passive_id,p.status,p.issues.map(i=>[i.field,i.value])]))')), []);
@@ -1254,3 +1254,5 @@ test('old ten-column effects still load with neutral modifiers and no action fai
     assert.equal(r.run('state.effects.get('+JSON.stringify(id)+').action_failure_chance'),0);
   }
 });
+
+test("formal forms load with character linkage and preloaded images",()=>{assert.equal(go.run('state.forms.size'),10);assert.equal(go.run('state.characterMap.get("character_040").forms.length'),1);assert.equal(go.run('state.characterMap.get("character_043").forms.length'),9);assert.equal(go.run('state.forms.get("copen_true").overrides.hp'),229);assert.ok(go.images.some(p=>p.endsWith('character_040_true.png')));});
