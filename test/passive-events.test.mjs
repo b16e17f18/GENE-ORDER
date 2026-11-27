@@ -44,7 +44,7 @@ const triggers=(events,phase)=>events.filter(e=>e.type==='passive'&&e.phase===ph
 const snapshot=b=>JSON.stringify(b,(_,v)=>v instanceof Map?[...v]:v);
 function give(f,specs,id='bench'){const p=passive(specs,id);f.passive=p;f.passiveEffects=p.effects;}
 
-test('38 definitions preserve all existing 29 rows and validate every new handler',()=>{assert.equal(types.types.size,38);assert.deepEqual([...types.issues],[]);for(const s of [damage,ko,heal,enemyStage,entry])assert.equal(passive([s]).status,'implemented');});
+test('39 definitions preserve all existing 29 rows and validate every new handler',()=>{assert.equal(types.types.size,39);assert.deepEqual([...types.issues],[]);for(const s of [damage,ko,heal,enemyStage,entry])assert.equal(passive([s]).status,'implemented');});
 for(const type of ['physical','special'])test(type+' direct body damage restores defender EN once per move',()=>{const b=battle({foe:[damage],move:{...hit,attack_type:type}}),t=active(b,'enemy');const e=cast(b).events;assert.equal(t.energy,2);assert.equal(triggers(e,'body-hit-energy').length,1);assert.equal(t.passiveState.uses.get(1),1);cast(b);assert.equal(t.energy,3);});
 for(const mode of ['decoy','immune','cut','dodge'])test(mode+' with zero body damage does not restore EN or change enemy ranks',()=>{const b=battle({own:[enemyStage],foe:mode==='immune'?[damage,['element_immunity','none',1]]:[damage],random:()=>0}),t=active(b,'enemy');if(mode==='decoy')t.decoy={hp:1,maxHp:1};if(mode==='cut')t.halfGuard=100;if(mode==='dodge')t.dodgeActive=true;const e=cast(b).events;assert.equal(t.energy,1);assert.equal(t.stages.phy_def,0);assert.equal(triggers(e,'body-hit-energy').length,0);assert.equal(triggers(e,'hit-enemy-stage').length,0);});
 test('lethal direct damage does not restore defender EN or alter its ranks',()=>{const b=battle({own:[enemyStage],foe:[damage]}),t=active(b,'enemy');t.hp=1;cast(b);assert.equal(t.energy,1);assert.equal(t.stages.phy_def,0);});
@@ -72,7 +72,7 @@ test('new targets, fractional EN and invalid ratios are rejected by shared maste
 test('synthetic three-hit damage packets settle both body-hit passives once per move',()=>{
  const multi=vm.createContext({document:{addEventListener(){}}});
  for(const file of ['data-validation.js','passive.js','battle-core.js','battle-ai.js','bgm.js','dialogue-manager.js','app.js']){
-  let source=read(file);if(file==='battle-core.js'){const anchor='const actualDamage = applyHPDamage(defender, result.damage);';assert.ok(source.includes(anchor));source=source.replace(anchor,'const actualDamage = [Math.floor(result.damage/3),Math.floor(result.damage/3),result.damage-2*Math.floor(result.damage/3)].reduce((sum, part) => { globalThis.fixtureHitPackets = (globalThis.fixtureHitPackets ?? 0) + 1; return sum + applyHPDamage(defender, part); }, 0);');}
+  let source=read(file);if(file==='battle-core.js'){const anchor='const actualDamage = applyHPDamage(defender, result.damage,{side:other,events:damageForms});';assert.ok(source.includes(anchor));source=source.replace(anchor,'const actualDamage = [Math.floor(result.damage/3),Math.floor(result.damage/3),result.damage-2*Math.floor(result.damage/3)].reduce((sum, part) => { globalThis.fixtureHitPackets = (globalThis.fixtureHitPackets ?? 0) + 1; return sum + applyHPDamage(defender, part,{side:other,events:damageForms}); }, 0);');}
   vm.runInContext(source,multi,{filename:file});
  }
  const engine=vm.runInContext('geneOrderBattle',multi),b=battle({own:[enemyStage],foe:[damage]}),t=active(b,'enemy');

@@ -58,10 +58,54 @@ const geneOrderBattle = (() => {
   }
 
   // Identity/HP/EN stay on the original individual; only this battle profile changes.
-  const battleBase = fighter => fighter.transform?.base ?? fighter.base ?? fighter;
+  const formProfile = fighter => fighter.form?.base ?? fighter.base ?? fighter;
+  function appearanceForm(fighter) {
+    if (fighter.transform) return null;
+    return fighter.formDefs?.find(row => row.trigger_type === "element_change" && row.trigger_value === currentElements(fighter)[0]) ?? fighter.form?.definition ?? null;
+  }
+  function currentFormId(fighter) { return appearanceForm(fighter)?.form_id ?? null; }
+  function formAppearance(fighter) {
+    if (fighter.transform) return fighter.transform.appearance;
+    const base=formProfile(fighter), visual=appearanceForm(fighter);
+    return visual ? {...base, imageSrc:visual.imageSrc, image:visual.image_id} : base;
+  }
+  function cloneFighter(fighter) {
+    return {...fighter, stages:{...fighter.stages}, statuses:fighter.statuses.map(entry=>({...entry})),
+      passiveState:geneOrderPassives.copyState(fighter), formUses:new Map(fighter.formUses??[]),
+      timedEffects:new Map(fighter.timedEffects), defenses:new Map(fighter.defenses), nextElementPower:new Map(fighter.nextElementPower), moveUses:new Map(fighter.moveUses)};
+  }
+  function checkFormChange(fighter, side, events=[]) {
+    if(fighter.transform || fighter.hp<=0 || fighter.fainted) return null;
+    for(const effect of geneOrderPassives.matching(fighter,"hp-change")) {
+      const definition=fighter.formDefs?.find(row=>row.form_id===effect.formId && row.character_id===fighter.base.character_id && row.trigger_type==="passive");
+      if(!definition || fighter.form?.form_id===definition.form_id || (definition.once&&(fighter.formUses?.get(definition.form_id)??0)>0) ||
+        !geneOrderPassives.conditionMatches(fighter,effect.condition)) continue;
+      const base={...fighter.base,...definition.overrides}, oldMaxHp=fighter.maxHp, oldHp=fighter.hp;
+      const maxHp=base.hp;
+      fighter.form={form_id:definition.form_id,base,definition};
+      fighter.maxHp=maxHp;
+      fighter.hp=Math.min(maxHp,Math.max(1,oldHp+(definition.hp_change_mode==="add_max_hp_difference"?maxHp-oldMaxHp:0)));
+      fighter.formUses=new Map(fighter.formUses??[]);fighter.formUses.set(definition.form_id,(fighter.formUses.get(definition.form_id)??0)+1);
+      geneOrderPassives.activate(fighter,side,effect,events,{formId:definition.form_id});
+      events.push({type:"form-changed",side,actor:fighter.base.name,name:definition.name,formId:definition.form_id,oldHp,hp:fighter.hp,oldMaxHp,maxHp,hpGain:fighter.hp-oldHp});
+      return definition;
+    }
+    return null;
+  }
+  function clearForm(fighter, side, events=[]) {
+    if(!fighter.form) return;
+    fighter.form=null;fighter.maxHp=fighter.base.hp;fighter.hp=Math.min(fighter.hp,fighter.maxHp);
+    events.push({type:"form-ended",side,actor:fighter.base.name});
+  }
+  function damageEvent(fighter, damage, side, events, event) {
+    const forms=[];const actual=applyHPDamage(fighter,damage,{side,events:forms});
+    events.push({...event,damage:actual});events.push(...forms);return actual;
+  }
+
+  const battleBase = fighter => fighter.transform?.base ?? formProfile(fighter);
   const battlePassive = fighter => fighter.transform ? fighter.transform.passive : fighter.passive;
   const battleSkills = fighter => battleBase(fighter).skillIds ?? [];
-  const battleAppearance = fighter => fighter.transform?.appearance ?? fighter.base;
+  const battleAppearance = fighter => formAppearance(fighter);
 
   function transformFailure(battle, side, move, context = {}) {
     const actor = activeFighter(battle, side), target = context.target ?? activeFighter(battle, opposingSide(side));
@@ -92,7 +136,7 @@ const geneOrderBattle = (() => {
     if (!slot) return null;
     const reason = transformFailure(battle, side, move, context);
     return { success: !reason, reason, chance: slot.chance,
-      fighter: reason ? null : transformedFighter(activeFighter(battle, side), context?.target ?? activeFighter(battle, opposingSide(side))) };
+      fighter: reason ? null : transformedFighter(context?.actor ?? activeFighter(battle, side), context?.target ?? activeFighter(battle, opposingSide(side))) };
   }
 
   function transformSlot(fighter, move, battle) {
@@ -146,7 +190,7 @@ const geneOrderBattle = (() => {
 
   // Base EN data stays immutable. These shared helpers read active individual modifiers.
   function effectiveEnergyCharge(fighter, turn) {
-    let charge = fighter.base.energy_charge;
+    let charge = formProfile(fighter).energy_charge;
     const effects = [...(fighter.timedEffects?.values() ?? [])].filter(entry => activeTimed(entry, turn) && effectKind(entry.definition) === "en-charge-modifier");
     for (const { definition } of effects) if (definition.damage_type === "none") charge += definition.damage_value;
     for (const { definition } of effects) if (definition.damage_type === "multiplier") charge *= definition.damage_value;
@@ -630,7 +674,7 @@ const geneOrderBattle = (() => {
   }
 
   function evasionRate(fighter, turn) {
-    let rate = fighter.base.evasion_percent ?? 0;
+    let rate = formProfile(fighter).evasion_percent ?? 0;
     for (const effect of (fighter.timedEffects ?? new Map()).values()) {
       if (activeTimed(effect, turn) && effectKind(effect.definition) === "evasion-boost") rate *= effect.definition.damage_value;
     }
@@ -645,8 +689,9 @@ const geneOrderBattle = (() => {
 
   function movePayment(actor, move, pending, priority = move.priority) {
     const hpCosts = pending ? [] : geneOrderPassives.moveCosts(actor, { ...move, priority });
-    const hpAfterCost = actor.hp - hpCosts.reduce((sum, cost) => sum + cost.damage, 0);
-    return { hpCosts, hpAfterCost };
+    const afterCosts=hpCosts.length?cloneFighter(actor):actor;
+    for(const cost of hpCosts) applyHPDamage(afterCosts,cost.damage);
+    return { hpCosts, hpAfterCost:afterCosts.hp, afterCosts };
   }
 
   function evaluateMoveDamage(battle, side, move, plannedPriority) {
@@ -654,9 +699,9 @@ const geneOrderBattle = (() => {
     const actor = activeFighter(battle, side);
     const pending = actor.pending?.moveId === move.skill_id ? actor.pending : null;
     const priorityInfo = plannedPriority ?? priorityDetails(battle, side, move);
-    const { hpCosts, hpAfterCost } = movePayment(actor, move, pending, priorityInfo.value);
+    const { hpCosts, hpAfterCost, afterCosts } = movePayment(actor, move, pending, priorityInfo.value);
     if (hpAfterCost <= 0) return { damage: 0, decoyDamage: 0, reason: "hp-cost-faint", hpCosts, priorityInfo, priority: priorityInfo.value };
-    const attacker = hpAfterCost === actor.hp ? actor : { ...actor, hp: hpAfterCost };
+    const attacker = afterCosts;
     const target = activeFighter(battle, other);
     if (target.fainted && move.category === "attack") return { damage: 0, reason: "no-target", hpCosts, priorityInfo, priority: priorityInfo.value };
     const result = calculateDamage(attacker, target, move, battle.effectiveness, {
@@ -681,7 +726,74 @@ const geneOrderBattle = (() => {
   }
 
   // Forecast this move against the current field. Other actions and upkeep are separate.
-  function previewDamage(battle, side, move) {
+  function canChangeForm(fighter) {
+    return !fighter.transform && fighter.formDefs?.some(row=>row.trigger_type==="passive" && row.form_id!==fighter.form?.form_id && !(row.once&&(fighter.formUses?.get(row.form_id)??0)>0));
+  }
+  function previewDamage(battle,side,move) {
+    return [activeFighter(battle,side),activeFighter(battle,opposingSide(side))].some(canChangeForm)
+      ? previewFormDamage(battle,side,move) : previewDamageBase(battle,side,move);
+  }
+  function previewFormDamage(battle, side, move) {
+    const result = evaluateMoveDamage(battle, side, move);
+    const actor = activeFighter(battle, side);
+    const defender = activeFighter(battle, opposingSide(side));
+    const hpCost = Math.min(actor.hp, result.hpCosts.reduce((sum, entry) => sum + entry.damage, 0));
+    const actualDamage = Math.min(defender.hp, result.damage);
+    const actualHeal = Math.min(defender.maxHp - defender.hp, result.heal ?? 0);
+    const actorAfter=cloneFighter(actor), targetAfter=cloneFighter(defender), formEvents=[];
+    for(const cost of result.hpCosts) applyHPDamage(actorAfter,cost.damage,{side,events:formEvents});
+    applyHPDamage(targetAfter,result.damage,{side:opposingSide(side),events:formEvents});
+    targetAfter.hp+=actualHeal;
+    const lifestealHeal=lifestealEffects(actorAfter,move,actualDamage,actorAfter.hp).reduce((n,e)=>n+e.recovered,0);
+    actorAfter.hp+=lifestealHeal;
+    let contactResponseDamage=0;
+    for(const entry of contactEffects(targetAfter,move,actualDamage,targetAfter.hp,actorAfter.hp)) contactResponseDamage+=applyHPDamage(actorAfter,entry.damage,{side,events:formEvents});
+    const responseDamage=contactResponseDamage+applyHPDamage(actorAfter,result.response?.damage??0,{side,events:formEvents});
+    let actorHp=actorAfter.hp,targetHp=targetAfter.hp;
+    const hpEffects = [];
+    if (!["hp-cost-faint", "no-target"].includes(result.reason)) {
+      const statusBlock = geneOrderPassives.statusMoveBlock(defender, actor, move);
+      const hidden = defender.pending?.definition.battle_effect_group === "position" &&
+        move.hit_type !== defender.pending.definition.weak_hit_type;
+      const releasing = actor.pending?.moveId === move.skill_id;
+      for (const { id, chance, target, table } of moveEffectsWithPassive(actor, move)) {
+        if (table !== "effects" || !(chance > 0) || !actorHp) continue;
+        const self = target === "self";
+        if (self && releasing) continue;
+        if (!self && (!targetHp || result.reason === "charging" ||
+          (move.category === "attack" && result.reason !== "hit") || (move.category === "status" && (hidden || statusBlock)))) continue;
+        const definition = battle.effects.get(id);
+        const kind = effectKind(definition);
+        if (!["heal", "drain", "recoil"].includes(kind)) continue;
+        const recipient = self ? actorAfter : targetAfter;
+        const hp = self ? actorHp : targetHp;
+        const amount = hpEffectAmount(kind, recipient, actualDamage + (result.decoyDamage ?? 0), definition.damage_value, definition.damage_type);
+        const delta = kind === "recoil" ? -Math.min(hp, amount) : Math.min(recipient.maxHp - hp, amount);
+        if (!delta) continue;
+        hpEffects.push({ id, kind, target: self ? "self" : "enemy", chance, delta });
+        if (chance >= 100) {
+          if(delta<0) applyHPDamage(recipient,-delta,{side:self?side:opposingSide(side),events:formEvents});
+          else recipient.hp+=delta;
+          actorHp=actorAfter.hp;targetHp=targetAfter.hp;
+        }
+      }
+    }
+    const wakesTarget = wakesOnAttackDamage(defender, actualDamage);
+    const targetAfterDamage = wakesTarget ? { ...targetAfter, statuses: targetAfter.statuses.filter(({ definition }) => definition.effect_id !== "sleep") } : targetAfter;
+    const elementChange = attackElementChange(actor, move, result.reason, actorHp);
+    let actorElementsAfter = actorHp > 0 ? elementChange?.after ?? currentElements(actor) : currentElements(actor.base);
+    const failureChance = actionFailureChance(actor);
+    const executionChance = 1 - failureChance / 100;
+    const transformation = !["charging", "hp-cost-faint", "no-target"].includes(result.reason) && actorHp > 0 && transformSlot(actor, move, battle)
+      ? previewTransform(battle, side, move, { actualDamage, reason: result.reason, actorHp, actor:actorAfter }) : null;
+    if (transformation?.success) actorElementsAfter = currentElements(transformation.fighter);
+    return { ...result, actorAfter, targetAfter, formEvents:formEvents.filter(e=>e.type==="form-changed"), formHpGain:formEvents.filter(e=>e.type==="form-changed").reduce((n,e)=>n+Math.max(0,e.hpGain),0), transformation, elementChange, actorElementsAfter, lifestealHeal, contactResponseDamage, energyCost: effectiveMoveCost(actor, move, battle.turn), hpCost, actualDamage, actualHeal, responseDamage, hpEffects, actorHp, targetHp,
+      wakesTarget, targetActionFailureChanceAfterDamage: actionFailureChance(targetAfterDamage),
+      actionFailureChance: failureChance, executionChance, expectedDamage: actualDamage * executionChance,
+      expectedDecoyDamage: (result.decoyDamage ?? 0) * executionChance, expectedHpCost: hpCost * executionChance };
+  }
+
+  function previewDamageBase(battle, side, move) {
     const result = evaluateMoveDamage(battle, side, move);
     const actor = activeFighter(battle, side);
     const defender = activeFighter(battle, opposingSide(side));
@@ -743,7 +855,7 @@ const geneOrderBattle = (() => {
     const index = battle.active[side];
     const actor = activeFighter(battle, side);
     const team = battle.teams[side].slice();
-    const charging = { ...actor, hp: start.actorHp, passiveState: geneOrderPassives.copyState(actor), stages: { ...actor.stages }, pending: {
+    const charging = { ...(start.actorAfter ?? actor), hp: start.actorHp, passiveState: geneOrderPassives.copyState(actor), stages: { ...actor.stages }, pending: {
       moveId: move.skill_id, power: start.power, definition: battle.battleEffects.get(chargeSlot(move, battle).id),
     } };
     geneOrderPassives.recordLowestHp({ ...charging, hp: actor.hp - start.hpCost });
@@ -866,7 +978,7 @@ const geneOrderBattle = (() => {
         }
       } else if (kind === "recoil") {
         const damage = hpEffectAmount(kind, recipient, actualDamage, value);
-        if (damage > 0) events.push({ ...event, type: "recoil", damage: applyHPDamage(recipient, damage) });
+        if (damage > 0) damageEvent(recipient,damage,event.side,events,{...event,type:"recoil"});
       } else if (kind === "clear-buff") {
         for (const stat of STATS) {
           if (recipient.stages[stat] <= 0) continue;
@@ -935,6 +1047,7 @@ const geneOrderBattle = (() => {
   function applyEntryPassive(battle, side, events, replacement = false) {
     const fighter = activeFighter(battle, side), opponent = activeFighter(battle, opposingSide(side));
     if (fighter.fainted) return;
+    checkFormChange(fighter,side,events);
     for (const effect of geneOrderPassives.matching(fighter, "entry")) {
       if (effect.handler === "on_entry_field_effect") {
         const definition = battle.battleEffects.get(effect.fieldId);
@@ -1008,12 +1121,11 @@ const geneOrderBattle = (() => {
     }
     for (const entry of contactEffects(defender, move, actualDamage, defender.hp, attacker.hp)) {
       geneOrderPassives.activate(defender, targetSide, entry.effect, events);
-      events.push({ type: "reflected", side: targetSide, actor: defender.base.name, target: attacker.base.name,
-        source: "passive", damage: applyHPDamage(attacker, entry.damage) });
+      damageEvent(attacker,entry.damage,side,events,{type:"reflected",side:targetSide,actor:defender.base.name,target:attacker.base.name,source:"passive"});
     }
   }
 
-  function createFighter(character, passives) {
+  function createFighter(character, passives, forms) {
     if (!character?.name || ![character.hp, ...STATS.map((stat) => character[stat])]
       .every((value) => Number.isInteger(value) && value > 0)) throw new Error("戦闘個体の能力値が無効です。");
     if (!Number.isInteger(character.energy_charge) || character.energy_charge < 0) {
@@ -1021,6 +1133,8 @@ const geneOrderBattle = (() => {
     }
     const fighter = { base: character, hp: character.hp, maxHp: character.hp, energy: START_ENERGY, fainted: false, dodgeActive: false, halfGuard: 0,
       statuses: [], timedEffects: new Map(), defenses: new Map(), nextElementPower: new Map(), bind: null, pending: null, tookDirectDamage: false, decoy: null, moveUses: new Map() };
+    fighter.formDefs = [...(forms?.values() ?? character.forms ?? [])].filter(row=>row.character_id===character.character_id).map(row=>row.overrides?row:geneOrderFormData.normalize(row));
+    fighter.formUses = new Map();
     fighter.passive = passives.get(character.passive_id) ?? null;
     fighter.passiveEffects = fighter.passive?.effects ?? [];
     fighter.passiveState = { uses: new Map(), entryMoves: 0 };
@@ -1030,10 +1144,10 @@ const geneOrderBattle = (() => {
   }
 
   function createBattle({ player, enemy, skills, effectiveness, effects = new Map(), battleEffects = new Map(), powerRules = new Map(),
-    passives = new Map(), random = Math.random, manualSwitches = false, onSwitch = null, captureFrame = null }) {
+    passives = new Map(), forms, random = Math.random, manualSwitches = false, onSwitch = null, captureFrame = null }) {
     if (!player.length || !enemy.length) throw new Error("両チームに個体が必要です。");
-    const teams = { player: player.map((base) => createFighter(base, passives)),
-      enemy: enemy.map((base) => createFighter(base, passives)) };
+    const teams = { player: player.map((base) => createFighter(base, passives, forms)),
+      enemy: enemy.map((base) => createFighter(base, passives, forms)) };
     const startEvents = [];
     for (const side of SIDES) {
       for (const fighter of teams[side]) {
@@ -1080,8 +1194,8 @@ const geneOrderBattle = (() => {
     if (!effect) return "";
     const reason = battleEffectKind(effect.definition);
     if (reason === "decoy" || reason === "tail-purge") {
-      const { hpAfterCost } = movePayment(fighter, move, fighter.pending);
-      const error = decoyError(fighter, effect.definition, hpAfterCost > 0 ? hpAfterCost : fighter.hp);
+      const { hpAfterCost, afterCosts } = movePayment(fighter, move, fighter.pending);
+      const error = decoyError(afterCosts, effect.definition, hpAfterCost > 0 ? hpAfterCost : fighter.hp);
       if (error) return error;
     }
     if (["tail-purge", "relay"].includes(reason) && !switchTargets(battle, side).length) return "生存している控えがいません。";
@@ -1132,7 +1246,8 @@ const geneOrderBattle = (() => {
 
   function createDecoy(fighter, definition, side, events) {
     const { cost, maxHp } = decoyValues(fighter, definition);
-    fighter.hp -= cost;
+    const forms=[];
+    applyHPDamage(fighter,cost,{side,events:forms});
     geneOrderPassives.recordLowestHp(fighter);
     fighter.decoy = { hp: maxHp, maxHp };
     if (definition.max_uses != null) {
@@ -1140,6 +1255,7 @@ const geneOrderBattle = (() => {
       fighter.moveUses.set(id, (fighter.moveUses.get(id) ?? 0) + 1);
     }
     events.push({ type: "decoy-created", side, actor: fighter.base.name, cost, maxHp });
+    events.push(...forms);
   }
 
   function switchFighter(battle, side, index, reason, events, deferredEntries) {
@@ -1165,6 +1281,7 @@ const geneOrderBattle = (() => {
     const stages = reason === "relay" ? { ...from.stages } : null;
     const decoy = reason === "relay" || reason === "tail-purge" ? from.decoy : null;
     clearTransform(from, events, side);
+    if(from.form&&!from.form.definition.persist) clearForm(from,side,events);
     resetStages(from);
     from.currentElements = null;
     to.currentElements = null;
@@ -1246,11 +1363,12 @@ const geneOrderBattle = (() => {
     return actions;
   }
 
-  function applyHPDamage(fighter, damage) {
+  function applyHPDamage(fighter, damage, {side, events=[]}={}) {
     const actualDamage = Math.min(fighter.hp, damage);
     fighter.hp -= actualDamage;
     geneOrderPassives.recordLowestHp(fighter);
     fighter.fainted = fighter.hp === 0;
+    if(actualDamage>0) checkFormChange(fighter,side,events);
     return actualDamage;
   }
 
@@ -1279,6 +1397,7 @@ const geneOrderBattle = (() => {
     const alive = SIDES.filter((side) => battle.teams[side].some((fighter) => !fighter.fainted));
     if (alive.length === 2) return;
     battle.winner = alive[0] ?? "draw";
+    for(const side of SIDES) for(const fighter of battle.teams[side]) clearForm(fighter,side,events);
     events.push(alive.length ? { type: "win", side: battle.winner } : { type: "draw" });
   }
 
@@ -1297,6 +1416,15 @@ const geneOrderBattle = (() => {
 
   // Current statuses only. Other actions, newly applied effects and switches are not assumed.
   function previewTurnEndRecovery(fighter, hp = fighter.hp, { fields = [], turn = 1 } = {}) {
+    if(canChangeForm(fighter)) {
+      const projected=cloneFighter(fighter);
+      if(hp<fighter.hp) applyHPDamage(projected,fighter.hp-hp);else projected.hp=hp;
+      let damage=0;
+      for(const entry of [...projected.statuses,projected.bind].filter(Boolean)) if(projected.hp>0) damage+=applyHPDamage(projected,residualDamage(projected,entry.definition));
+      for(const entry of [...fields].filter(entry=>activeTimed(entry,turn))) if(projected.hp>0) damage+=applyHPDamage(projected,residualDamage(projected,entry.definition));
+      const recovered=naturalRecovery(projected);projected.hp+=recovered;
+      return {hp:projected.hp,recovered,residualDamage:damage,fighter:projected};
+    }
     const fieldDamage = [...fields].filter(entry => activeTimed(entry, turn)).reduce((sum, entry) => sum + residualDamage(fighter, entry.definition), 0);
     const damage = fieldDamage + [...fighter.statuses, fighter.bind].filter(Boolean)
       .reduce((sum, effect) => sum + residualDamage(fighter, effect.definition), 0);
@@ -1318,8 +1446,7 @@ const geneOrderBattle = (() => {
         if (immune) geneOrderPassives.activate(fighter, side, immune, events, { blockedStatusDamage: definition.effect_id });
         const amount = residualDamage(fighter, definition);
         if (amount > 0) {
-          const actualDamage = applyHPDamage(fighter, amount);
-          events.push({ type: "residual", side, actor: fighter.base.name, name: definition.name, damage: actualDamage });
+          damageEvent(fighter,amount,side,events,{type:"residual",side,actor:fighter.base.name,name:definition.name});
         }
         effect.turns--;
         if (!effect.turns) {
@@ -1331,8 +1458,7 @@ const geneOrderBattle = (() => {
       for (const entry of fieldEffectsForSide(battle, side).values()) {
         if (fighter.fainted) break;
         if (!activeTimed(entry, battle.turn) || battleEffectKind(entry.definition) !== "field-periodic-damage") continue;
-        const damage = applyHPDamage(fighter, residualDamage(fighter, entry.definition));
-        events.push({ type: "residual", side, actor: fighter.base.name, name: entry.definition.name, damage, field: entry.id });
+        damageEvent(fighter,residualDamage(fighter,entry.definition),side,events,{type:"residual",side,actor:fighter.base.name,name:entry.definition.name,field:entry.id});
       }
       if (fighter.fainted) defeated.push({ side, fighter });
     }
@@ -1434,10 +1560,10 @@ const geneOrderBattle = (() => {
       let switchIndex = null;
       let specialTriggered = false;
       const pending = actor.pending;
-      const { hpAfterCost } = movePayment(actor, move, pending, priority);
+      const { hpAfterCost, afterCosts } = movePayment(actor, move, pending, priority);
       if (hpAfterCost > 0 && ["tail-purge", "relay", "decoy"].includes(kind)) {
         if ((kind !== "decoy" && !switchTargets(battle, side).length) ||
-          (kind !== "relay" && decoyError(actor, special.definition, hpAfterCost))) {
+          (kind !== "relay" && decoyError(afterCosts, special.definition, hpAfterCost))) {
           events.push({ type: "move-failed", side, actor: actor.base.name, move: move.name });
           continue;
         }
@@ -1449,7 +1575,7 @@ const geneOrderBattle = (() => {
       const result = evaluateMoveDamage(battle, side, move, priorityInfo);
       changeEnergy(actor, -cost);
       for (const { effect, damage } of result.hpCosts) {
-        if (damage > 0) geneOrderPassives.activate(actor, side, effect, events, { damage: applyHPDamage(actor, damage) });
+        if (damage > 0) {const forms=[];const paid=applyHPDamage(actor,damage,{side,events:forms});geneOrderPassives.activate(actor,side,effect,events,{damage:paid});events.push(...forms);}
         if (actor.fainted) break;
       }
       if (actor.fainted) {
@@ -1497,7 +1623,8 @@ const geneOrderBattle = (() => {
       if (result.survival) geneOrderPassives.activate(defender, other, result.survival, events);
       const attackTransformSlot = move.category === "attack" ? transformSlot(actor, move, battle) : null;
       const transformTarget = attackTransformSlot ? { ...defender, stages: { ...defender.stages }, currentElements: currentElements(defender) } : null;
-      const actualDamage = applyHPDamage(defender, result.damage);
+      const damageForms=[];
+      const actualDamage = applyHPDamage(defender, result.damage,{side:other,events:damageForms});
       const decoyDamage = result.decoyDamage ?? 0;
       if (decoyDamage) {
         defender.decoy.hp -= decoyDamage;
@@ -1510,6 +1637,7 @@ const geneOrderBattle = (() => {
       if (actualDamage > 0) defender.tookDirectDamage = true;
       events.push({ type: "move", side, actor: actor.base.name, target: defender.base.name, move: move.name, characterId: actor.base.character_id, formId: actor.transform?.targetId, moveId: move.skill_id,
         category: move.category, priority, elements: move.category === "attack" ? moveElements(move) : [], effectiveness: result.effectiveness, cost, power: result.power, damage: result.damage, actualDamage, decoyDamage, reason: result.reason });
+      events.push(...damageForms);
       if (result.reason === "evaded") {
         events.push({ type: "evaded", side: other, actor: defender.base.name, move: move.name });
         applyPassiveStages(defender, other, "evaded", events);
@@ -1530,8 +1658,7 @@ const geneOrderBattle = (() => {
       }
       if (result.response) {
         defender.defenses.delete(result.response.id);
-        events.push({ type: result.response.id === "reflection" ? "reflected" : "revenge", side: other,
-          actor: defender.base.name, target: actor.base.name, damage: applyHPDamage(actor, result.response.damage) });
+        damageEvent(actor,result.response.damage,side,events,{type:result.response.id==="reflection"?"reflected":"revenge",side:other,actor:defender.base.name,target:actor.base.name});
       }
       applyMoveEffects(battle, side, actor, defender, move, actualDamage + decoyDamage,
         move.category === "attack" && result.reason !== "hit", events, pending ? "release" : null);
@@ -1615,7 +1742,7 @@ const geneOrderBattle = (() => {
     }
   }
 
-  return { postMoveSwitchApplies, battleBase, battlePassive, battleSkills, battleAppearance, transformedFighter, previewTransform, transformFailure, clearTransform, fieldEffectsForSide, installField, clearFields, START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, stageDelta, statValue, effectiveStat, changeEnergy,
+  return { formProfile, appearanceForm, currentFormId, cloneFighter, checkFormChange, clearForm, applyHPDamage, postMoveSwitchApplies, battleBase, battlePassive, battleSkills, battleAppearance, transformedFighter, previewTransform, transformFailure, clearTransform, fieldEffectsForSide, installField, clearFields, START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, stageDelta, statValue, effectiveStat, changeEnergy,
     isFieldKind, fieldDestination, fieldClearable, fieldPowerMultiplier, elementResistanceMultiplier, effectivePriority, priorityDetails, currentElements, attackElementChange, moveElements, moveHasElement, moveWeaknessMultiplier, sameElementBonusForMove, calculateDamage, effectivenessFor, previewDamage, previewRelease, previewSwitch, moveEffects, moveEffectsWithPassive, decoyValues, residualDamage,
     naturalRecovery, previewTurnEndRecovery, statusStatMultiplier, actionFailureChance, effectiveEnergyCharge, effectiveMoveCost,
     guardApplies, activeTimed, effectiveSpeed, evasionRate, moveAvailability, unsupportedMoveReason, validAttackStat, effectKind, battleEffectKind, createBattle, activeFighter, switchTargets, checkAction, resolveTurn, continueSwitch };

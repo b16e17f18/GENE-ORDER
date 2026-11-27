@@ -444,6 +444,12 @@ const geneOrderPassives = (() => {
         d.guard_type?.endsWith("_damage") && Number(d.damage_cut) > 0 && Number(d.damage_cut) <= 100);
   }
   const definitions = new Map([
+    ["form_change", { phase: "hp-change", target: (id, elements, statuses, fields) => {
+      const forms=[...(fields?.values()??[])].filter(row=>row.form_id);
+      return id && id!=="none" && /^[a-z][a-z0-9_]*$/.test(id) && (!forms.length || forms.some(row=>row.form_id===id&&row.trigger_type==="passive")) ? {formId:id} : null;
+    }, targetKind:"form", conditionKind:"stat_condition", condition: raw => {
+      const condition=statCondition(raw);return condition?.kind==="self"&&condition.operator==="lte"?condition:null;
+    }}],
     ["on_entry_field_effect", { phase: "entry", target: (id, elements, statuses, fields) =>
       isFieldDefinition(fields?.get(id)) ? { fieldId: id } : null, targetKind: "field", conditionKind: "empty",
       condition: raw => raw === "" ? {} : null }],

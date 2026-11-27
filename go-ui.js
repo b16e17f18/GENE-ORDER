@@ -34,7 +34,7 @@ const geneOrderUI = (() => {
     if (["residual", "heal", "absorbed"].includes(event.type)) return PLAYBACK_TIMING.residual;
     if (["reflected", "revenge", "recoil", "decoy-hit"].includes(event.type)) return PLAYBACK_TIMING.damage;
     if (event.type === "stage") return PLAYBACK_TIMING.stage;
-    if (event.type === "passive") return PLAYBACK_TIMING.passive;
+    if (["passive","form-changed","form-ended"].includes(event.type)) return PLAYBACK_TIMING.passive;
     if (["energy", "effect-energy", "en-drain", "en-modifier", "insufficient-energy"].includes(event.type)) return PLAYBACK_TIMING.energy;
     return PLAYBACK_TIMING.message;
   }
@@ -121,7 +121,7 @@ const geneOrderUI = (() => {
   function captureFrame(battle) {
     const teams = Object.fromEntries(SIDES.map((side) => [side, battle.teams[side].map((fighter) => {
       const { base, hp, maxHp, energy, fainted, dodgeActive, halfGuard, bind, pending, decoy, stages, statuses, defenses, timedEffects, nextElementPower, passive } = fighter;
-      return { base, transform: fighter.transform, currentElements: fighter.currentElements && [...fighter.currentElements], hp, maxHp, energy, fainted, dodgeActive, halfGuard, bind: bind && { turns: bind.turns },
+      return { base, form:fighter.form, formDefs:fighter.formDefs, formUses:new Map(fighter.formUses??[]), transform: fighter.transform, currentElements: fighter.currentElements && [...fighter.currentElements], hp, maxHp, energy, fainted, dodgeActive, halfGuard, bind: bind && { turns: bind.turns },
         pending: pending && { ...pending }, decoy: decoy && { ...decoy }, stages: { ...stages },
         statuses: statuses.map((status) => ({ ...status })), defenses: new Map([...defenses].map(([id, entry]) => [id, { ...entry }])),
         nextElementPower: new Map(nextElementPower),
@@ -140,7 +140,7 @@ const geneOrderUI = (() => {
       player: orderedTeam(team.player, lead.player, data, limit),
       enemy: orderedTeam(team.enemy, lead.enemy, data, limit),
       skills: data.skills, effects: data.effects, battleEffects: data.battleEffects,
-      powerRules: data.powerRules, passives: data.passives, effectiveness: data.effectiveness,
+      powerRules: data.powerRules, passives: data.passives, forms:data.forms, effectiveness: data.effectiveness,
       manualSwitches: true, random, captureFrame,
     });
     const history = { player: new Map(), enemy: new Map() };
@@ -495,6 +495,7 @@ const geneOrderUI = (() => {
     function flags(fighter, frame, candidate) {
       const labels = fighter.statuses.map(({ definition, turns }) => `${definition.name}（${turns}）`);
       if (fighter.fainted) labels.push("戦闘不能");
+      if (go.currentFormId(fighter)) labels.push("フォルム："+go.appearanceForm(fighter).name);
       if (fighter.transform) labels.push("へんしん：" + go.battleAppearance(fighter).name);
       if (fighter.bind) labels.push(`締め付け（${fighter.bind.turns}）`);
       if (fighter.dodgeActive) labels.push("回避状態");
@@ -522,7 +523,7 @@ const geneOrderUI = (() => {
         const hud = $(candidate + "Hud");
         const sprite = $(candidate + "Sprite");
         const meterWidth = 100 * fighter.hp / fighter.maxHp;
-        const key = fighter.base.character_id + "/" + index + "/" + (fighter.transform?.targetId ?? "original") + "/" + go.currentElements(fighter).join("/");
+        const key = fighter.base.character_id + "/" + index + "/" + (fighter.transform?.targetId ?? go.currentFormId(fighter) ?? "original") + "/" + go.currentElements(fighter).join("/");
         if (hud.dataset.renderedFighterKey !== key) {
           hud.dataset.renderedFighterKey = key;
           hud.innerHTML = `<div class="hud-row"><div class="hud-name">${fighterAttributes(fighter)}

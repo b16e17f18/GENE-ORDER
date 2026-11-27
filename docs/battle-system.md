@@ -109,3 +109,7 @@ AIの入力は公開盤面となる。技・HP・ENの予測、溜め解放、�
 ## 戦闘中の一時属性
 
 fighter.currentElementsに一時属性を保持し、currentElements()をSTAB・防御相性・AI・画面で共有する。正式baseは変更せず、交代・戦闘不能で復元する。[超適応の仕様と検証](super-adaptation.md)。
+
+## フォルムチェンジ
+
+form.csvを正式マスタへ追加しました。能力プロファイル・画像参照・条件の正本・CSV空欄と0の扱い・へんしん併用は[フォルム仕様](form-system.md)を参照してください。

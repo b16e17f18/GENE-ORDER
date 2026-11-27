@@ -404,14 +404,16 @@ test("imported guards cover all nine elements and physical or special attacks", 
   }
 });
 
-test("imported definitions stay unassigned unless an official skill explicitly configures one", () => {
-  const unused = new Set(["heal_hp1", "heal_hp2", "heal_hp3", "phy_protect", "phy_protect2", "sp_protect2",
-    "fire_protect", "thunder_protect", "ice_protect", "wind_protect", "earth_protect", "none_protect"]);
-  for (const move of officialSkills) {
-    assert.equal(go.moveEffects(move).some((effect) => unused.has(effect.id)), false, move.skill_id);
+test("official moves retain exactly the declared CSV effect references without automatic assignment", () => {
+  const rows=csv(read("data/skill.csv")).filter(row=>row.skill_id&&row.name&&row.category);
+  for(const raw of rows){
+    const declared=vn("canonicalizeGeneOrderSkill")(raw), expected=[];
+    for(const slot of [1,2,3])if(declared['effect'+slot]&&declared['effect'+slot]!=="none")expected.push({table:"effects",id:declared['effect'+slot]});
+    for(const slot of [1,2])if(declared['battle_effect'+slot]&&declared['battle_effect'+slot]!=="none")expected.push({table:"battleEffects",id:declared['battle_effect'+slot]});
+    const actual=go.moveEffects(skill(raw.skill_id)).map(({table,id})=>({table,id}));
+    assert.deepEqual(JSON.parse(JSON.stringify(actual)),expected,raw.skill_id);
+    for(const entry of expected)assert.ok(assets[entry.table].has(entry.id),raw.skill_id+" / "+entry.id);
   }
-  assert.equal(officialSkills.filter((move) => go.moveEffects(move).some((effect) => ["dark_protect", "light_protect"].includes(effect.id)))
-    .map((move) => move.skill_id).join(","), "skill_068,skill_073");
 });
 
 test("EN recovery and guard from 大地の恵み are independent and capped", () => {

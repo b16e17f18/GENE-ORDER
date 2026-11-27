@@ -2,6 +2,7 @@ const DATA_PATHS = {
   characters: "./data/character.csv",
   passives: "./data/passive.csv",
   passiveTypes: "./data/passive_type.csv",
+  forms: "./data/form.csv",
   skills: "./data/skill.csv",
   animations: "./data/animation.csv",
   effects: "./data/effect.csv",
@@ -3954,7 +3955,7 @@ async function loadGameData() {
   const elementNames = masterIdLookup(tables.elements, "element_id");
   const speciesNames = masterIdLookup(tables.species, "species_id");
   const imageAvailability = new Map(await Promise.all(
-    [...new Set(tables.characters.filter((row) => row.name).map((row) => characterImagePath(row.image)).filter(Boolean))]
+    [...new Set([...tables.characters.filter((row) => row.name).map((row) => characterImagePath(row.image)), ...tables.forms.map(row=>characterImagePath(row.image_id))].filter(Boolean))]
       .map(async (path) => [path, await canLoadCharacterImage(path)]),
   ));
   const diagnostics = validateGeneOrderData(tables, (path) => imageAvailability.get(path) === true);
@@ -3966,11 +3967,13 @@ async function loadGameData() {
   if (passiveTypes.issues.length) {
     throw new Error("./data/passive_type.csv: " + passiveTypes.issues.map((issue) => issue.id + " " + issue.field).join(" / "));
   }
-  const passiveFields = new Map(tables.battleEffects.map(d => [d.battle_effect_id, d]));
+  const forms = new Map(tables.forms.map(geneOrderFormData.normalize).map(row=>[row.form_id,row]));
+  const passiveFields = new Map([...tables.battleEffects.map(d => [d.battle_effect_id, d]), ...forms]);
   const passives = new Map(tables.passives.filter((row) => row.passive_id && row.name).map((row) => (
     [row.passive_id, geneOrderPassives.normalize(row, elementNames, statusIds, passiveTypes, passiveFields)]
   )));
   for (const character of characters) {
+    character.forms = [...forms.values()].filter(row=>row.character_id===character.character_id);
     character.passive = passives.get(character.passive_id) ?? null;
     character.passiveEffects = character.passive?.effects ?? [];
     if (!imageAvailability.get(character.imageSrc)) character.imageSrc = "";
@@ -3995,6 +3998,7 @@ async function loadGameData() {
     characterMap: new Map(characters.map((character) => [character.character_id, character])),
     passives,
     passiveTypes: passiveTypes.types,
+    forms,
     skills: new Map(tables.skills.map((row) => normalizeSkill(row, elementNames)).filter((row) => row.skill_id && row.name && row.category)
       .map((row) => [row.skill_id, row])),
     effects: new Map(tables.effects.map(normalizeEffect).filter((row) => row.effect_id && row.name)
@@ -4038,7 +4042,7 @@ function mountGeneOrderBattlePreview() {
       player: team("character_015", "character_001", "character_016", "character_017", "character_018", "character_020"),
       enemy: team("character_009", "character_021", "character_007", "character_019", "character_022", "character_023"),
       skills: state.skills,
-      passives: state.passives,
+      passives: state.passives, forms: state.forms,
       effectiveness: state.effectiveness,
       effects: state.effects,
       battleEffects: state.battleEffects,
@@ -9508,6 +9512,8 @@ function describeGeneOrderEvent(event) {
     heal: (e) => `${e.actor}の${e.source === "natural" ? "自然回復で" : ""}HP +${e.recovered}`,
     "effect-energy": (e) => e.actor + "のEN " + (e.recovered < 0 ? "−" : "+") + Math.abs(e.recovered) + "（技効果）",
     "en-drain": (e) => e.user + "は" + e.actor + "のENを" + e.lost + "吸収（自身のEN +" + e.recovered + "）",
+    "form-changed": e => e.actor + "は" + e.name + "になった！",
+    "form-ended": e => e.actor + "は通常フォルムに戻った",
     transformed: e => `${e.actor}は${e.target}にへんしんした！`,
     "transform-failed": e => `${e.actor}のへんしんは失敗した（${e.reason}）`,
     "transform-ended": e => `${e.actor}のへんしんが解除された`,

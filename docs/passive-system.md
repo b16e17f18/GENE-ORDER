@@ -181,3 +181,7 @@ conditional_priority_modifierを追加し、効果タイプは36種類。既存�
 ## 超適応と37タイプ
 
 on_attack_element_change / used_element / 1を追加。conditional_priority_modifier / power_lte / 1 / condition=60に対応する。CSV形式・属性復元・空欄条件・既存設定保護は[超適応の記録](super-adaptation.md)を参照。
+
+## フォルムチェンジ
+
+form.csvを正式マスタへ追加しました。能力プロファイル・画像参照・条件の正本・CSV空欄と0の扱い・へんしん併用は[フォルム仕様](form-system.md)を参照してください。
