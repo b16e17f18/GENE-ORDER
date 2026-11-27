@@ -4241,13 +4241,16 @@ const GO_STAT_RANKS = [
   { max: 100, letter: "C", color: "#FFA500" },
   { max: 120, letter: "B", color: "#FF0000" },
   { max: 140, letter: "A", color: "#FF69B4" },
-  { max: Infinity, letter: "S", color: "#F7B9D4" },
+  { max: 205, letter: "S", color: "#F7B9D4" },
+  { max: 380, letter: "SS", color: "#FFD700" },
+  { max: 580, letter: "SSS", color: "#7DF9FF" },
+  { max: Infinity, letter: "EX", color: "#FFFFFF" },
 ];
 const GO_STAT_RANK_OFFSETS = { hp: 75, phy_atk: 20, phy_def: 20, sp_atk: 20, sp_def: 20, speed: 20 };
 
-function goStatRank(stat, baseValue) {
-  if (!Object.hasOwn(GO_STAT_RANK_OFFSETS, stat) || !Number.isFinite(baseValue)) return null;
-  const score = baseValue - GO_STAT_RANK_OFFSETS[stat];
+function goStatRank(stat, currentValue) {
+  if (!Object.hasOwn(GO_STAT_RANK_OFFSETS, stat) || !Number.isFinite(currentValue)) return null;
+  const score = currentValue - GO_STAT_RANK_OFFSETS[stat];
   return GO_STAT_RANKS.find(({ max }) => score <= max);
 }
 
@@ -4257,7 +4260,7 @@ function goCharacterStat(stat, value, options = {}) {
     graphMax: stat === "regen_value" ? 50 : 200,
     graphOffset: GO_STAT_RANK_OFFSETS[stat] ?? 0,
     ...options,
-    grade: goStatRank(stat, options.baseValue ?? value),
+    grade: goStatRank(stat, value),
   });
 }
 

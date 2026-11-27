@@ -1012,7 +1012,9 @@ test("GO stat grades use the specified inclusive boundaries and base stat offset
     [41, "E", "#9ACD32"], [60, "E", "#9ACD32"], [61, "D", "#FFFF00"],
     [80, "D", "#FFFF00"], [81, "C", "#FFA500"], [100, "C", "#FFA500"],
     [101, "B", "#FF0000"], [120, "B", "#FF0000"], [121, "A", "#FF69B4"],
-    [140, "A", "#FF69B4"], [141, "S", "#F7B9D4"],
+    [140, "A", "#FF69B4"], [141, "S", "#F7B9D4"], [205, "S", "#F7B9D4"],
+    [206, "SS", "#FFD700"], [380, "SS", "#FFD700"], [381, "SSS", "#7DF9FF"],
+    [580, "SSS", "#7DF9FF"], [581, "EX", "#FFFFFF"],
   ];
   for (const [stat, offset] of [["hp", 75], ...["phy_atk", "phy_def", "sp_atk", "sp_def", "speed"].map(stat => [stat, 20])]) {
     for (const [score, letter, color] of bounds) {

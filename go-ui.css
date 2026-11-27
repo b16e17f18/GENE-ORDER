@@ -105,8 +105,11 @@
 #go-app .detail-stat {
   grid-template-columns: 5em minmax(0, 1fr) 4ch;
 }
-#go-app .detail-stat-go-graded { grid-template-columns: 5em minmax(0, 1fr) 1.2em 4ch; }
+/* Reserve space for three-letter grades without changing the stat or graph values. */
+#go-app { --go-stat-grade-width: 2.5em; }
+#go-app .detail-stat-go-graded { grid-template-columns: 5em minmax(0, 1fr) var(--go-stat-grade-width) 4ch; }
 #go-app .detail-stat-grade {
+  white-space: nowrap;
   text-align: center;
   color: var(--stat-rank-color);
   -webkit-text-stroke: 1px #111;
@@ -116,11 +119,11 @@
 #go-app .detail-stat-value { font-variant-numeric: tabular-nums; }
 @media (max-width: 580px) {
   #go-app .detail-stat { grid-template-columns: 4.5em minmax(0, 1fr) 4ch; gap: 6px; }
-  #go-app .detail-stat-go-graded { grid-template-columns: 4.5em minmax(0, 1fr) 1.2em 4ch; }
+  #go-app .detail-stat-go-graded { grid-template-columns: 4.5em minmax(0, 1fr) var(--go-stat-grade-width) 4ch; }
 }
 #go-app .battle-view .hp-line { grid-template-columns: max-content minmax(0, 1fr) auto; }
 #go-app .go-hud-ranks > span { white-space: nowrap; }
-#go-app .battle-inspect-stats .detail-stat-go-graded { grid-template-columns: 5em minmax(0, 1fr) 1.2em 10ch; }
+#go-app .battle-inspect-stats .detail-stat-go-graded { grid-template-columns: 5em minmax(0, 1fr) var(--go-stat-grade-width) 10ch; }
 #go-app .battle-inspect-stat-list .detail-stat-value { white-space: nowrap; }
 
 /* v0.63: preserve MHB reference card palette in GO. */
@@ -431,11 +434,11 @@
 
 /* Battle details only: six fixed slots followed immediately by the current grade. */
 #go-app .battle-inspect-stats .go-battle-stat {
-  grid-template-columns: 5em 6em 1.4em 4ch;
+  grid-template-columns: 5em 6em var(--go-stat-grade-width) 4ch;
   justify-content: start;
   gap: .5em;
 }
-#go-app .battle-inspect-stats .go-stat-hidden { grid-template-columns: 5em 6em 1.4em; }
+#go-app .battle-inspect-stats .go-stat-hidden { grid-template-columns: 5em 6em var(--go-stat-grade-width); }
 #go-app .go-battle-stat .detail-stat-label { grid-column: 1; grid-row: 1; }
 #go-app .go-battle-stage {
   display: inline-grid;
