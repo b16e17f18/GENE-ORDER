@@ -9464,7 +9464,8 @@ function describeGeneOrderEvent(event) {
   const sideName = (side) => side === "player" ? "自分側" : "相手側";
   const describe = {
     passive: (event) => {
-      const detail = event.multiplier ? '（' + (statLabels[event.stat] ?? "被ダメージ") + ' ×' + event.multiplier + '）' :
+      const detail = event.priorityDelta != null ? '（優先度' + (event.priorityDelta >= 0 ? "+" : "") + event.priorityDelta + " → " + event.priority + "）" :
+        event.multiplier ? '（' + (statLabels[event.stat] ?? "被ダメージ") + ' ×' + event.multiplier + '）' :
         event.damage ? '（HP −' + event.damage + '）' : '';
       return event.text + detail + (event.lostEnergy != null ? `（${event.target}のEN −${event.lostEnergy}）` : "") +
         (event.recoveredEnergy != null ? `（EN +${event.recoveredEnergy}）` : "");

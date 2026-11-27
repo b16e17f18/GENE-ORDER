@@ -33,7 +33,7 @@ passive_031,バイオエンジンⅢ,starting_en,none,7,status_immunity,all,1,no
 passive_032,大天使の輪,,,,,,,,,,,,,,,,
 passive_033,,,,,,,,,,,,,,,,,
 passive_034,,,,,,,,,,,,,,,,,
-passive_035,,,,,,,,,,,,,,,,,
+passive_035,未確認生物,adaptive_stat_multiplier,auto,1.5,none,none,0,none,none,0,相手より低い基礎能力のうち、差が最も大きい能力1種類を1.5倍にする。同率ならPA・PD・SA・SD・SPの順。,none,none,none,,,
 passive_036,,,,,,,,,,,,,,,,,
 passive_037,,,,,,,,,,,,,,,,,
 passive_038,,,,,,,,,,,,,,,,,

@@ -125,7 +125,8 @@ const geneOrderUI = (() => {
         pending: pending && { ...pending }, decoy: decoy && { ...decoy }, stages: { ...stages },
         statuses: statuses.map((status) => ({ ...status })), defenses: new Map([...defenses].map(([id, entry]) => [id, { ...entry }])),
         nextElementPower: new Map(nextElementPower),
-        timedEffects: new Map([...timedEffects].map(([id, entry]) => [id, { ...entry }])), passive };
+        timedEffects: new Map([...timedEffects].map(([id, entry]) => [id, { ...entry }])),
+        passiveState: geneOrderPassives.copyState(fighter), passive };
     })]));
     return { teams, active: { ...battle.active }, turn: battle.turn,
       fields: Object.fromEntries(SIDES.map((side) => [side, new Map([...battle.fields[side]].map(([id, entry]) => [id, { ...entry }]))])) };

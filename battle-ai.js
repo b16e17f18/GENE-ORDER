@@ -1204,7 +1204,7 @@ const geneOrderAI = (() => {
       stages: { ...fighter.stages }, pending: pending && { ...pending }, decoy: decoy && { ...decoy },
       statuses: fighter.statuses.map((status) => ({ ...status })), timedEffects: new Map(fighter.timedEffects),
       defenses: new Map(fighter.defenses), nextElementPower: new Map(fighter.nextElementPower), bind: null, passiveEffects,
-      passiveState: { uses: new Map(fighter.passiveState.uses) }, moveUses: own ? new Map(fighter.moveUses) : new Map() };
+      passiveState: geneOrderPassives.copyState(fighter), moveUses: own ? new Map(fighter.moveUses) : new Map() };
   }
 
   function observe(battle, side, { history, revealFixedMoves = false, previousSwitch = null } = {}) {
@@ -1289,10 +1289,11 @@ const geneOrderAI = (() => {
 
   function moveRisk(context, move) {
     const { actor, target, position, config, board } = context;
-    const sooner = (priority) => move.priority > priority ? 0 : move.priority < priority ? 1 :
+    const ownPriority = geneOrderBattle.effectivePriority(board, context.side, move);
+    const sooner = (priority) => ownPriority > priority ? 0 : ownPriority < priority ? 1 :
       position.speed > position.otherSpeed ? 0 : position.speed < position.otherSpeed ? 1 : 0.5;
     const known = position.incoming.map(({ move: incoming, preview }) =>
-      sooner(incoming.priority) * preview.executionChance * (preview.targetHp === 0 ? 1 : fraction(preview.actualDamage / actor.hp) * config.SUPPORT_RISK));
+      sooner(geneOrderBattle.effectivePriority(board, otherSide(context.side), incoming)) * preview.executionChance * (preview.targetHp === 0 ? 1 : fraction(preview.actualDamage / actor.hp) * config.SUPPORT_RISK));
     const unknown = board.opponentMovesComplete || target.pending ? 0 : sooner(0) * fraction(position.danger / actor.hp);
     return fraction(Math.max(average(known) * config.PUBLIC_ATTACK_WEIGHT, unknown));
   }
@@ -1398,7 +1399,7 @@ const geneOrderAI = (() => {
         const current = kind === "bind-damage" ? recipient.bind :
           (!self && id === "sleep" && result.wakesTarget) ? null : recipient.statuses.find((status) => status.definition.effect_id === id);
         const turns = Math.max(0, Math.min(effect.turn - (current?.turns ?? 0), config.STATUS_HORIZON));
-        const metabolism = geneOrderPassives.matching(recipient, "stat-multiplier", (entry) => entry.condition.kind === "status").length;
+        const metabolism = geneOrderPassives.matching(recipient, "stat-multiplier", (entry) => entry.condition?.kind === "status").length;
         const damage = Math.min(recipient.hp, go.residualDamage(recipient, effect) * turns);
         const modifierValue = kind === "bind-damage" ? 0 : statusModifierValue(recipient, self ? target : actor, effect, config) * turns;
         value = (damage * config.STATUS_DAMAGE_WEIGHT + modifierValue + (kind === "bind-damage" && !current ? config.FIELD_VALUE : 0)
@@ -1526,7 +1527,7 @@ const geneOrderAI = (() => {
     return { action, move, score, fatal, koConfidence: koConfidence * executionChance,
       damage: result.actualDamage, expectedDamage: result.actualDamage * executionChance, decoyDamage: result.decoyDamage ?? 0,
       label: move.name, reason: release ? "予約威力・次の攻撃" : result.reason, forecast: {
-        targetHp, actorHp: result.actorHp, hpCost: result.hpCost, energyCost: result.energyCost, response: result.responseDamage, power: result.power,
+        priority: result.priority, targetHp, actorHp: result.actorHp, hpCost: result.hpCost, energyCost: result.energyCost, response: result.responseDamage, power: result.power,
         executionChance, actionFailureChance: result.actionFailureChance, wakesTarget: result.wakesTarget,
         targetActionFailureChanceAfterDamage: result.targetActionFailureChanceAfterDamage, expectedDamage: result.actualDamage * executionChance,
         actorEndHp: actorEnd.hp, targetEndHp: targetEnd.hp,
