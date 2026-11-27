@@ -121,7 +121,7 @@ const geneOrderUI = (() => {
   function captureFrame(battle) {
     const teams = Object.fromEntries(SIDES.map((side) => [side, battle.teams[side].map((fighter) => {
       const { base, hp, maxHp, energy, fainted, dodgeActive, halfGuard, bind, pending, decoy, stages, statuses, defenses, timedEffects, nextElementPower, passive } = fighter;
-      return { base, form:fighter.form, formDefs:fighter.formDefs, formUses:new Map(fighter.formUses??[]), transform: fighter.transform, currentElements: fighter.currentElements && [...fighter.currentElements], hp, maxHp, energy, fainted, dodgeActive, halfGuard, bind: bind && { turns: bind.turns },
+      return { base, statExchange: fighter.statExchange && Object.fromEntries(Object.entries(fighter.statExchange).map(([stat, entry]) => [stat, { ...entry }])),  form:fighter.form, formDefs:fighter.formDefs, formUses:new Map(fighter.formUses??[]), transform: fighter.transform, currentElements: fighter.currentElements && [...fighter.currentElements], hp, maxHp, energy, fainted, dodgeActive, halfGuard, bind: bind && { turns: bind.turns },
         pending: pending && { ...pending }, decoy: decoy && { ...decoy }, stages: { ...stages },
         statuses: statuses.map((status) => ({ ...status })), defenses: new Map([...defenses].map(([id, entry]) => [id, { ...entry }])),
         nextElementPower: new Map(nextElementPower),
@@ -497,6 +497,7 @@ const geneOrderUI = (() => {
       if (fighter.fainted) labels.push("戦闘不能");
       if (go.currentFormId(fighter)) labels.push("フォルム："+go.appearanceForm(fighter).name);
       if (fighter.transform) labels.push("へんしん：" + go.battleAppearance(fighter).name);
+      if (fighter.statExchange) labels.push("能力交換：" + Object.keys(fighter.statExchange).map(stat => STATS[stat]).join("・"));
       if (fighter.bind) labels.push(`締め付け（${fighter.bind.turns}）`);
       if (fighter.dodgeActive) labels.push("回避状態");
       if (fighter.halfGuard || fighter.defenses.has("bf_half_guard")) labels.push("半減防御");

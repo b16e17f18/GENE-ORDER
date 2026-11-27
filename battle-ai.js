@@ -1207,7 +1207,7 @@ const geneOrderAI = (() => {
       base: { ...publicBase, ...Object.fromEntries([...STATS, "regen_value"].map(k => [k, profile[k]])), skillIds: [...skillIds] },
       passiveEffects: [...fighter.transform.passiveEffects] };
     const ownForm=fighter.form && {...fighter.form,base:{...publicBase,...Object.fromEntries(["hp",...STATS,"regen_value","evasion_percent","energy_charge"].map(k=>[k,fighter.form.base[k]]))}};
-    return { base: publicBase, form:ownForm, formDefs:fighter.formDefs, formUses:new Map(fighter.formUses??[]), passive: fighter.passive, transform: transformation, currentElements: fighter.currentElements && [...fighter.currentElements], hp, maxHp, energy, fainted, dodgeActive, halfGuard, tookDirectDamage,
+    return { statExchange: fighter.statExchange && Object.fromEntries(Object.entries(fighter.statExchange).map(([stat, entry]) => [stat, { ...entry }])), base: publicBase, form:ownForm, formDefs:fighter.formDefs, formUses:new Map(fighter.formUses??[]), passive: fighter.passive, transform: transformation, currentElements: fighter.currentElements && [...fighter.currentElements], hp, maxHp, energy, fainted, dodgeActive, halfGuard, tookDirectDamage,
       stages: { ...fighter.stages }, pending: pending && { ...pending }, decoy: decoy && { ...decoy },
       statuses: fighter.statuses.map((status) => ({ ...status })), timedEffects: new Map(fighter.timedEffects),
       defenses: new Map(fighter.defenses), nextElementPower: new Map(fighter.nextElementPower), bind: null, passiveEffects,
@@ -1381,6 +1381,7 @@ const geneOrderAI = (() => {
     };
 
     let score = 0;
+    let exchangeBoard = board, exchangeSnapshot;
     for (const { id, chance, target: destination, table } of go.moveEffectsWithPassive(actor, move)) {
       if (!(chance > 0)) continue;
       const effect = board[table].get(id);
@@ -1392,7 +1393,17 @@ const geneOrderAI = (() => {
       const recipient = self ? actor : target;
       if (!self && move.category === "status" && (positionBlock || (statusBlock && kind !== "clear-field" && !go.isFieldKind(kind)))) continue;
       let value = 0;
-      if (kind === "transform") {
+      if (kind === "stat-exchange") {
+        if (target.fainted || target.hp <= 0) continue;
+        exchangeSnapshot ??= go.statExchangeSnapshot(actor, target);
+        const exchange = go.previewStatExchange(go.activeFighter(exchangeBoard, side), go.activeFighter(exchangeBoard, other), effect, destination, exchangeSnapshot);
+        const teams = { ...exchangeBoard.teams, [side]: exchangeBoard.teams[side].slice(), [other]: exchangeBoard.teams[other].slice() };
+        teams[side][exchangeBoard.active[side]] = exchange.actor;
+        teams[other][exchangeBoard.active[other]] = exchange.defender;
+        const projected = { ...exchangeBoard, teams };
+        value = matchup(projected, side, config).score - matchup(exchangeBoard, side, config).score;
+        exchangeBoard = projected;
+      } else if (kind === "transform") {
         const transformation = result.transformation;
         if (transformation?.success) {
           const team = board.teams[side].slice();

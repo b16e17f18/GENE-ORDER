@@ -166,7 +166,33 @@ const geneOrderBattle = (() => {
     events.push({ type: "transform-ended", side, actor: fighter.base.name });
   }
 
-  function effectiveStat(fighter, stat, { opponent, fieldMultiplier = 1 } = {}) {
+  function exchangeStatTargets(effect) {
+    const stats = String(effect?.target_stat ?? "").split("|");
+    return stats.length && stats.every(stat => STATS.includes(stat)) && new Set(stats).size === stats.length ? stats : [];
+  }
+
+  function statExchangeSnapshot(actor, defender) {
+    return [actor, defender].map((fighter, index, fighters) => Object.fromEntries(STATS.map(stat =>
+      [stat, statValue(fighter, stat, { opponent: fighters[1 - index] })])));
+  }
+
+  // Each slot copies to its own recipient, always using the same pre-effects source values.
+  function previewStatExchange(actor, defender, definition, target = "enemy", snapshot = statExchangeSnapshot(actor, defender)) {
+    if (!["self", "enemy"].includes(target)) throw new Error("能力交換の対象はselfまたはenemyです。");
+    const stats = exchangeStatTargets(definition);
+    const fighters = [actor, defender], recipient = target === "self" ? 0 : 1;
+    const projected = fighters.map((fighter, index) => index !== recipient ? fighter : ({ ...fighter,
+      statExchange: { ...fighter.statExchange, ...Object.fromEntries(stats.map(stat => [stat, {
+        value: snapshot[1 - index][stat],
+        reference: effectiveStat(fighter, stat, { opponent: fighters[1 - index], ignoreExchange: true }).value,
+      }])) },
+    }));
+    const after = projected.map((fighter, index) => Object.fromEntries(stats.map(stat =>
+      [stat, statValue(fighter, stat, { opponent: projected[1 - index] })])));
+    return { actor: projected[0], defender: projected[1], stats, before: snapshot, after };
+  }
+
+  function effectiveStat(fighter, stat, { opponent, fieldMultiplier = 1, ignoreExchange = false } = {}) {
     if (!STATS.includes(stat)) throw new Error("無効な能力です。");
     const stage = fighter.stages[stat];
     const base = battleBase(fighter)[stat];
@@ -176,7 +202,10 @@ const geneOrderBattle = (() => {
     const multiplier = passives.reduce((product, effect) => product * effect.value, 1) * statusMultiplier;
     // Keep existing rounding when no status or passive modifier is active.
     const adjusted = passives.length || statusMultiplier !== 1 ? ranked * multiplier : Math.max(1, Math.floor(ranked));
-    return { value: Math.max(1, Math.floor(adjusted * fieldMultiplier)), multiplier, statusMultiplier, passives };
+    const unexchanged = Math.max(1, Math.floor(adjusted * fieldMultiplier));
+    const exchange = !ignoreExchange && fighter.statExchange?.[stat];
+    return { value: exchange ? Math.max(1, Math.floor(unexchanged * exchange.value / exchange.reference)) : unexchanged,
+      multiplier, statusMultiplier, passives, ...(exchange ? { exchangeMultiplier: exchange.value / exchange.reference } : {}) };
   }
 
   function statValue(fighter, stat, context) {
@@ -408,6 +437,8 @@ const geneOrderBattle = (() => {
     if (effect.effect_group === "evasion" && effect.damage_type === "multiplier" &&
       effect.target_stat === "evasion_percent" && value >= 0 && lasting &&
       Number.isSafeInteger(delay) && delay >= 0) return "evasion-boost";
+    if (effect.effect_group === "stat_exchange" && effect.damage_type === "none" && value === 0 &&
+      Number(effect.turn) === 0 && exchangeStatTargets(effect).length) return "stat-exchange";
     if (effect.effect_group === "transform" && effect.damage_type === "none" && Number(effect.turn) === 0) return "transform";
     if (effect.effect_group === "clear_field") return "clear-field";
     if (effect.effect_group === "clear_buff") return "clear-buff";
@@ -565,6 +596,7 @@ const geneOrderBattle = (() => {
       if (kind) supportedParts++;
       else issues.push(id);
       if (kind === "transform" && (!["status", "attack"].includes(move.category) || target !== "enemy")) issues.push("変身効果の対象は相手のみ");
+      if (kind === "stat-exchange" && (move.category !== "status" || !["self", "enemy"].includes(target))) issues.push("能力交換はselfまたはenemy対象の変化技のみ");
       if (kind === "bind-damage" && target !== "enemy") issues.push("締め付けの対象は相手のみ");
     }
     for (const slot of slots) {
@@ -904,12 +936,15 @@ const geneOrderBattle = (() => {
 
   function applyMoveEffects(battle, side, actor, defender, move, actualDamage, blocked, events, phase) {
     const slots = moveEffectsWithPassive(actor, move);
+    const exchangeSnapshot = slots.some(slot => slot.table === "effects" && slot.chance > 0 && effectKind(battle.effects.get(slot.id)) === "stat-exchange")
+      ? statExchangeSnapshot(actor, defender) : null;
     const statusBlock = geneOrderPassives.statusMoveBlock(defender, actor, move);
     let blockedStatus = false;
     let dodgeAction = false;
     for (const { id, chance, target: slotTarget, table } of slots) {
       const effect = battle[table].get(id);
       const kind = table === "battleEffects" ? battleEffectKind(effect) : effectKind(effect);
+      if (kind === "stat-exchange" && (defender.fainted || defender.hp <= 0)) continue;
       // Attack transforms resolve after all damage responses/recoil and original KO passives.
       if (kind === "transform" && move.category === "attack") continue;
       const target = isFieldKind(kind) ? fieldDestination(effect) : slotTarget;
@@ -966,7 +1001,13 @@ const geneOrderBattle = (() => {
         continue;
       }
       const value = effect.damage_value;
-      if (kind === "transform") {
+      if (kind === "stat-exchange") {
+        const projected = previewStatExchange(actor, defender, effect, target, exchangeSnapshot);
+        if (recipient === actor) actor.statExchange = projected.actor.statExchange;
+        else defender.statExchange = projected.defender.statExchange;
+        events.push({ ...event, type: "stat-exchanged", source: recipient === actor ? defender.base.name : actor.base.name,
+          stats: projected.stats, before: projected.before, after: projected.after, target, effect: id });
+      } else if (kind === "transform") {
         const reason = transformFailure(battle, side, move);
         if (reason) events.push({ type: "transform-failed", side, actor: actor.base.name, reason });
         else {
@@ -1282,6 +1323,7 @@ const geneOrderBattle = (() => {
     const decoy = reason === "relay" || reason === "tail-purge" ? from.decoy : null;
     clearTransform(from, events, side);
     if(from.form&&!from.form.definition.persist) clearForm(from,side,events);
+    from.statExchange = null;
     resetStages(from);
     from.currentElements = null;
     to.currentElements = null;
@@ -1383,6 +1425,7 @@ const geneOrderBattle = (() => {
 
   function recordFaint(battle, side, fighter, events) {
     clearTransform(fighter, events, side);
+    fighter.statExchange = null;
     fighter.currentElements = null;
     fighter.bind = null;
     fighter.pending = null;
@@ -1742,7 +1785,7 @@ const geneOrderBattle = (() => {
     }
   }
 
-  return { formProfile, appearanceForm, currentFormId, cloneFighter, checkFormChange, clearForm, applyHPDamage, postMoveSwitchApplies, battleBase, battlePassive, battleSkills, battleAppearance, transformedFighter, previewTransform, transformFailure, clearTransform, fieldEffectsForSide, installField, clearFields, START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, stageDelta, statValue, effectiveStat, changeEnergy,
+  return { exchangeStatTargets, statExchangeSnapshot, previewStatExchange, formProfile, appearanceForm, currentFormId, cloneFighter, checkFormChange, clearForm, applyHPDamage, postMoveSwitchApplies, battleBase, battlePassive, battleSkills, battleAppearance, transformedFighter, previewTransform, transformFailure, clearTransform, fieldEffectsForSide, installField, clearFields, START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, stageDelta, statValue, effectiveStat, changeEnergy,
     isFieldKind, fieldDestination, fieldClearable, fieldPowerMultiplier, elementResistanceMultiplier, effectivePriority, priorityDetails, currentElements, attackElementChange, moveElements, moveHasElement, moveWeaknessMultiplier, sameElementBonusForMove, calculateDamage, effectivenessFor, previewDamage, previewRelease, previewSwitch, moveEffects, moveEffectsWithPassive, decoyValues, residualDamage,
     naturalRecovery, previewTurnEndRecovery, statusStatMultiplier, actionFailureChance, effectiveEnergyCharge, effectiveMoveCost,
     guardApplies, activeTimed, effectiveSpeed, evasionRate, moveAvailability, unsupportedMoveReason, validAttackStat, effectKind, battleEffectKind, createBattle, activeFighter, switchTargets, checkAction, resolveTurn, continueSwitch };
