@@ -78,8 +78,7 @@ const declaredSkills = csvRows('skill').filter(row => row.skill_id && row.name &
 const declaredCharacterRows = csvRows('character').filter(row => row.character_id && row.name);
 const declaredCharacters = declaredCharacterRows.filter(row => row.content_scope !== 'tutorial');
 // Explicitly unconfigured source data stays visible; no engine checks are disabled.
-const knownAnimationDraftIds = new Set([...Array.from({length:14},(_,i)=>89+i),...Array.from({length:7},(_,i)=>109+i)].map(i=>'skill_'+String(i).padStart(3,'0')));
-const knownNumericDraftIssues = [{level:'数値異常',table:'skills',id:'skill_102',field:'power',value:'0'}];
+const unconfiguredPowerIssues = Array.from(declaredSkills).filter(row=>row.category==='attack'&&Number(row.power)===0).map(row=>({level:'数値異常',table:'skills',id:row.skill_id,field:'power',value:String(row.power)}));
 const reservedMasters = reservedPassives + csvRows('character').filter(row => row.character_id && !row.name).length + csvRows('skill').filter(row => row.skill_id && !row.name && !row.category).length;
 
 
@@ -251,11 +250,10 @@ test("invalid passive type definitions stop startup with the master path", async
   assert.match(missing.elements.get("#go-status").textContent, /passive_type[.]csv/);
 });
 
-test("configured animation IDs resolve to matching PNG sheets and explicit draft blanks stay reported", t => {
+test("configured animation IDs resolve to matching PNG sheets and CSV blanks stay reported", t => {
   const actualMissing=JSON.parse(go.run('JSON.stringify([...state.skills.values()].filter(move=>!state.moveAnimations.has(move.animation_id)).map(move=>move.skill_id).sort())'));
   const declaredBlanks=Array.from(declaredSkills).filter(row=>!row.animation_id?.trim()).map(row=>row.skill_id).sort();
   assert.deepEqual(actualMissing,declaredBlanks,'A nonblank animation ID must resolve; absent IDs must remain explicit blanks');
-  for(const id of actualMissing)assert.ok(knownAnimationDraftIds.has(id),'New missing animation needs review: '+id);
   t.diagnostic('演出未設定（未設定のまま保持）: '+actualMissing.length+'件 '+actualMissing.join(','));
   const sheets = go.run("[...state.moveAnimations.values()]");
   assert.ok(sheets.length > 5);
@@ -601,9 +599,9 @@ test("diagnoses invalid passive conditions and missing status targets", async ()
   assert.equal(invalid.run('state.dataDiagnostics.some(d => d.id === "passive_022" && d.field === "target_id1" && d.level === "効果未対応")'), true);
 });
 
-test("formal CSV reports known unconfigured power and still rejects new numeric and reference errors", async () => {
+test("formal CSV diagnoses zero-power attacks uniformly and still rejects other numeric and reference errors", async () => {
   const diagnostics=JSON.parse(go.run('JSON.stringify(state.dataDiagnostics.filter(d=>["数値異常","重複ID","相性欠落","相性重複"].includes(d.level)))'));
-  assert.deepEqual(diagnostics,knownNumericDraftIssues);
+  assert.deepEqual(diagnostics,unconfiguredPowerIssues);
   assert.equal(go.run('state.dataDiagnostics.filter(d => d.level === "参照不一致").length'),0);
   assert.equal(go.run('state.dataDiagnostics.filter(d => d.table === "passives" && d.level === "予約行").length'), reservedPassives);
   const invalid = runtime({ transforms: {
@@ -615,7 +613,7 @@ test("formal CSV reports known unconfigured power and still rejects new numeric 
   await invalid.boot();
   const detected = JSON.parse(invalid.run('JSON.stringify(state.dataDiagnostics.filter(d => d.level === "数値異常").map(d => [d.id,d.field].join("/")).sort())'));
   assert.deepEqual(detected, ["bf_half_guard/damage_cut", "bf_half_guard/turn", "character_001/hp", "character_001/phy_atk",
-    "go_en_value_7/max_ratio", "go_en_value_7/power_multiplier", "skill_001/cost", "skill_001/effect_chance1", "skill_102/power"]);
+    "go_en_value_7/max_ratio", "go_en_value_7/power_multiplier", "skill_001/cost", "skill_001/effect_chance1", ...unconfiguredPowerIssues.map(d=>d.id+"/"+d.field)].sort());
 });
 
 test("CSV edits change the speed multiplier and burn damage and duration in a new battle", async () => {
@@ -1286,4 +1284,4 @@ test('K-12 stays unavailable in manual and random team selection until skills ar
 
 test('a nonblank invalid animation reference is diagnosed rather than accepted as a draft blank',async()=>{const invalid=runtime({transforms:{'./data/skill.csv':text=>patchCsv(text,'skill_id','skill_001',{animation_id:'fixture_missing_animation'})}});await invalid.boot();assert.equal(invalid.run('state.dataDiagnostics.some(d=>d.level==="参照不一致"&&d.id==="skill_001"&&d.field==="animation_id"&&d.value==="fixture_missing_animation")'),true);assert.equal(invalid.run('state.moveAnimations.has(state.skills.get("skill_001").animation_id)'),false);});
 
-test('Light Spell keeps its unconfigured zero power diagnostic and cannot execute',()=>{assert.equal(go.run('state.skills.get("skill_102").power'),0);assert.equal(go.run('state.dataDiagnostics.some(d=>d.level==="数値異常"&&d.id==="skill_102"&&d.field==="power")'),true);const code='(()=>{const source=state.characterMap.get("character_001"),b=geneOrderBattle.createBattle({player:[{...source,skillIds:["skill_102"]}],enemy:[source],skills:state.skills,effects:state.effects,battleEffects:state.battleEffects,powerRules:state.powerRules,effectiveness:state.effectiveness});return geneOrderBattle.checkAction(b,"player",{type:"move",moveId:"skill_102"});})()';assert.match(go.run(code),/未対応/);});
+test('all zero-power CSV attacks are diagnosed and unavailable without special skill IDs',()=>{for(const issue of unconfiguredPowerIssues){const id=JSON.stringify(issue.id);assert.equal(go.run('state.dataDiagnostics.some(d=>d.level==="数値異常"&&d.id==='+id+'&&d.field==="power")'),true);const code='(()=>{const source=state.characterMap.get("character_001"),b=geneOrderBattle.createBattle({player:[{...source,skillIds:['+id+']}],enemy:[source],skills:state.skills,effects:state.effects,battleEffects:state.battleEffects,powerRules:state.powerRules,effectiveness:state.effectiveness});return geneOrderBattle.checkAction(b,"player",{type:"move",moveId:'+id+'});})()';assert.match(go.run(code),/未対応/);}});

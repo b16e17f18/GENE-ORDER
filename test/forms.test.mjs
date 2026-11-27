@@ -77,3 +77,41 @@ test('AI form prediction inherits blank HP and resets nonpersistent forms to the
 test('mirror Copen forecast distinguishes the recipient side even when both have the same name',()=>{const move={...strike,cost:0,power:20},b=setup(copen(),{moves:[move],enemy:[copen()]}),a=active(b),t=active(b,'enemy');a.energy=t.energy=7;t.hp=77;const p=go.previewDamage(b,'player',move);assert.equal(p.formEvents.length,1);assert.equal(p.formEvents[0].side,'enemy');assert.equal(p.actorAfter.form,undefined);assert.equal(p.targetAfter.form.form_id,'copen_true');const score=()=>ai.evaluate(ai.observe(b,'player',{revealFixedMoves:true})).find(c=>c.action.moveId==='attack').score;const enemyGain=score();t.passiveEffects=t.passiveEffects.filter(e=>e.handler!=='form_change');assert.ok(enemyGain<score());});
 
 test('image-only element forms cannot be assigned as HP-triggered passive targets',()=>{const row={...rows('passive').find(r=>r.passive_id==='passive_040'),target_id2:'quantum_fire'};const p=gp.normalize(row,elements,statusIds,types,new Map(forms));assert.ok(p.issues.some(i=>i.field==='target_id2'));});
+
+
+test('integration: a defense exchange remains dynamic when Copen changes form',()=>{
+  const b=setup(),a=active(b),target=active(b,'enemy'),def=effects.get('swap_defenses');
+  a.statExchange=go.previewStatExchange(a,target,def,'self').actor.statExchange;
+  assert.equal(go.statValue(a,'phy_def'),target.base.phy_def);
+  const originalDefense=a.base.phy_def;damage(b,76);
+  assert.equal(a.form.form_id,'copen_true');
+  assert.equal(go.statValue(a,'phy_def'),Math.floor(88*target.base.phy_def/originalDefense));
+  a.stages.phy_def=2;
+  assert.equal(go.statValue(a,'phy_def'),Math.floor(176*target.base.phy_def/originalDefense));
+});
+
+test('integration: exchanging a true form clears on switch while the form persists',()=>{
+  const b=setup(),a=active(b),target=active(b,'enemy');damage(b,76);
+  a.statExchange=go.previewStatExchange(a,target,effects.get('swap_defenses'),'self').actor.statExchange;
+  assert.equal(go.statValue(a,'phy_def'),target.base.phy_def);
+  go.resolveTurn(b,{player:{type:'switch',index:1},enemy:wait});
+  assert.equal(a.statExchange,null);assert.equal(a.form.form_id,'copen_true');assert.equal(go.statValue(a,'phy_def'),88);
+});
+
+test('integration: AI and damage preview retain both form and exchange without changing live state or RNG',()=>{
+  let rolls=0;const b=setup(copen(),{random:()=>{rolls++;return .99;}}),a=active(b);damage(b,76);
+  a.statExchange=go.previewStatExchange(a,active(b,'enemy'),effects.get('swap_defenses'),'self').actor.statExchange;
+  active(b,'enemy').energy=7;
+  const before=snap(b),n=rolls,obs=ai.observe(b,'player',{revealFixedMoves:true}),copy=active(obs);
+  assert.equal(go.statValue(copy,'phy_def'),go.statValue(a,'phy_def'));
+  const forecast=go.previewDamage(b,'enemy',strike);assert.equal(snap(b),before);
+  ai.choose(obs,{random:()=>.99});assert.equal(rolls,n);assert.equal(snap(b),before);
+  const out=go.resolveTurn(b,{player:wait,enemy:use('attack')});
+  const hit=out.events.find(e=>e.type==='move'&&e.side==='enemy');assert.ok(hit);assert.equal(hit.actualDamage,forecast.actualDamage);
+});
+
+test('integration: cloned form and exchange snapshots do not share mutable exchange entries',()=>{
+  const b=setup(),a=active(b);damage(b,76);a.statExchange=go.previewStatExchange(a,active(b,'enemy'),effects.get('swap_defenses'),'self').actor.statExchange;
+  const copy=go.cloneFighter(a),original=a.statExchange.phy_def.value;copy.statExchange.phy_def.value=999;
+  assert.equal(a.statExchange.phy_def.value,original);assert.equal(a.form.form_id,'copen_true');
+});

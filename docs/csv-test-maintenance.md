@@ -31,3 +31,7 @@ CSVの実ファイルは編集せず、patchCsv / appendCsvRowsで検証用デ�
 - ログ：.cache/current-csv-related.log、.cache/current-csv-final.log（Git管理外）。
 - 変更ファイル：test/data.test.mjs、test/battle.test.mjs、本書、docs/form-system.md。
 - mainへのマージ・Push・CSVの性能調整は行っていない。
+
+## 統合時の追補（2026-11-27）
+
+上記の履歴にある技ID固定の既知例外は撤去した。現在はCSVの空欄演出・威力0の攻撃技を一般ルールで検証し、後から設定された場合も個別IDのテスト編集を要求しない。否定テストと使用不可判定を維持する。統合の詳細はintegration-20261127.mdを参照。

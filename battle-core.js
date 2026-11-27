@@ -70,7 +70,7 @@ const geneOrderBattle = (() => {
     return visual ? {...base, imageSrc:visual.imageSrc, image:visual.image_id} : base;
   }
   function cloneFighter(fighter) {
-    return {...fighter, stages:{...fighter.stages}, statuses:fighter.statuses.map(entry=>({...entry})),
+    return {...fighter, statExchange: fighter.statExchange && Object.fromEntries(Object.entries(fighter.statExchange).map(([stat,entry])=>[stat,{...entry}])), stages:{...fighter.stages}, statuses:fighter.statuses.map(entry=>({...entry})),
       passiveState:geneOrderPassives.copyState(fighter), formUses:new Map(fighter.formUses??[]),
       timedEffects:new Map(fighter.timedEffects), defenses:new Map(fighter.defenses), nextElementPower:new Map(fighter.nextElementPower), moveUses:new Map(fighter.moveUses)};
   }
