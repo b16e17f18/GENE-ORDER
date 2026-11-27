@@ -74,13 +74,19 @@ const csvRows = name => go.run('rowsFromCsv(' + JSON.stringify(read('data/' + na
 const passiveRows = csvRows('passive');
 const pendingPassiveIds = passiveRows.filter(row => row.name && [1,2,3].every(slot => !row['passive_type'+slot] || row['passive_type'+slot] === 'none')).map(row => row.passive_id);
 const reservedPassives = passiveRows.filter(row => row.passive_id && !row.name && !row.text).length;
+const declaredSkills = csvRows('skill').filter(row => row.skill_id && row.name && row.category);
+const declaredCharacterRows = csvRows('character').filter(row => row.character_id && row.name);
+const declaredCharacters = declaredCharacterRows.filter(row => row.content_scope !== 'tutorial');
+// Explicitly unconfigured source data stays visible; no engine checks are disabled.
+const knownAnimationDraftIds = new Set([...Array.from({length:14},(_,i)=>89+i),...Array.from({length:7},(_,i)=>109+i)].map(i=>'skill_'+String(i).padStart(3,'0')));
+const knownNumericDraftIssues = [{level:'数値異常',table:'skills',id:'skill_102',field:'power',value:'0'}];
 const reservedMasters = reservedPassives + csvRows('character').filter(row => row.character_id && !row.name).length + csvRows('skill').filter(row => row.skill_id && !row.name && !row.category).length;
 
 
 test("production scripts parse and evaluate in index.html order", () => {
   assert.deepEqual(scripts, ["data-validation.js", "passive.js", "battle-core.js", "battle-ai.js",
     "bgm.js", "dialogue-manager.js", "go-ui.js", "app.js"]);
-  assert.match(go.elements.get("#go-status").textContent, /46体.*89件.*9種/);
+  assert.equal(go.elements.get("#go-status").textContent, `キャラクター ${declaredCharacters.length}体 · 技 ${declaredSkills.length}件 · 属性 ${csvRows("element").length}種`);
 });
 
 test("reads only the official UTF-8 tables", () => {
@@ -245,9 +251,12 @@ test("invalid passive type definitions stop startup with the master path", async
   assert.match(missing.elements.get("#go-status").textContent, /passive_type[.]csv/);
 });
 
-test("each named skill uses valid animation metadata and a matching PNG sheet", () => {
-  const missing = go.run('[...state.skills.values()].filter(move => !state.moveAnimations.has(move.animation_id)).map(move => move.skill_id)');
-  assert.equal(missing.length, 0);
+test("configured animation IDs resolve to matching PNG sheets and explicit draft blanks stay reported", t => {
+  const actualMissing=JSON.parse(go.run('JSON.stringify([...state.skills.values()].filter(move=>!state.moveAnimations.has(move.animation_id)).map(move=>move.skill_id).sort())'));
+  const declaredBlanks=Array.from(declaredSkills).filter(row=>!row.animation_id?.trim()).map(row=>row.skill_id).sort();
+  assert.deepEqual(actualMissing,declaredBlanks,'A nonblank animation ID must resolve; absent IDs must remain explicit blanks');
+  for(const id of actualMissing)assert.ok(knownAnimationDraftIds.has(id),'New missing animation needs review: '+id);
+  t.diagnostic('演出未設定（未設定のまま保持）: '+actualMissing.length+'件 '+actualMissing.join(','));
   const sheets = go.run("[...state.moveAnimations.values()]");
   assert.ok(sheets.length > 5);
   for (const { path, width, height, columns, rows } of sheets) {
@@ -286,24 +295,26 @@ test("keeps the ordered nine elements, all 81 matchups and the three immunities"
   assert.equal(go.run('state.effectiveness.get("dark").get("earth")'), 0);
 });
 
-test("excludes placeholders and never fills absent moves with MHB attacks", () => {
-  assert.equal(go.run('state.characterMap.has("character_045")'), false);
-  assert.equal(go.run('state.skills.size'), 89);
-  assert.equal(go.run('movesForCharacter(state.characterMap.get("character_025")).length'), 4);
-  assert.equal(go.run('movesForCharacter(state.characterMap.get("character_047")).length'), 4);
-  assert.equal(go.run('state.characters.every((character) => movesForCharacter(character).length === 4)'), true);
-  assert.equal(go.run('JSON.stringify([...state.skills.values()].filter((move) => geneOrderBattle.moveAvailability(move, state).issues.length).map((move) => [move.skill_id, geneOrderBattle.moveAvailability(move, state).issues]))'),
-    JSON.stringify([["skill_047", ["どろぼう"]],
-      ["skill_084", ["攻撃分類・属性・対象"]], ["skill_085", ["攻撃分類・属性・対象"]],
-      ["skill_086", ["攻撃分類・属性・対象"]], ["skill_087", ["攻撃分類・属性・対象"]]]));
-  assert.equal(go.run('JSON.stringify(state.characters.filter((character) => geneOrderUI.fighterIssue(character, state)).map((character) => character.character_id))'),
-    JSON.stringify([]));
-  assert.equal(go.run('state.skills.has("basic_strike")'), false);
+test("excludes placeholders and preserves the CSV move slots without MHB fallback", () => {
+  const declaredIds=Array.from(declaredSkills,row=>row.skill_id).sort();
+  assert.deepEqual(JSON.parse(go.run('JSON.stringify([...state.skills.keys()].sort())')),declaredIds);
+  const expectedCharacterIds=Array.from(declaredCharacterRows,row=>row.character_id).sort();
+  assert.deepEqual(JSON.parse(go.run('JSON.stringify([...state.characterMap.keys()].sort())')),expectedCharacterIds);
+  const expectedUnconfigured=[];
+  for(const row of declaredCharacters){
+    const ids=[...new Set([1,2,3,4].map(slot=>row['skill_'+slot]).filter(id=>declaredIds.includes(id)))];
+    const actual=JSON.parse(go.run('JSON.stringify(movesForCharacter(state.characterMap.get('+JSON.stringify(row.character_id)+')).map(m=>m.skill_id))'));
+    assert.deepEqual(actual,ids,row.character_id);
+    if(!ids.length)expectedUnconfigured.push([row.character_id,'習得技未設定']);
+  }
+  assert.deepEqual(JSON.parse(go.run('JSON.stringify(state.characters.filter(c=>geneOrderUI.fighterIssue(c,state)).map(c=>[c.character_id,geneOrderUI.fighterIssue(c,state)]))')),expectedUnconfigured);
+  assert.equal(go.run('movesForCharacter(state.characterMap.get("character_047")).length'),0);
+  assert.equal(go.run('state.skills.has("basic_strike")'),false);
 });
 
 test("diagnoses unresolved move references and keeps passive placeholders separate", () => {
   assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照不一致" && ["burn", "speed_advantage"].includes(d.value))'), false);
-  assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照不一致" && d.value === "どろぼう")'), true);
+  assert.equal(go.run('state.dataDiagnostics.some((d) => d.level === "参照不一致" && d.value === "どろぼう")'), false);
   assert.equal(go.run('state.skills.get("skill_001").effect1'), "bf_pa_down1");
   assert.equal(go.run('[...state.passives.values()].filter(p=>!'+JSON.stringify(pendingPassiveIds)+'.includes(p.passive_id)).every(p=>p.status==="implemented")'),true);
   assert.deepEqual(JSON.parse(go.run('JSON.stringify([...state.passives.values()].filter(p=>p.issues.length).map(p=>[p.passive_id,p.status,p.issues.map(i=>[i.field,i.value])]))')), []);
@@ -469,8 +480,8 @@ test("reloading CSV over the data loader changes live battle tuning without code
 
 test("the HTTP loader re-reads decoy cost, durability, use cap, EN and proc rate", async () => {
   const revised = runtime({ transforms: {
-    "./data/battle_effect.csv": (csv) => csv.replace("2/3,1/3,1", "1/3,1/2,2"),
-    "./data/skill.csv": (csv) => csv.replace(",shed_tail,100,none,0,self,0,2,", ",shed_tail,50,none,0,self,0,1,"),
+    "./data/battle_effect.csv": text=>patchCsv(text,"battle_effect_id","bf_shed_tail",{hp_cost_ratio:"1/3",decoy_hp_ratio:"1/2",max_uses:"2"}),
+    "./data/skill.csv": text=>patchCsv(text,"skill_id","skill_006",{battle_effect_chance1:"50",cost:"1"}),
   } });
   await revised.boot();
   function simulate(environment, roll) {
@@ -590,9 +601,10 @@ test("diagnoses invalid passive conditions and missing status targets", async ()
   assert.equal(invalid.run('state.dataDiagnostics.some(d => d.id === "passive_022" && d.field === "target_id1" && d.level === "効果未対応")'), true);
 });
 
-test("formal CSV has 27 playable passives and reports actionable numeric bounds", async () => {
-  assert.equal(go.run('state.dataDiagnostics.filter(d => ["数値異常", "重複ID", "相性欠落", "相性重複"].includes(d.level)).length'), 0);
-  assert.equal(go.run('state.dataDiagnostics.filter(d => d.level === "参照不一致").length'), 1);
+test("formal CSV reports known unconfigured power and still rejects new numeric and reference errors", async () => {
+  const diagnostics=JSON.parse(go.run('JSON.stringify(state.dataDiagnostics.filter(d=>["数値異常","重複ID","相性欠落","相性重複"].includes(d.level)))'));
+  assert.deepEqual(diagnostics,knownNumericDraftIssues);
+  assert.equal(go.run('state.dataDiagnostics.filter(d => d.level === "参照不一致").length'),0);
   assert.equal(go.run('state.dataDiagnostics.filter(d => d.table === "passives" && d.level === "予約行").length'), reservedPassives);
   const invalid = runtime({ transforms: {
     "./data/character.csv": (text) => text.replace("獣族,125,81,75", "獣族,0,81.5,75"),
@@ -603,7 +615,7 @@ test("formal CSV has 27 playable passives and reports actionable numeric bounds"
   await invalid.boot();
   const detected = JSON.parse(invalid.run('JSON.stringify(state.dataDiagnostics.filter(d => d.level === "数値異常").map(d => [d.id,d.field].join("/")).sort())'));
   assert.deepEqual(detected, ["bf_half_guard/damage_cut", "bf_half_guard/turn", "character_001/hp", "character_001/phy_atk",
-    "go_en_value_7/max_ratio", "go_en_value_7/power_multiplier", "skill_001/cost", "skill_001/effect_chance1"]);
+    "go_en_value_7/max_ratio", "go_en_value_7/power_multiplier", "skill_001/cost", "skill_001/effect_chance1", "skill_102/power"]);
 });
 
 test("CSV edits change the speed multiplier and burn damage and duration in a new battle", async () => {
@@ -701,10 +713,9 @@ test("all 60 rank effects can be assigned by short ID and change the correct ran
 
 test("new CSV status and evasion IDs work in other moves without adding JS registrations", async () => {
   const configured = runtime({ transforms: {
-    "./data/effect.csv": (csv) => csv.trimEnd() + "\nfixture_residual,検証用継続,damage,percent_maxhp,12,2,TRUE,none,,\n" +
-      "fixture_evasion,検証用回避,evasion,multiplier,1.5,2,TRUE,evasion_percent,,2\n",
-    "./data/skill.csv": (csv) => csv.replace(/^skill_021,.*$/m, (row) =>
-      row.replace(/,pa_up[12],self,100,pd_up[12],self,100,/, ",fixture_residual,enemy,100,fixture_evasion,self,100,")),
+    "./data/effect.csv": text=>appendCsvRows(text,[{effect_id:"fixture_residual",name:"検証用継続",effect_group:"damage",damage_type:"percent_maxhp",damage_value:"12",turn:"2",can_move:"TRUE",target_stat:"none"},
+      {effect_id:"fixture_evasion",name:"検証用回避",effect_group:"evasion",damage_type:"multiplier",damage_value:"1.5",turn:"2",can_move:"TRUE",target_stat:"evasion_percent",start_delay:"2"}]),
+    "./data/skill.csv": text=>patchCsv(text,"skill_id","skill_021",{effect1:"fixture_residual",effect_target1:"enemy",effect_chance1:"100",effect2:"fixture_evasion",effect_target2:"self",effect_chance2:"100"}),
   } });
   await configured.boot();
   const result = configured.run(`
@@ -735,13 +746,12 @@ test("new CSV status and evasion IDs work in other moves without adding JS regis
   assert.match(log, /2ターン後から2ターン、1\.5倍/);
 });
 
-test("Drumming Beat keeps its CSV stage gains without triggering the attack-only Full Commitment penalty", async () => {
+test("Drumming Beat follows explicit test-CSV gains without triggering the attack-only Full Commitment penalty", async () => {
   const configured = runtime({ transforms: {
-    "./data/skill.csv": (csv) => csv.replace(/^skill_021,.*$/m, (row) =>
-      row.replace(/,pa_up[12],self,100,pd_up[12],self,100,/, ",pa_up1,self,100,pd_up2,self,100,")),
+    "./data/skill.csv": text=>patchCsv(text,"skill_id","skill_021",{effect1:"bf_pa_up1",effect_target1:"self",effect_chance1:"100",effect2:"bf_pd_up2",effect_target2:"self",effect_chance2:"100"}),
   } });
   await configured.boot();
-  const result = configured.run(`
+  const scenario = `
     (() => {
       const engine = geneOrderBattle;
       const move = state.skills.get("skill_021");
@@ -755,7 +765,13 @@ test("Drumming Beat keeps its CSV stage gains without triggering the attack-only
       return JSON.stringify([move.effect2, fighter.stages.phy_atk, fighter.stages.phy_def,
         turn.events.filter(e => e.type === "stage").map(e => [e.stat, e.delta])]);
     })()
-  `);
+  `;
+  const result=configured.run(scenario);
+  const rawSkill=csvRows('skill').find(row=>row.skill_id==='skill_021');
+  const rawEffects=new Map(Array.from(csvRows('effect'),row=>[row.effect_id,row]));
+  const declared=go.run('canonicalizeGeneOrderSkill')(rawSkill);
+  const stages=[1,2].map(slot=>rawEffects.get(declared['effect'+slot])).map(row=>[row.target_stat,Number(row.damage_value)]);
+  assert.deepEqual(JSON.parse(go.run(scenario)),[declared.effect2,stages.filter(([stat])=>stat==='phy_atk').reduce((n,[,delta])=>n+delta,0),stages.filter(([stat])=>stat==='phy_def').reduce((n,[,delta])=>n+delta,0),stages]);
   assert.deepEqual(JSON.parse(result), ["bf_pd_up2", 1, 2, [["phy_atk", 1], ["phy_def", 2]]]);
 });
 
@@ -867,14 +883,14 @@ test("random battle excludes placeholders and invalid slots, preserves data and 
   assert.equal(go.run('geneOrderUI.randomBattleSettings(state, () => 0.999999).team.player.length'), 3);
 });
 
-test("official UI accepts newly configured fighters and rejects invalid, duplicate and oversized teams", () => {
-  assert.equal(go.run('geneOrderUI.fighterIssue(state.characterMap.get("character_047"), state)'), "");
+test("official UI accepts configured fighters and rejects unconfigured, invalid, duplicate and oversized teams", () => {
+  assert.equal(go.run('geneOrderUI.fighterIssue(state.characterMap.get("character_047"), state)'), "習得技未設定");
   assert.equal(go.run('geneOrderUI.fighterIssue(state.characterMap.get("character_005"), state)'), "");
   assert.equal(go.run(`(${formalMatch()}).battle.teams.player[0].base.name`), "ユーズドマウス");
   assert.throws(() => go.run(formalMatch().replace('"character_016", "character_015", "character_019"', "")), /先発/);
   assert.throws(() => go.run(formalMatch().replace('"character_016"', '"character_015"')), /先発/);
   assert.throws(() => go.run(formalMatch().replace("random: ()", "limit: 2, random: ()")), /1〜2体/);
-  assert.equal(go.run(`(${formalMatch().replace('"character_016"', '"character_047"')}).battle.teams.player[1].base.name`), go.run('state.characterMap.get("character_047").name'));
+  assert.throws(()=>go.run(formalMatch().replace('"character_016"','"character_047"')),/習得技未設定/);
 });
 
 test("official match maps manual versus AI through GO and records display frames without legacy state", () => {
@@ -1256,3 +1272,18 @@ test('old ten-column effects still load with neutral modifiers and no action fai
 });
 
 test("formal forms load with character linkage and preloaded images",()=>{assert.equal(go.run('state.forms.size'),10);assert.equal(go.run('state.characterMap.get("character_040").forms.length'),1);assert.equal(go.run('state.characterMap.get("character_043").forms.length'),9);assert.equal(go.run('state.forms.get("copen_true").overrides.hp'),229);assert.ok(go.images.some(p=>p.endsWith('character_040_true.png')));});
+
+function appendCsvRows(text, records) {
+  const headers=text.split(/\r?\n/,1)[0].replace(/^\uFEFF/,'').split(',');
+  for(const row of records)for(const key of Object.keys(row))assert.ok(headers.includes(key),key);
+  const cell=value=>'"'+String(value??'').replaceAll('"','""')+'"';
+  return text.trimEnd()+'\n'+records.map(row=>headers.map(h=>cell(row[h])).join(',')).join('\n')+'\n';
+}
+
+test('unknown effect IDs in a test CSV are still diagnosed and cannot execute',async()=>{const invalid=runtime({transforms:{'./data/skill.csv':text=>patchCsv(text,'skill_id','skill_001',{effect1:'fixture_missing_effect',effect_target1:'enemy',effect_chance1:'100'})}});await invalid.boot();assert.equal(invalid.run('state.dataDiagnostics.some(d=>d.level==="参照不一致"&&d.id==="skill_001"&&d.value==="fixture_missing_effect")'),true);assert.equal(invalid.run('geneOrderBattle.moveAvailability(state.skills.get("skill_001"),state).issues.includes("fixture_missing_effect")'),true);});
+
+test('K-12 stays unavailable in manual and random team selection until skills are configured',()=>{assert.equal(go.run('state.characterMap.get("character_047").skillIds.length'),0);assert.equal(go.run('geneOrderUI.fighterIssue(state.characterMap.get("character_047"),state)'), '習得技未設定');assert.throws(()=>go.run(formalMatch().replace('"character_016"','"character_047"')),/習得技未設定/);assert.equal(go.run('(()=>{for(let i=0;i<30;i++){const settings=geneOrderUI.randomBattleSettings(state,()=>i/31);if([...settings.team.player,...settings.team.enemy].includes("character_047"))return false;}return true;})()'),true);});
+
+test('a nonblank invalid animation reference is diagnosed rather than accepted as a draft blank',async()=>{const invalid=runtime({transforms:{'./data/skill.csv':text=>patchCsv(text,'skill_id','skill_001',{animation_id:'fixture_missing_animation'})}});await invalid.boot();assert.equal(invalid.run('state.dataDiagnostics.some(d=>d.level==="参照不一致"&&d.id==="skill_001"&&d.field==="animation_id"&&d.value==="fixture_missing_animation")'),true);assert.equal(invalid.run('state.moveAnimations.has(state.skills.get("skill_001").animation_id)'),false);});
+
+test('Light Spell keeps its unconfigured zero power diagnostic and cannot execute',()=>{assert.equal(go.run('state.skills.get("skill_102").power'),0);assert.equal(go.run('state.dataDiagnostics.some(d=>d.level==="数値異常"&&d.id==="skill_102"&&d.field==="power")'),true);const code='(()=>{const source=state.characterMap.get("character_001"),b=geneOrderBattle.createBattle({player:[{...source,skillIds:["skill_102"]}],enemy:[source],skills:state.skills,effects:state.effects,battleEffects:state.battleEffects,powerRules:state.powerRules,effectiveness:state.effectiveness});return geneOrderBattle.checkAction(b,"player",{type:"move",moveId:"skill_102"});})()';assert.match(go.run(code),/未対応/);});

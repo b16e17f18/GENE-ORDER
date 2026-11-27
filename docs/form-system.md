@@ -102,3 +102,7 @@ CSV：data/form.csv（新規）、data/passive.csv、data/passive_type.csv。素
 検証：test/forms.test.mjs、tools/check-forms.cjs、test/editor.test.mjs、test/data.test.mjs、および既存のタイプ件数を検査するパッシブ関連6テスト。新しい39種類の定義に期待値を追従させ、既存効果のアサーションは維持した。画像だけのelement_changeフォームはHP条件パッシブの対象候補から除外し、不正な組み合わせを診断する。
 
 記録：README.md、docs/battle-system.md、docs/passive-system.md、docs/data-foundation.md、本書。合計35ファイル。
+
+## 後続のテスト整合修正（2026-11-27）
+
+fix/current-csv-testsで旧10件の不一致を修正し、多数対戦除外の全体テスト1,001件が成功。Ｋ－１２は技未設定のため使用不可を正として検証した。演出21件と光の呪文の未設定データは診断・使用制限を維持している。CSVや戦闘性能は変更していない。[修正内容と検証範囲](csv-test-maintenance.md)を参照。
