@@ -1,0 +1,53 @@
+// Usage: node tools/check-battle-controls.cjs (Edge; GO_PLAYWRIGHT_PATH may point to Playwright).
+const { chromium } = require(process.env.GO_PLAYWRIGHT_PATH || 'playwright');
+const { createServer } = require('node:http');
+const { readFile, mkdir } = require('node:fs/promises');
+const { resolve, sep, extname } = require('node:path');
+const assert = require('node:assert/strict');
+const root = resolve(__dirname, '..'), artifacts = resolve(root, '.cache', 'battle-controls');
+const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.csv':'text/csv','.png':'image/png','.webp':'image/webp','.mp3':'audio/mpeg'};
+const server=createServer(async(req,res)=>{try{const name=decodeURIComponent(new URL(req.url,'http://localhost').pathname),file=resolve(root,'.'+(name==='/'?'/index.html':name));if(!file.startsWith(root+sep))throw Error();res.setHeader('Content-Type',(types[extname(file)]||'application/octet-stream')+'; charset=utf-8');res.end(await readFile(file));}catch{res.writeHead(404).end();}});
+async function check(browser,width){
+  const context=await browser.newContext({viewport:{width,height:950},hasTouch:width<600,isMobile:width<600}),page=await context.newPage(),errors=[];
+  page.on('pageerror',e=>errors.push(e.message));
+  await page.addInitScript(()=>document.addEventListener('DOMContentLoaded',()=>{const create=geneOrderBattle.createBattle;geneOrderBattle.createBattle=options=>(window.__controlsBattle=create(options));},{once:true}));
+  await page.goto('http://127.0.0.1:'+server.address().port);
+  const ui=page.locator('#go-app');await ui.locator('#battleModeButton').click();
+  const pick=id=>ui.locator('[data-go-pick="'+id+'"]'),lead=id=>ui.locator('[data-go-lead="'+id+'"][data-go-team="player"]');
+  for(const id of ['character_016','character_015','character_019'])await pick(id).click();
+  assert.equal(await lead('character_016').isDisabled(),true);
+  assert.equal(await lead('character_019').isVisible(),true);
+  await lead('character_019').click();await lead('character_015').click();
+  await ui.locator('[data-go-remove="character_015"][data-go-team="player"]').click();
+  assert.equal(await lead('character_016').isDisabled(),true);
+  await pick('character_015').click();await lead('character_019').click();
+  assert.deepEqual(await ui.locator('[data-go-lead][data-go-team="player"]').evaluateAll(nodes=>nodes.map(n=>n.dataset.goLead)),['character_016','character_019','character_015']);
+  assert.match(await lead('character_019').locator('..').locator('..').textContent(),/先発/);
+  await page.screenshot({path:resolve(artifacts,'setup-'+width+'.png'),fullPage:true});
+  await ui.locator('#startButton').click();
+  assert.equal(await page.evaluate(()=>__controlsBattle.teams.player[0].base.character_id),'character_019');
+  assert.equal(await page.evaluate(()=>{const b=__controlsBattle;return b.teams.enemy[0].base.slot===Math.min(...b.teams.enemy.map(f=>f.base.slot));}),true);
+  await ui.locator('.go-battle-footer [data-go-page="setup"]').click();
+  await ui.locator('#go-official-mode').selectOption('manual');await ui.locator('#setupEnemyModeButton').click();await pick('character_009').click();await ui.locator('#startButton').click();
+  await ui.locator('#go-fast-battle').check();await ui.locator('#go-battle-bgm').uncheck();
+  await page.evaluate(()=>{const b=__controlsBattle,a=geneOrderBattle.activeFighter(b,'player'),e=geneOrderBattle.activeFighter(b,'enemy');a.base={...a.base,evasion_percent:100};e.energy=7;});
+  await ui.locator('#go-dodge').click();
+  const attack=await page.evaluate(()=>{const b=__controlsBattle,f=geneOrderBattle.activeFighter(b,'enemy');return geneOrderBattle.battleSkills(f).find(id=>{const m=b.skills.get(id);return m?.category==='attack'&&m.priority<4&&m.hit_type!=='ignore_dodge'&&!geneOrderBattle.checkAction(b,'enemy',{type:'move',moveId:id});});});
+  assert.ok(attack);await ui.locator('[data-go-open-move="'+attack+'"]').click();await ui.locator('[data-go-move="'+attack+'"]').click();
+  await page.waitForFunction(()=>__controlsBattle.turn===2&&!document.querySelector('#go-app #go-dodge').disabled);
+  const message=await page.evaluate(()=>geneOrderBattle.activeFighter(__controlsBattle,'player').base.name+'は攻撃を回避した！');
+  assert.equal(await ui.locator('#go-official-log').getByText(message,{exact:true}).count(),1);
+  await ui.locator('#switchTab').click();await ui.locator('[data-go-switch="1"]').click();await ui.locator('#go-dodge').click();
+  await page.waitForFunction(()=>__controlsBattle.turn===3&&!document.querySelector('#go-app #go-dodge').disabled);
+  assert.equal(await page.evaluate(()=>__controlsBattle.active.player),1);
+  // With valid data, EN0 still permits the common dodge. Force the rare no-action state in memory.
+  await page.evaluate(()=>{const b=__controlsBattle,f=geneOrderBattle.activeFighter(b,'player');f.energy=0;f.pending={moveId:'fixture_missing',power:1,definition:{battle_effect_group:'charge'}};});
+  await ui.locator('#switchTab').click();await ui.locator('#fightTab').click();
+  assert.equal(await ui.locator('[data-go-skip]').isVisible(),true);
+  await ui.locator('[data-go-skip]').click();await ui.locator('#go-dodge').click();
+  await page.waitForFunction(()=>__controlsBattle.turn===4);
+  assert.match(await ui.locator('#go-official-log').textContent(),/使用可能な技と交代先がない/);
+  await page.screenshot({path:resolve(artifacts,'battle-'+width+'.png'),fullPage:true});
+  assert.deepEqual(errors,[]);await context.close();console.log('PASS Edge '+width+'px: lead default/change/removal, actual lead, enemy rule, evasion log once, switch and forced skip');
+}
+(async()=>{await mkdir(artifacts,{recursive:true});await new Promise(r=>server.listen(0,'127.0.0.1',r));let browser;try{browser=await chromium.launch({channel:'msedge',headless:true});for(const width of [1280,390])await check(browser,width);}finally{await browser?.close();server.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

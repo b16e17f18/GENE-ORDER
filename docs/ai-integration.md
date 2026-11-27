@@ -13,7 +13,7 @@ GOに残る `battle-ai.js` は調査したMHBの原本とSHA-256が一致した�
 | 対象 | MHBの処理と再利用範囲 | GOへの接続 |
 |---|---|---|
 | 行動傾向 | `ENEMY_AI_TYPE_CONFIGS` 51行、`enemyAiTypeFor` 279行。balanced、aggressive、patient、defensive、disruptor、tactical の重みの考え方を流用 | `ai_type` 空欄はbalanced。初期は係数の移植を優先し、勝率調整は後工程。 `ai_setup_skill` / `ai_main_skill` は任意 |
-| 候補列挙 | `chooseEnemyBattleAction` 103行、`applyEnemySkillPreference` 594行の候補順位とセットアップ・主力の考え方 | `moveAvailability()` と `checkAction()` で手持ち技、共通回避、待機、交代を検証。予約中は予約技を優先。未完成技は除外 |
+| 候補列挙 | `chooseEnemyBattleAction` 103行、`applyEnemySkillPreference` 594行の候補順位とセットアップ・主力の考え方 | `moveAvailability()` と `checkAction()` で手持ち技、共通回避、交代を検証。任意の待機は候補に含めない。予約中は予約技を優先。未完成技は除外 |
 | ダメージ・KO | `scoreEnemyUsableMove` 292行のKO・EN重みを流用。MHBの `estimateMoveDamage` 呼び出しを交換 | `previewDamage()` の実HP減少、残HP、返却ダメージ、リバイブ、デコイ、HP費用を使う。 `effectiveStat()` / `effectiveSpeed()` で先後を扱う。乱数は同速・確率効果などの公開分布のみ。仮定した回避等でシナリオを分け、単一予測をKO確率と同一視しない |
 | 支援・待機 | `scoreEnemyHealingMove` 638行、`scoreEnemySelfBuffMove` 661行、`scoreEnemyProtectMove` 693行、`scoreEnemyTargetStatusMove` 732行、`scoreEnemySaveEnergy` 786行の優先づけ | 回復は残HPとCSV、ランクは±6、毒と締め付けは残りターン、回避は使用時判定・回避不可を別々に評価。EN回復は現行GOのターン終了規則を使う |
 | 溜め・デコイ | `scoreEnemyTwoTurnMove` 326行の遅延リスクを流用。MHBの専用遅延技経路はGOの現在の対象外 | 開始・解放の威力予約、再消費なし、反動や途中KOの危険を区別。デコイの作成費用、耐久、継承、回数を扱う評価を追加 |
@@ -47,3 +47,7 @@ GOに残る `battle-ai.js` は調査したMHBの原本とSHA-256が一致した�
 ## v0.60 正式画面
 
 プレイヤー対AIとAI対AIは正式画面から開始できる。現在の手動入力はAIの入力に含めず、解決済みイベントで履歴を更新する。交代待ちはAI側の必要な選択を自動で継続する。AIの採点結果はデバッグ画面で表示する。
+
+## 任意の待機禁止（2026-11-27）
+
+6傾向すべてでwaitを通常候補から除去した。EN0でも可能なら共通回避や交代を選ぶ。合法行動がない場合だけ自分・AI共通の強制skipを使う。技・交代の従来の採点や状態異常の実行時判定は維持する。[詳細と検証](battle-controls.md)。

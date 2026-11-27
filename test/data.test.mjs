@@ -1118,7 +1118,7 @@ test("MHB-style random BGM includes all 26 copied battle tracks and excludes non
 });
 
 
-test("selected player party gets three distinct random AI opponents with minimum-slot leads", () => {
+test("selected player party preserves first-selected lead and random AI opponents use minimum slots", () => {
   assert.equal(go.run(`(() => {
     const ids = Object.freeze(["character_016", "character_015", "character_019"]);
     const before = JSON.stringify(state.characters);
@@ -1135,10 +1135,9 @@ test("selected player party gets three distinct random AI opponents with minimum
         const result = match.resolve({ player: { type: "wait" } });
         if (!result.events.some(event => event.side === "enemy" && ["move", "wait", "charge", "switch"].includes(event.type))) return false;
       }
-      for (const side of ["player", "enemy"]) {
-        const minimum = Math.min(...settings.team[side].map(id => state.characterMap.get(id).slot));
-        if (match.battle.teams[side][0].base.slot !== minimum) return false;
-      }
+      if (match.battle.teams.player[0].base.character_id !== ids[0]) return false;
+      const minimum = Math.min(...settings.team.enemy.map(id => state.characterMap.get(id).slot));
+      if (match.battle.teams.enemy[0].base.slot !== minimum) return false;
     }
     return before === JSON.stringify(state.characters);
   })()`), true);
@@ -1183,12 +1182,11 @@ test("saved random-opponent settings replay both parties without carrying HP or 
 });
 
 
-test("dodge outcome and defense expiry notifications are silent without hiding actions or other expiries", () => {
+test("dodge rolls and defense expiries remain silent while successful evasion is visible", () => {
   const result = JSON.parse(go.run(`(() => {
     const silent = [
       { type: "dodge-attempt", actor: "test", chance: 50, success: true },
       { type: "dodge-attempt", actor: "test", chance: 50, success: false },
-      { type: "evaded", actor: "test", move: "attack" },
       { type: "defense-expired", actor: "test", dodge: true, guard: 50 },
       ...[...state.battleEffects.values()].filter(d => geneOrderBattle.battleEffectKind(d) === "dodge" || Number(d.damage_cut) > 0)
         .flatMap(d => ["effect-expired", "field-expired"].map(type => ({ type, actor: "test", side: "player", name: d.name }))),
@@ -1285,3 +1283,7 @@ test('K-12 stays unavailable in manual and random team selection until skills ar
 test('a nonblank invalid animation reference is diagnosed rather than accepted as a draft blank',async()=>{const invalid=runtime({transforms:{'./data/skill.csv':text=>patchCsv(text,'skill_id','skill_001',{animation_id:'fixture_missing_animation'})}});await invalid.boot();assert.equal(invalid.run('state.dataDiagnostics.some(d=>d.level==="参照不一致"&&d.id==="skill_001"&&d.field==="animation_id"&&d.value==="fixture_missing_animation")'),true);assert.equal(invalid.run('state.moveAnimations.has(state.skills.get("skill_001").animation_id)'),false);});
 
 test('all zero-power CSV attacks are diagnosed and unavailable without special skill IDs',()=>{for(const issue of unconfiguredPowerIssues){const id=JSON.stringify(issue.id);assert.equal(go.run('state.dataDiagnostics.some(d=>d.level==="数値異常"&&d.id==='+id+'&&d.field==="power")'),true);const code='(()=>{const source=state.characterMap.get("character_001"),b=geneOrderBattle.createBattle({player:[{...source,skillIds:['+id+']}],enemy:[source],skills:state.skills,effects:state.effects,battleEffects:state.battleEffects,powerRules:state.powerRules,effectiveness:state.effectiveness});return geneOrderBattle.checkAction(b,"player",{type:"move",moveId:'+id+'});})()';assert.match(go.run(code),/未対応/);}});
+
+
+test('random opponents preserve an explicitly selected player lead without reordering party slots',()=>{const result=JSON.parse(go.run('(()=>{const ids=["character_016","character_015","character_019"],settings=geneOrderUI.randomOpponentSettings(state,ids,()=>.4,ids[2]),m=geneOrderUI.createMatch(state,settings);return JSON.stringify({team:settings.team.player,lead:settings.lead.player,active:m.battle.teams.player[0].base.character_id,enemyLead:settings.lead.enemy,enemySlots:settings.team.enemy.map(id=>state.characterMap.get(id).slot),enemySlot:state.characterMap.get(settings.lead.enemy).slot});})()'));assert.deepEqual(result.team,['character_016','character_015','character_019']);assert.equal(result.lead,'character_019');assert.equal(result.active,result.lead);assert.equal(result.enemySlot,Math.min(...result.enemySlots));});
+test('a removed or absent player lead falls back to the first retained party member',()=>{for(const selected of ['character_015','not_in_party',undefined]){const result=JSON.parse(go.run('JSON.stringify(geneOrderUI.randomOpponentSettings(state,["character_016","character_019","character_001"],()=>.2,'+JSON.stringify(selected)+'))'));assert.equal(result.lead.player,'character_016');}});

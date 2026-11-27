@@ -106,7 +106,9 @@ const geneOrderUI = (() => {
     return { team, lead, mode: "enemy" };
   }
 
-  function randomOpponentSettings(data, playerIds, random = aiRandom) {
+  const selectedLead = (ids, lead) => ids.includes(lead) ? lead : ids[0];
+
+  function randomOpponentSettings(data, playerIds, random = aiRandom, playerLead) {
     if (playerIds.length !== RANDOM_TEAM_SIZE) throw new Error("自分のチームを3体選択してください。");
     const roster = usableRandomRoster(data);
     if (new Set(playerIds).size !== RANDOM_TEAM_SIZE || playerIds.some(id => !roster.some(base => base.character_id === id))) {
@@ -114,7 +116,7 @@ const geneOrderUI = (() => {
     }
     const opponents = roster.filter(base => !playerIds.includes(base.character_id));
     const team = { player: [...playerIds], enemy: drawRandomTeam(opponents.length >= RANDOM_TEAM_SIZE ? opponents : roster, random) };
-    const lead = Object.fromEntries(SIDES.map(side => [side, minimumSlotLead(team[side], data)]));
+    const lead = { player: selectedLead(team.player, playerLead), enemy: minimumSlotLead(team.enemy, data) };
     return { team, lead, mode: "enemy" };
   }
 
@@ -434,7 +436,7 @@ const geneOrderUI = (() => {
             return `<div class="selected-slot is-filled"><div class="slot-name">${esc(base.name)}${leading ? "（先発）" : ""}</div>
               <div class="slot-meta">${attributes(base)} スロット ${esc(base.slot)}</div>
               <div class="setup-actions">
-                <button type="button" class="small-button ${automaticEnemy ? "is-hidden" : ""}" data-go-lead="${esc(id)}" data-go-team="${candidate}" ${leading ? "disabled" : ""}>先発にする</button>
+                <button type="button" class="small-button" data-go-lead="${esc(id)}" data-go-team="${candidate}" ${leading ? "disabled" : ""}>先発にする</button>
                 <button type="button" class="small-button" data-go-remove="${esc(id)}" data-go-team="${candidate}">外す</button>
               </div></div>`;
           }).join("") || '<div class="selected-slot">未編成</div>'}
@@ -457,14 +459,13 @@ const geneOrderUI = (() => {
         : SIDES.every((candidate) => settings.team[candidate].length && settings.lead[candidate]);
       $("startButton").disabled = !ready;
       $("go-team-notice").textContent = automaticEnemy
-        ? "自分の3体を選択してください。相手は開始時に3体をランダム編成します。先発は最小スロットです。"
+        ? "自分の3体を選択してください。相手は開始時に3体をランダム編成します。自分の先発を指定できます。相手の先発は最小スロットです。"
         : ready ? `各側 最大${limit}体（暫定）` : "両チームにキャラクターを選択してください。";
     }
 
     function updateTeam(candidate, ids) {
       settings.team[candidate] = ids;
-      if (settings.mode === "random-enemy") settings.lead[candidate] = minimumSlotLead(ids, data);
-      else if (!ids.includes(settings.lead[candidate])) settings.lead[candidate] = ids[0];
+      settings.lead[candidate] = selectedLead(ids, settings.lead[candidate]);
       renderSetup();
     }
 
@@ -687,6 +688,11 @@ const geneOrderUI = (() => {
         $("moveGrid").innerHTML = '<button class="move-button" type="button" data-go-turn>AIのターンを実行</button>';
         return;
       }
+      if (!go.checkAction(battle, candidate, { type: "skip" })) {
+        $("moveGrid").innerHTML = '<div class="command-note">使用可能な技と交代先がありません。</div>' +
+          '<button class="move-button" type="button" data-go-skip>行動不可（ターンを進める）</button>';
+        return;
+      }
       const moveIds = [...new Set(go.battleSkills(actor))].filter((id) => id !== DODGE);
       const expanded = moveIds.includes(expandedMoveId) ? data.skills.get(expandedMoveId) : null;
       if (expanded) {
@@ -730,7 +736,7 @@ const geneOrderUI = (() => {
     function start({ random = false, replay = false } = {}) {
       try {
         const next = replay ? lastMatchSettings : settings.mode === "random-enemy"
-          ? randomOpponentSettings(data, settings.team.player) : settings;
+          ? randomOpponentSettings(data, settings.team.player, aiRandom, settings.lead.player) : settings;
         match = createMatch(data, next, { limit });
         lastMatchSettings = { mode: next.mode, team: { player: [...next.team.player], enemy: [...next.team.enemy] }, lead: { ...next.lead } };
         if (!replay) randomOpponent = settings.mode === "random-enemy";
@@ -923,7 +929,7 @@ const geneOrderUI = (() => {
       const control = event.target.closest("button");
       if (!control || control.disabled) return;
       const command = control.dataset;
-      const battleAction = ["goMove", "goOpenMove", "goSwitch", "goTurn", "goReplay", "goRandomBattle", "goRerollOpponent"].some((key) => Object.hasOwn(command, key));
+      const battleAction = ["goMove", "goOpenMove", "goSwitch", "goSkip", "goTurn", "goReplay", "goRandomBattle", "goRerollOpponent"].some((key) => Object.hasOwn(command, key));
       // Opening and confirming a move are separate steps, even within a double-click.
       // choose() clears expandedMoveId on acceptance; resolving phases still reject actions.
       const moveCardStep = command.goOpenMove || (command.goMove && command.goMove === expandedMoveId);
@@ -990,7 +996,7 @@ const geneOrderUI = (() => {
       } else if (control.id === "battleModeButton") {
         settings.mode = "random-enemy";
         side = "player";
-        settings.lead.player = minimumSlotLead(settings.team.player, data);
+        settings.lead.player = selectedLead(settings.team.player, settings.lead.player);
         showPage("setup");
       } else if (control.id === "startButton" || Object.hasOwn(command, "goReplay")) {
         start({ random: Object.hasOwn(command, "goReplay") && randomBattle, replay: Object.hasOwn(command, "goReplay") });
@@ -1006,6 +1012,8 @@ const geneOrderUI = (() => {
         else choose({ type: "switch", index });
       } else if (command.goMove) {
         choose({ type: "move", moveId: command.goMove });
+      } else if (Object.hasOwn(command, "goSkip")) {
+        choose({ type: "skip" });
       } else if (Object.hasOwn(command, "goTurn")) {
         choose({ type: "wait" });
       }
@@ -1024,7 +1032,7 @@ const geneOrderUI = (() => {
     });
     $("go-official-mode").addEventListener("change", (event) => {
       settings.mode = event.target.value;
-      if (settings.mode === "random-enemy") settings.lead.player = minimumSlotLead(settings.team.player, data);
+      if (settings.mode === "random-enemy") settings.lead.player = selectedLead(settings.team.player, settings.lead.player);
       renderSetup();
     });
     setPage("title");
