@@ -92,3 +92,4 @@ element_resistance_down_light,光属性耐性低下,element_resistance_down,mult
 element_resistance_down_dark,闇属性耐性低下,element_resistance_down,multiplier,2,3,TRUE,element_resistance,{target}の闇属性耐性が低下した！,,,,,dark,0.5,4
 element_resistance_down_none,無属性耐性低下,element_resistance_down,multiplier,2,3,TRUE,element_resistance,{target}の無属性耐性が低下した！,,,,,none,0.5,4
 transform,へんしん,transform,none,0,0,TRUE,none,{user}は{target}にへんしんした！,,,,,,,
+swap_defenses,防御交換,stat_exchange,none,0,0,TRUE,phy_def|sp_def,{target}の物理防御・特殊防御が、もう一方の実効値になった！,,,,,,,

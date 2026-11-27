@@ -1,0 +1,11 @@
+form_id,character_id,name,trigger_type,trigger_value,hp,pa,pd,sa,sd,sp,regen_value,evasion_percent,cost_charge,image_id,hp_change_mode,once_per_battle,persist_on_switch
+copen_true,character_040,真の姿,hp_threshold,50,229,143,88,88,138,89,25,50,2,character_040_true.png,add_max_hp_difference,TRUE,TRUE
+quantum_none,character_043,無属性,element_change,none,,,,,,,,,,character_043.png,,,
+quantum_fire,character_043,火属性,element_change,fire,,,,,,,,,,character_043_fire.png,,,
+quantum_water,character_043,水属性,element_change,water,,,,,,,,,,character_043_water.png,,,
+quantum_thunder,character_043,雷属性,element_change,thunder,,,,,,,,,,character_043_thunder.png,,,
+quantum_ice,character_043,氷属性,element_change,ice,,,,,,,,,,character_043_ice.png,,,
+quantum_wind,character_043,風属性,element_change,wind,,,,,,,,,,character_043_wind.png,,,
+quantum_earth,character_043,地属性,element_change,earth,,,,,,,,,,character_043_earth.png,,,
+quantum_light,character_043,光属性,element_change,light,,,,,,,,,,character_043_light.png,,,
+quantum_dark,character_043,闇属性,element_change,dark,,,,,,,,,,character_043_dark.png,,,

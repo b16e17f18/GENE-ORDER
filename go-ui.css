@@ -25,7 +25,8 @@
 #go-app .go-missing-image { display: grid; place-items: center; min-height: 72px; padding: 8px; text-align: center; }
 #go-app .move-grid > .command-note, #go-app .switch-grid > .command-note { grid-column: 1 / -1; }
 #go-app .card-name, #go-app .move-name, #go-app .move-text { overflow-wrap: anywhere; }
-#go-app .battle-view .enemy-hud .hp-value { display: block; }
+#go-app .battle-view .enemy-hud .hp-value,
+#go-app .battle-view .go-en-value { display: none; }
 #go-app .battle-view .energy-line { grid-template-columns: auto minmax(0, 1fr); }
 #go-app .battle-view .energy-line .hud-value { background: #fff; border: 1px solid #111; color: #111; padding: 1px 4px; }
 #go-app .battle-view .battle-info-chips { overflow-wrap: anywhere; white-space: normal; }

@@ -9508,6 +9508,7 @@ function describeGeneOrderEvent(event) {
     heal: (e) => `${e.actor}の${e.source === "natural" ? "自然回復で" : ""}HP +${e.recovered}`,
     "effect-energy": (e) => e.actor + "のEN " + (e.recovered < 0 ? "−" : "+") + Math.abs(e.recovered) + "（技効果）",
     "en-drain": (e) => e.user + "は" + e.actor + "のENを" + e.lost + "吸収（自身のEN +" + e.recovered + "）",
+    "stat-exchanged": e => e.actor + "の" + e.stats.map(stat => statLabels[stat]).join("・") + "が、" + e.source + "の実効値になった！",
     transformed: e => `${e.actor}は${e.target}にへんしんした！`,
     "transform-failed": e => `${e.actor}のへんしんは失敗した（${e.reason}）`,
     "transform-ended": e => `${e.actor}のへんしんが解除された`,
