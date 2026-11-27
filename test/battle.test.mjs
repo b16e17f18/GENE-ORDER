@@ -703,7 +703,7 @@ test("natural recovery preview and AI use regen without mutating state or rescui
   assert.equal(result.events.filter((event) => event.source === "natural").length, 2);
 });
 
-test("AI values natural recovery when choosing healing or waiting", () => {
+test("AI values natural recovery among legal non-wait actions", () => {
   const heal = statusMove({ skill_id: "heal", effect1: "bf_heal_half", effect_target1: "self", effect_chance1: 100 });
   const scores = (regen_value) => {
     const match = battle({ ...assets, skills: [strike, heal], player: [character({ regen_value, skillIds: ["strike", "heal"] })],
@@ -713,12 +713,15 @@ test("AI values natural recovery when choosing healing or waiting", () => {
     return {
       heal: candidates.find((entry) => entry.move?.skill_id === "heal").score,
       attack: candidates.find((entry) => entry.move?.skill_id === "strike").score,
-      wait: candidates.find((entry) => entry.action.type === "wait").score,
+      endHp: candidates.find((entry) => entry.move?.skill_id === "strike").forecast.actorEndHp,
+      hasWait: candidates.some((entry) => entry.action.type === "wait"),
     };
   };
   const none = scores(0);
   const high = scores(120);
-  assert.ok(high.wait > none.wait);
+  assert.equal(none.hasWait, false);
+  assert.equal(high.hasWait, false);
+  assert.ok(high.endHp > none.endHp);
   assert.ok(high.heal - high.attack < none.heal - none.attack);
 });
 
@@ -2835,7 +2838,7 @@ test("GO AI seeded tournaments and v0.42 long-match replay", (t) => {
     { name: "v0.42 replay", seeds: CAP_SEEDS_042 },
     { name: "Profiles", scenarios: AI_TYPES.flatMap((profile) => Array.from({ length: 32 }, (_, index) => ({ seed: 52000 + index, profile }))) },
   ];
-  const empty = () => ({ attack: 0, status: 0, dodge: 0, wait: 0, switch: 0 });
+  const empty = () => ({ attack: 0, status: 0, dodge: 0, wait: 0, skip: 0, switch: 0 });
   for (const group of groups) {
     const scenarios = group.scenarios ?? group.seeds.map((seed) => ({ seed, profile: "balanced" }));
     const summary = { name: group.name, games: scenarios.length, finished: 0, errors: 0, illegal: 0, capped: 0, turns: 0,
@@ -2870,6 +2873,8 @@ test("GO AI seeded tournaments and v0.42 long-match replay", (t) => {
             }
             const result = ai.choose(ai.observe(match, side, { history, previousSwitch: previous[side] }), { random: randomAi[side] });
             assert.ok(result.candidates.every((entry) => Number.isFinite(entry.score)));
+            assert.ok(result.candidates.every((entry) => entry.action.type !== "wait"));
+            assert.notEqual(result.action.type, "wait");
             return result.action;
           };
           const actions = Object.fromEntries(sides.map((side) => [side, choose(side)]));

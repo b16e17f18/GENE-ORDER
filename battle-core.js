@@ -1214,6 +1214,7 @@ const geneOrderBattle = (() => {
     const fighter = activeFighter(battle, side);
     if (battle.pendingSwitch) return "交代先の選択待ちです。";
     if (battle.winner || !fighter || fighter.fainted) return "行動できません。";
+    if (action?.type === "skip") return legalActions(battle, side).length ? "選択可能な行動があるためスキップできません。" : "";
     if (fighter.pending && (action?.type !== "move" || action.moveId !== fighter.pending.moveId)) return "溜め技の予約行動が優先されます。";
     if (action?.type === "wait") return "";
     if (action?.type === "switch") {
@@ -1244,6 +1245,16 @@ const geneOrderBattle = (() => {
       return "交代先に指定できません。";
     }
     return "";
+  }
+
+  // Player and AI share this list; voluntary waiting is deliberately not included.
+  function legalActions(battle, side) {
+    const fighter = activeFighter(battle, side);
+    if (battle.winner || battle.pendingSwitch || !fighter || fighter.fainted) return [];
+    const ids = fighter.pending ? [fighter.pending.moveId] : [...new Set([...battleSkills(fighter), COMMON_MOVE_ID])];
+    return ids.map(moveId => ({ type: "move", moveId }))
+      .concat(switchTargets(battle, side).map(index => ({ type: "switch", index })))
+      .filter(action => !checkAction(battle, side, action));
   }
 
   function switchTargets(battle, side) {
@@ -1534,7 +1545,7 @@ const geneOrderBattle = (() => {
     }
     for (const side of SIDES) geneOrderPassives.recordLowestHp(activeFighter(battle, side));
     const actions = orderActions(battle, selected);
-    if (actions[0].priority === actions[1].priority && actions[0].action.type !== "wait" && actions[1].action.type !== "wait") {
+    if (actions[0].priority === actions[1].priority && !["wait", "skip"].includes(actions[0].action.type) && !["wait", "skip"].includes(actions[1].action.type)) {
       for (const { actor, side, speedPassives } of actions) {
         for (const effect of speedPassives) {
           geneOrderPassives.activate(actor, side, effect, state.events, { stat: "speed", multiplier: effect.value });
@@ -1571,6 +1582,10 @@ const geneOrderBattle = (() => {
       const other = opposingSide(side);
       if (action.type === "switch") {
         switchFighter(battle, side, action.index, "normal", events);
+        continue;
+      }
+      if (action.type === "skip") {
+        events.push({ type: "forced-skip", side, actor: actor.base.name });
         continue;
       }
       if (action.type === "wait") {
@@ -1785,7 +1800,7 @@ const geneOrderBattle = (() => {
     }
   }
 
-  return { exchangeStatTargets, statExchangeSnapshot, previewStatExchange, formProfile, appearanceForm, currentFormId, cloneFighter, checkFormChange, clearForm, applyHPDamage, postMoveSwitchApplies, battleBase, battlePassive, battleSkills, battleAppearance, transformedFighter, previewTransform, transformFailure, clearTransform, fieldEffectsForSide, installField, clearFields, START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, stageDelta, statValue, effectiveStat, changeEnergy,
+  return { exchangeStatTargets, statExchangeSnapshot, previewStatExchange, formProfile, appearanceForm, currentFormId, cloneFighter, checkFormChange, clearForm, applyHPDamage, postMoveSwitchApplies, battleBase, battlePassive, battleSkills, battleAppearance, transformedFighter, previewTransform, transformFailure, clearTransform, legalActions, fieldEffectsForSide, installField, clearFields, START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, stageDelta, statValue, effectiveStat, changeEnergy,
     isFieldKind, fieldDestination, fieldClearable, fieldPowerMultiplier, elementResistanceMultiplier, effectivePriority, priorityDetails, currentElements, attackElementChange, moveElements, moveHasElement, moveWeaknessMultiplier, sameElementBonusForMove, calculateDamage, effectivenessFor, previewDamage, previewRelease, previewSwitch, moveEffects, moveEffectsWithPassive, decoyValues, residualDamage,
     naturalRecovery, previewTurnEndRecovery, statusStatMultiplier, actionFailureChance, effectiveEnergyCharge, effectiveMoveCost,
     guardApplies, activeTimed, effectiveSpeed, evasionRate, moveAvailability, unsupportedMoveReason, validAttackStat, effectKind, battleEffectKind, createBattle, activeFighter, switchTargets, checkAction, resolveTurn, continueSwitch };

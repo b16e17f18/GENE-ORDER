@@ -9464,7 +9464,7 @@ function escapeHtml(value) {
 
 function describeGeneOrderEvent(event) {
   // These events still update battle state; only their notifications are omitted.
-  if (["dodge-attempt", "evaded", "defense-expired"].includes(event.type)) return "";
+  if (["dodge-attempt", "defense-expired"].includes(event.type)) return "";
   if (["effect-expired", "field-expired"].includes(event.type)) {
     const quietDefense = [...state.battleEffects.values()].some(definition => definition.name === event.name &&
       (geneOrderBattle.battleEffectKind(definition) === "dodge" || Number(definition.damage_cut) > 0));
@@ -9503,8 +9503,9 @@ function describeGeneOrderEvent(event) {
     reflected: (e) => `${e.actor}は${e.target}に${e.damage}ダメージを反射`,
     revenge: (e) => `${e.actor}は${e.target}に${e.damage}ダメージの反撃`,
     recoil: (e) => `${e.actor}は反動で${e.damage}ダメージ`,
+    "forced-skip": (e) => `${e.actor}は使用可能な技と交代先がないため、このターンは行動できない。`,
     "dodge-attempt": (e) => `${e.actor}の回避判定（${e.chance}%）${e.success ? "成功：回避状態" : "失敗"}`,
-    evaded: (e) => `${e.actor}は${e.move}を回避した`,
+    evaded: (e) => `${e.actor}は攻撃を回避した！`,
     "half-guard": (e) => `${e.actor}は被ダメージ半減状態になった`,
     "defense-expired": (e) => `${e.actor}の${[e.dodge && "回避状態", e.guard && "半減防御"].filter(Boolean).join("・")}が終了した`,
     stage: (e) => e.delta === 0 ? `${e.actor}の${statLabels[e.stat]}ランクは変化しなかった`

@@ -1626,6 +1626,13 @@ const geneOrderAI = (() => {
       } };
   }
 
+  function withForcedSkip(board, candidates) {
+    if (!candidates.length && !geneOrderBattle.checkAction(board, board.side, { type: "skip" })) {
+      candidates.push({ action: { type: "skip" }, score: 0, label: "行動不可", reason: "選択可能な技と交代先がない" });
+    }
+    return candidates;
+  }
+
   function evaluate(board) {
     if (board.winner || board.awaitingOther) return [];
     const go = geneOrderBattle;
@@ -1642,28 +1649,10 @@ const geneOrderAI = (() => {
     const preferences = { turn: board.turn, allMoves,
       aiSetupSkill: validPreference(actor.base.ai_setup_skill), aiMainSkill: validPreference(actor.base.ai_main_skill) };
     const candidates = moves.map((move) => applyEnemySkillPreference(scoreMove(ctx, move), preferences, actor, config));
-    if (actor.pending) return candidates;
+    if (actor.pending) return withForcedSkip(board, candidates);
     const indices = go.switchTargets(board, side).filter((index) => !go.checkAction(board, side, { type: "switch", index }));
     candidates.push(...rankSwitches(ctx, "normal", indices));
-    if (!go.checkAction(board, side, { type: "wait" })) {
-      const nextEN = Math.min(go.MAX_ENERGY, actor.energy + go.effectiveEnergyCharge(actor, board.turn));
-      const index = board.active[side];
-      const team = board.teams[side].slice();
-      team[index] = { ...actor, energy: nextEN };
-      const next = { ...board, turn: board.turn + 1, teams: { ...board.teams, [side]: team } };
-      const future = allMoves.filter((move) => move.category === "attack" && go.effectiveMoveCost(actor, move, board.turn) > actor.energy && go.effectiveMoveCost(actor, move, board.turn + 1) <= nextEN)
-        .map((move) => go.previewDamage(next, side, move)).filter((result) => result.actorHp > 0);
-      const gain = Math.max(0, ...future.map((result) => result.actualDamage)) - position.best;
-      const upkeep = geneOrderPassives.matching(actor, "turn-end").reduce((sum, effect) =>
-        sum + go.stageDelta(actor, effect.stat, effect.value), 0);
-      const score = (nextEN > actor.energy ? config.WAIT_BASE : -config.WAITING_PENALTY) +
-        (gain >= config.MIN_FUTURE_GAIN ? Math.max(0, gain - config.WAITING_PENALTY) : 0) +
-        upkeep * config.STAGE_WEIGHT / 3 - position.danger * config.SUPPORT_RISK +
-        go.previewTurnEndRecovery(actor, actor.hp, { fields: go.fieldEffectsForSide(board, side).values(), turn: board.turn }).recovered * (config.HEAL_BASE_WEIGHT +
-          (1 - actor.hp / actor.maxHp) * config.HEAL_MISSING_HP_WEIGHT) * enemyAiTypeMultiplier(config, "HEAL_SCORE_MULTIPLIER");
-      candidates.push({ action: { type: "wait" }, score, label: "待機", reason: gain > 0 ? "EN温存" : "行動保留" });
-    }
-    return candidates;
+    return withForcedSkip(board, candidates);
   }
 
   function choose(board, { random = Math.random } = {}) {
