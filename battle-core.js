@@ -176,20 +176,33 @@ const geneOrderBattle = (() => {
       [stat, statValue(fighter, stat, { opponent: fighters[1 - index] })])));
   }
 
-  // Each slot copies to its own recipient, always using the same pre-effects source values.
-  function previewStatExchange(actor, defender, definition, target = "enemy", snapshot = statExchangeSnapshot(actor, defender)) {
+  // Assign an effective value without moving ranks, statuses or passive definitions.
+  function previewStatAssignment(actor, defender, definition, target, snapshot, sourceValue) {
     if (!["self", "enemy"].includes(target)) throw new Error("能力交換の対象はselfまたはenemyです。");
     const stats = exchangeStatTargets(definition);
     const fighters = [actor, defender], recipient = target === "self" ? 0 : 1;
     const projected = fighters.map((fighter, index) => index !== recipient ? fighter : ({ ...fighter,
       statExchange: { ...fighter.statExchange, ...Object.fromEntries(stats.map(stat => [stat, {
-        value: snapshot[1 - index][stat],
+        value: sourceValue(index, stat),
         reference: effectiveStat(fighter, stat, { opponent: fighters[1 - index], ignoreExchange: true }).value,
       }])) },
     }));
     const after = projected.map((fighter, index) => Object.fromEntries(stats.map(stat =>
       [stat, statValue(fighter, stat, { opponent: projected[1 - index] })])));
     return { actor: projected[0], defender: projected[1], stats, before: snapshot, after };
+  }
+
+  // Copy the same stats from the other individual (legacy stat_exchange).
+  function previewStatExchange(actor, defender, definition, target = "enemy", snapshot = statExchangeSnapshot(actor, defender)) {
+    return previewStatAssignment(actor, defender, definition, target, snapshot, (index, stat) => snapshot[1 - index][stat]);
+  }
+
+  // Swap two stats within the selected individual; never read the other individual's values.
+  function previewStatSwap(actor, defender, definition, target = "enemy", snapshot = statExchangeSnapshot(actor, defender)) {
+    const stats = exchangeStatTargets(definition);
+    if (stats.length !== 2) throw new Error("個体内の能力入替には異なる2能力を指定してください。");
+    const otherStat = new Map([[stats[0], stats[1]], [stats[1], stats[0]]]);
+    return previewStatAssignment(actor, defender, definition, target, snapshot, (index, stat) => snapshot[index][otherStat.get(stat)]);
   }
 
   function effectiveStat(fighter, stat, { opponent, fieldMultiplier = 1, ignoreExchange = false } = {}) {
@@ -437,6 +450,8 @@ const geneOrderBattle = (() => {
     if (effect.effect_group === "evasion" && effect.damage_type === "multiplier" &&
       effect.target_stat === "evasion_percent" && value >= 0 && lasting &&
       Number.isSafeInteger(delay) && delay >= 0) return "evasion-boost";
+    if (effect.effect_group === "stat_swap" && effect.damage_type === "none" && value === 0 &&
+      Number(effect.turn) === 0 && exchangeStatTargets(effect).length === 2) return "stat-swap";
     if (effect.effect_group === "stat_exchange" && effect.damage_type === "none" && value === 0 &&
       Number(effect.turn) === 0 && exchangeStatTargets(effect).length) return "stat-exchange";
     if (effect.effect_group === "transform" && effect.damage_type === "none" && Number(effect.turn) === 0) return "transform";
@@ -596,7 +611,7 @@ const geneOrderBattle = (() => {
       if (kind) supportedParts++;
       else issues.push(id);
       if (kind === "transform" && (!["status", "attack"].includes(move.category) || target !== "enemy")) issues.push("変身効果の対象は相手のみ");
-      if (kind === "stat-exchange" && (move.category !== "status" || !["self", "enemy"].includes(target))) issues.push("能力交換はselfまたはenemy対象の変化技のみ");
+      if (["stat-exchange", "stat-swap"].includes(kind) && (move.category !== "status" || !["self", "enemy"].includes(target))) issues.push("能力交換はselfまたはenemy対象の変化技のみ");
       if (kind === "bind-damage" && target !== "enemy") issues.push("締め付けの対象は相手のみ");
     }
     for (const slot of slots) {
@@ -936,7 +951,7 @@ const geneOrderBattle = (() => {
 
   function applyMoveEffects(battle, side, actor, defender, move, actualDamage, blocked, events, phase) {
     const slots = moveEffectsWithPassive(actor, move);
-    const exchangeSnapshot = slots.some(slot => slot.table === "effects" && slot.chance > 0 && effectKind(battle.effects.get(slot.id)) === "stat-exchange")
+    const exchangeSnapshot = slots.some(slot => slot.table === "effects" && slot.chance > 0 && ["stat-exchange", "stat-swap"].includes(effectKind(battle.effects.get(slot.id))))
       ? statExchangeSnapshot(actor, defender) : null;
     const statusBlock = geneOrderPassives.statusMoveBlock(defender, actor, move);
     let blockedStatus = false;
@@ -1001,11 +1016,12 @@ const geneOrderBattle = (() => {
         continue;
       }
       const value = effect.damage_value;
-      if (kind === "stat-exchange") {
-        const projected = previewStatExchange(actor, defender, effect, target, exchangeSnapshot);
+      if (["stat-exchange", "stat-swap"].includes(kind)) {
+        const preview = kind === "stat-swap" ? previewStatSwap : previewStatExchange;
+        const projected = preview(actor, defender, effect, target, exchangeSnapshot);
         if (recipient === actor) actor.statExchange = projected.actor.statExchange;
         else defender.statExchange = projected.defender.statExchange;
-        events.push({ ...event, type: "stat-exchanged", source: recipient === actor ? defender.base.name : actor.base.name,
+        events.push({ ...event, type: kind === "stat-swap" ? "stat-swapped" : "stat-exchanged", source: kind === "stat-swap" ? recipient.base.name : recipient === actor ? defender.base.name : actor.base.name,
           stats: projected.stats, before: projected.before, after: projected.after, target, effect: id });
       } else if (kind === "transform") {
         const reason = transformFailure(battle, side, move);
@@ -1785,7 +1801,7 @@ const geneOrderBattle = (() => {
     }
   }
 
-  return { exchangeStatTargets, statExchangeSnapshot, previewStatExchange, formProfile, appearanceForm, currentFormId, cloneFighter, checkFormChange, clearForm, applyHPDamage, postMoveSwitchApplies, battleBase, battlePassive, battleSkills, battleAppearance, transformedFighter, previewTransform, transformFailure, clearTransform, fieldEffectsForSide, installField, clearFields, START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, stageDelta, statValue, effectiveStat, changeEnergy,
+  return { exchangeStatTargets, statExchangeSnapshot, previewStatExchange, previewStatSwap, formProfile, appearanceForm, currentFormId, cloneFighter, checkFormChange, clearForm, applyHPDamage, postMoveSwitchApplies, battleBase, battlePassive, battleSkills, battleAppearance, transformedFighter, previewTransform, transformFailure, clearTransform, fieldEffectsForSide, installField, clearFields, START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, stageDelta, statValue, effectiveStat, changeEnergy,
     isFieldKind, fieldDestination, fieldClearable, fieldPowerMultiplier, elementResistanceMultiplier, effectivePriority, priorityDetails, currentElements, attackElementChange, moveElements, moveHasElement, moveWeaknessMultiplier, sameElementBonusForMove, calculateDamage, effectivenessFor, previewDamage, previewRelease, previewSwitch, moveEffects, moveEffectsWithPassive, decoyValues, residualDamage,
     naturalRecovery, previewTurnEndRecovery, statusStatMultiplier, actionFailureChance, effectiveEnergyCharge, effectiveMoveCost,
     guardApplies, activeTimed, effectiveSpeed, evasionRate, moveAvailability, unsupportedMoveReason, validAttackStat, effectKind, battleEffectKind, createBattle, activeFighter, switchTargets, checkAction, resolveTurn, continueSwitch };

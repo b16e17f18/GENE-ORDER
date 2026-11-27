@@ -115,7 +115,7 @@ skill_112,堕天使の輪,status,0,闇,none,none,normal,sleep,enemy,100,poison,e
 skill_113,帯電鎌爪,attack,140,雷,none,physical,normal,paralysis,enemy,100,bf_sd_up1,self,100,none,enemy,0,charge_attack,100,none,0,enemy,1,2,優先度+1。1ターン目にSDが1段階上がり、2ターン目に攻撃する。相手を麻痺にする。,,,,,,,,,,
 skill_114,放電網,attack,50,雷,none,special,normal,bf_sp_down1,enemy,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,1,相手のSPを1段階下げる。,,,,,,,,,,
 skill_115,七変化,status,0,闇,none,none,normal,transform,enemy,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,2,相手とHP以外同じ能力になる。,,,,,,,,,,
-skill_116,聖界次元,status,0,光,none,none,normal,swap_defenses,enemy,100,swap_defenses,self,100,none,enemy,0,none,0,none,0,enemy,1,0,優先度+1。相手と自分はPDとSDが入れ替える。,,,,,,,,,,
+skill_116,聖界次元,status,0,光,none,none,normal,swap_defense_stats,enemy,100,swap_defense_stats,self,100,none,enemy,0,none,0,none,0,enemy,1,0,優先度+1。自分と相手それぞれのPDとSDを入れ替える。,,,,,,,,,,
 skill_117,地縛念,attack,60,地,none,special,normal,bf_sa_up1,self,100,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,1,攻撃後、SAが1段階上がる。,,,,,,,,,,
 skill_118,大放電,attack,90,雷,none,special,ignore_dodge,none,enemy,0,none,enemy,0,none,enemy,0,none,0,none,0,enemy,0,2,回避不可。,,,,,,,,,,
 skill_119,硬質化,status,0,無,none,none,normal,bf_pd_up2,self,100,none,enemy,0,none,enemy,0,none,0,none,0,self,0,0,PDが1段階上がる。,,,,,,,,,,

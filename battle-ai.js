@@ -1393,10 +1393,11 @@ const geneOrderAI = (() => {
       const recipient = self ? actor : target;
       if (!self && move.category === "status" && (positionBlock || (statusBlock && kind !== "clear-field" && !go.isFieldKind(kind)))) continue;
       let value = 0;
-      if (kind === "stat-exchange") {
-        if (target.fainted || target.hp <= 0) continue;
+      if (["stat-exchange", "stat-swap"].includes(kind)) {
+        if (kind === "stat-exchange" && (target.fainted || target.hp <= 0)) continue;
         exchangeSnapshot ??= go.statExchangeSnapshot(actor, target);
-        const exchange = go.previewStatExchange(go.activeFighter(exchangeBoard, side), go.activeFighter(exchangeBoard, other), effect, destination, exchangeSnapshot);
+        const preview = kind === "stat-swap" ? go.previewStatSwap : go.previewStatExchange;
+        const exchange = preview(go.activeFighter(exchangeBoard, side), go.activeFighter(exchangeBoard, other), effect, destination, exchangeSnapshot);
         const teams = { ...exchangeBoard.teams, [side]: exchangeBoard.teams[side].slice(), [other]: exchangeBoard.teams[other].slice() };
         teams[side][exchangeBoard.active[side]] = exchange.actor;
         teams[other][exchangeBoard.active[other]] = exchange.defender;

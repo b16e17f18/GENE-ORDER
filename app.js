@@ -9514,6 +9514,7 @@ function describeGeneOrderEvent(event) {
     "en-drain": (e) => e.user + "は" + e.actor + "のENを" + e.lost + "吸収（自身のEN +" + e.recovered + "）",
     "form-changed": e => e.actor + "は" + e.name + "になった！",
     "form-ended": e => e.actor + "は通常フォルムに戻った",
+    "stat-swapped": e => e.actor + "の" + e.stats.map(stat => statLabels[stat]).join("と") + "が入れ替わった！",
     "stat-exchanged": e => e.actor + "の" + e.stats.map(stat => statLabels[stat]).join("・") + "が、" + e.source + "の実効値になった！",
     transformed: e => `${e.actor}は${e.target}にへんしんした！`,
     "transform-failed": e => `${e.actor}のへんしんは失敗した（${e.reason}）`,
