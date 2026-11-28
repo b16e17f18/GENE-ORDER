@@ -3954,11 +3954,20 @@ async function loadGameData() {
 
   const elementNames = masterIdLookup(tables.elements, "element_id");
   const speciesNames = masterIdLookup(tables.species, "species_id");
-  const imageAvailability = new Map(await Promise.all(
-    [...new Set([...tables.characters.filter((row) => row.name).map((row) => characterImagePath(row.image)), ...tables.forms.map(row=>characterImagePath(row.image_id))].filter(Boolean))]
-      .map(async (path) => [path, await canLoadCharacterImage(path)]),
+  const imageChecks = new Map();
+  const checkImage = path => {
+    if (!imageChecks.has(path)) imageChecks.set(path, canLoadCharacterImage(path));
+    return imageChecks.get(path);
+  };
+  const imageSources = new Map(await Promise.all(
+    [...new Set([...tables.characters.filter(row => row.name).map(row => row.image), ...tables.forms.map(row => row.image_id)])]
+      .map(async name => {
+        const staticPath = characterImagePath(name?.replace(/\.gif$/i, ".png"));
+        const [staticExists, battleSrc] = await Promise.all([staticPath ? checkImage(staticPath) : false, resolveCharacterImage(name, checkImage)]);
+        return [characterImagePath(name), { imageSrc: staticExists ? staticPath : "", battleImageSrc: battleSrc }];
+      }),
   ));
-  const diagnostics = validateGeneOrderData(tables, (path) => imageAvailability.get(path) === true);
+  const diagnostics = validateGeneOrderData(tables, path => Boolean(imageSources.get(path)?.imageSrc));
   const characters = tables.characters.filter((row) => row.character_id && row.name).map((row) => (
     normalizeCharacter(row, elementNames, speciesNames)
   ));
@@ -3968,6 +3977,7 @@ async function loadGameData() {
     throw new Error("./data/passive_type.csv: " + passiveTypes.issues.map((issue) => issue.id + " " + issue.field).join(" / "));
   }
   const forms = new Map(tables.forms.map(geneOrderFormData.normalize).map(row=>[row.form_id,row]));
+  for (const form of forms.values()) Object.assign(form, imageSources.get(form.imageSrc));
   const passiveFields = new Map([...tables.battleEffects.map(d => [d.battle_effect_id, d]), ...forms]);
   const passives = new Map(tables.passives.filter((row) => row.passive_id && row.name).map((row) => (
     [row.passive_id, geneOrderPassives.normalize(row, elementNames, statusIds, passiveTypes, passiveFields)]
@@ -3976,7 +3986,7 @@ async function loadGameData() {
     character.forms = [...forms.values()].filter(row=>row.character_id===character.character_id);
     character.passive = passives.get(character.passive_id) ?? null;
     character.passiveEffects = character.passive?.effects ?? [];
-    if (!imageAvailability.get(character.imageSrc)) character.imageSrc = "";
+    Object.assign(character, imageSources.get(character.imageSrc));
   }
 
   const powerRules = new Map();
@@ -9479,7 +9489,10 @@ function describeGeneOrderEvent(event) {
   const sideName = (side) => side === "shared" ? "共通フィールド" : side === "player" ? "自分側" : "相手側";
   const describe = {
     passive: (event) => {
-      const detail = event.toElements ? '（属性：' + event.toElements.map(id => state.elements?.get(id)?.name ?? id).join('・') + '）' :
+      const detail = event.requestedDelta != null ? "（" + statLabels[event.stat] + "：変動" +
+        (event.requestedDelta > 0 ? "+" : "") + event.requestedDelta + " → " + (event.effectiveDelta > 0 ? "+" : "") + event.effectiveDelta +
+        "、適用" + (event.delta > 0 ? "+" : "") + event.delta + "、現在" + (event.stage > 0 ? "+" : "") + event.stage + "）" :
+        event.toElements ? '（属性：' + event.toElements.map(id => state.elements?.get(id)?.name ?? id).join('・') + '）' :
         event.priorityDelta != null ? '（優先度' + (event.priorityDelta >= 0 ? "+" : "") + event.priorityDelta + " → " + event.priority + "）" :
         event.multiplier ? '（' + (statLabels[event.stat] ?? "被ダメージ") + ' ×' + event.multiplier + '）' :
         event.damage ? '（HP −' + event.damage + '）' : '';
@@ -9511,6 +9524,9 @@ function describeGeneOrderEvent(event) {
     evaded: (e) => `${e.actor}は攻撃を回避した！`,
     "half-guard": (e) => `${e.actor}は被ダメージ半減状態になった`,
     "defense-expired": (e) => `${e.actor}の${[e.dodge && "回避状態", e.guard && "半減防御"].filter(Boolean).join("・")}が終了した`,
+    "stage-inverted": e => e.changes.length ? e.actor + "の能力ランクの正負が反転した！（" +
+      e.changes.map(c => statLabels[c.stat] + " " + (c.before > 0 ? "+" : "") + c.before + " → " + (c.stage > 0 ? "+" : "") + c.stage).join("、") + "）" :
+      e.actor + "の能力ランクはすべて0のため変化しなかった。",
     stage: (e) => e.delta === 0 ? `${e.actor}の${statLabels[e.stat]}ランクは変化しなかった`
       : `${e.actor}の${statLabels[e.stat]} ${e.delta > 0 ? "+" : ""}${e.delta}${e.stage ? `（現在 ${e.stage}）` : ""}`,
     heal: (e) => `${e.actor}の${e.source === "natural" ? "自然回復で" : ""}HP +${e.recovered}`,

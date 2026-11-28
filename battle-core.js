@@ -27,21 +27,48 @@ const geneOrderBattle = (() => {
     fighter.stages = Object.fromEntries(STATS.map((stat) => [stat, 0]));
   }
 
-  function stageDelta(fighter, stat, delta) {
+  // Direct assignments intentionally bypass change-trigger passives and debuff immunity.
+  function setStage(fighter, stat, value) {
+    if (!STATS.includes(stat) || !Number.isInteger(value)) throw new Error("無効な能力ランク設定です。");
+    const before = fighter.stages[stat];
+    fighter.stages[stat] = value === 0 ? 0 : Math.max(MIN_STAGE, Math.min(MAX_STAGE, value));
+    return fighter.stages[stat] - before;
+  }
+
+  function previewStageInversion(fighter) {
+    const projected = { ...fighter, stages: { ...fighter.stages } }, changes = [];
+    for (const stat of STATS) {
+      const before = fighter.stages[stat];
+      if (before === 0) continue;
+      setStage(projected, stat, -before);
+      changes.push({ stat, before, stage: projected.stages[stat], delta: projected.stages[stat] - before });
+    }
+    return { fighter: projected, changes };
+  }
+
+  function previewStageChange(fighter, stat, delta, { source } = {}) {
     if (!STATS.includes(stat) || !Number.isInteger(delta)) throw new Error("無効な能力ランク変更です。");
     const before = fighter.stages[stat];
-    return Math.max(MIN_STAGE, Math.min(MAX_STAGE, before + delta)) - before;
+    const inversion = delta !== 0 && !fighter.fainted
+      ? geneOrderPassives.first(fighter, "before-stage-change") : null;
+    const effectiveDelta = inversion ? -delta : delta;
+    const blocked = geneOrderPassives.blocksStage(fighter, stat, effectiveDelta, source);
+    const stage = blocked ? before : Math.max(MIN_STAGE, Math.min(MAX_STAGE, before + effectiveDelta));
+    return { before, stage, requestedDelta: delta, effectiveDelta, applied: stage - before, inversion, blocked };
+  }
+
+  function stageDelta(fighter, stat, delta, context) {
+    return previewStageChange(fighter, stat, delta, context).applied;
   }
 
   function changeStage(fighter, stat, delta, { source, side, events } = {}) {
-    const applied = stageDelta(fighter, stat, delta);
-    const blocked = geneOrderPassives.blocksStage(fighter, stat, delta, source);
-    if (blocked) {
-      if (events) geneOrderPassives.activate(fighter, side, blocked, events, { stat, blockedDelta: delta });
-      return 0;
-    }
-    fighter.stages[stat] += applied;
-    return applied;
+    const result = previewStageChange(fighter, stat, delta, { source });
+    fighter.stages[stat] = result.stage;
+    if (events && result.inversion) geneOrderPassives.activate(fighter, side, result.inversion, events,
+      { stat, requestedDelta: delta, effectiveDelta: result.effectiveDelta, delta: result.applied, stage: result.stage });
+    if (events && result.blocked) geneOrderPassives.activate(fighter, side, result.blocked, events,
+      { stat, blockedDelta: result.effectiveDelta });
+    return result.applied;
   }
 
   const statusNumber = (value, fallback) => value == null || String(value).trim() === "" ? fallback : Number(value);
@@ -67,7 +94,7 @@ const geneOrderBattle = (() => {
   function formAppearance(fighter) {
     if (fighter.transform) return fighter.transform.appearance;
     const base=formProfile(fighter), visual=appearanceForm(fighter);
-    return visual ? {...base, imageSrc:visual.imageSrc, image:visual.image_id} : base;
+    return visual ? {...base, imageSrc:visual.imageSrc, battleImageSrc:visual.battleImageSrc, image:visual.image_id} : base;
   }
   function cloneFighter(fighter) {
     return {...fighter, statExchange: fighter.statExchange && Object.fromEntries(Object.entries(fighter.statExchange).map(([stat,entry])=>[stat,{...entry}])), stages:{...fighter.stages}, statuses:fighter.statuses.map(entry=>({...entry})),
@@ -105,7 +132,10 @@ const geneOrderBattle = (() => {
   const battleBase = fighter => fighter.transform?.base ?? formProfile(fighter);
   const battlePassive = fighter => fighter.transform ? fighter.transform.passive : fighter.passive;
   const battleSkills = fighter => battleBase(fighter).skillIds ?? [];
-  const battleAppearance = fighter => formAppearance(fighter);
+  const battleAppearance = fighter => {
+    const appearance = formAppearance(fighter);
+    return appearance.battleImageSrc ? { ...appearance, imageSrc: appearance.battleImageSrc } : appearance;
+  };
 
   function transformFailure(battle, side, move, context = {}) {
     const actor = activeFighter(battle, side), target = context.target ?? activeFighter(battle, opposingSide(side));
@@ -423,6 +453,8 @@ const geneOrderBattle = (() => {
       (statusMultiplier !== 1 && !STATS.includes(modifierTarget))) return null;
     if (effect.damage_type === "stat_stage" && STATS.includes(effect.target_stat) && Number.isInteger(value) && Math.abs(value) <= MAX_STAGE &&
       ((effect.effect_group === "buff" && value > 0) || (effect.effect_group === "debuff" && value < 0))) return "stage";
+    if (effect.effect_group === "stat_stage_invert" && effect.damage_type === "none" && value === 0 &&
+      Number(effect.turn) === 0 && effect.target_stat === "all") return "stage-invert";
     const duration = Number(effect.turn);
     const lasting = Number.isSafeInteger(duration) && duration > 0;
     if (["status", "control"].includes(effect.effect_group) && effect.damage_type === "none" && value === 0 && lasting) return "status";
@@ -596,6 +628,7 @@ const geneOrderBattle = (() => {
       if (kind) supportedParts++;
       else issues.push(id);
       if (kind === "transform" && (!["status", "attack"].includes(move.category) || target !== "enemy")) issues.push("変身効果の対象は相手のみ");
+      if (kind === "stage-invert" && !["self", "enemy"].includes(target)) issues.push("能力ランク反転の対象はselfまたはenemyです。");
       if (kind === "stat-exchange" && (move.category !== "status" || !["self", "enemy"].includes(target))) issues.push("能力交換はselfまたはenemy対象の変化技のみ");
       if (kind === "bind-damage" && target !== "enemy") issues.push("締め付けの対象は相手のみ");
     }
@@ -894,11 +927,11 @@ const geneOrderBattle = (() => {
     for (const { id, chance, target, table } of moveEffectsWithPassive(actor, move)) {
       const effect = battle.effects.get(id);
       if (table === "effects" && target === "self" && chance === 100 && effectKind(effect) === "stage") {
-        changeStage(charging, effect.target_stat, effect.damage_value);
+        changeStage(charging, effect.target_stat, effect.damage_value, { source: charging });
       }
     }
     for (const effect of geneOrderPassives.useStageEffects(charging, move)) {
-      changeStage(charging, effect.stat, effect.value);
+      changeStage(charging, effect.stat, effect.value, { source: charging });
     }
     geneOrderPassives.recordMoveUse(charging, start.priorityInfo, side, []);
     team[index] = charging;
@@ -929,7 +962,7 @@ const geneOrderBattle = (() => {
     // The approved trigger includes refresh/reapplication, not only a newly added status.
     for (const effect of geneOrderPassives.matching(recipient, "on-status-applied", effect =>
       effect.condition.statusId === "all" || effect.condition.statusId === definition.effect_id)) {
-      const delta = changeStage(recipient, effect.stat, effect.value, { source: recipient });
+      const delta = changeStage(recipient, effect.stat, effect.value, { source: recipient, side: event.side, events });
       if (delta) geneOrderPassives.activate(recipient, event.side, effect, events, { stat: effect.stat, delta });
     }
   }
@@ -1020,10 +1053,14 @@ const geneOrderBattle = (() => {
       } else if (kind === "recoil") {
         const damage = hpEffectAmount(kind, recipient, actualDamage, value);
         if (damage > 0) damageEvent(recipient,damage,event.side,events,{...event,type:"recoil"});
+      } else if (kind === "stage-invert") {
+        const projection = previewStageInversion(recipient);
+        recipient.stages = projection.fighter.stages;
+        events.push({ ...event, type: "stage-inverted", changes: projection.changes });
       } else if (kind === "clear-buff") {
         for (const stat of STATS) {
           if (recipient.stages[stat] <= 0) continue;
-          const delta = changeStage(recipient, stat, -recipient.stages[stat]);
+          const delta = setStage(recipient, stat, 0);
           events.push({ ...event, type: "stage", stat, delta, stage: recipient.stages[stat] });
         }
       } else if (kind === "bind-damage") {
@@ -1800,7 +1837,7 @@ const geneOrderBattle = (() => {
     }
   }
 
-  return { exchangeStatTargets, statExchangeSnapshot, previewStatExchange, formProfile, appearanceForm, currentFormId, cloneFighter, checkFormChange, clearForm, applyHPDamage, postMoveSwitchApplies, battleBase, battlePassive, battleSkills, battleAppearance, transformedFighter, previewTransform, transformFailure, clearTransform, legalActions, fieldEffectsForSide, installField, clearFields, START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, changeStage, stageDelta, statValue, effectiveStat, changeEnergy,
+  return { exchangeStatTargets, statExchangeSnapshot, previewStatExchange, formProfile, appearanceForm, currentFormId, cloneFighter, checkFormChange, clearForm, applyHPDamage, postMoveSwitchApplies, battleBase, battlePassive, battleSkills, battleAppearance, transformedFighter, previewTransform, transformFailure, clearTransform, legalActions, fieldEffectsForSide, installField, clearFields, START_ENERGY, MAX_ENERGY, SWITCH_PRIORITY, roundHalfDown, setStage, previewStageInversion, previewStageChange, changeStage, stageDelta, statValue, effectiveStat, changeEnergy,
     isFieldKind, fieldDestination, fieldClearable, fieldPowerMultiplier, elementResistanceMultiplier, effectivePriority, priorityDetails, currentElements, attackElementChange, moveElements, moveHasElement, moveWeaknessMultiplier, sameElementBonusForMove, calculateDamage, effectivenessFor, previewDamage, previewRelease, previewSwitch, moveEffects, moveEffectsWithPassive, decoyValues, residualDamage,
     naturalRecovery, previewTurnEndRecovery, statusStatMultiplier, actionFailureChance, effectiveEnergyCharge, effectiveMoveCost,
     guardApplies, activeTimed, effectiveSpeed, evasionRate, moveAvailability, unsupportedMoveReason, validAttackStat, effectKind, battleEffectKind, createBattle, activeFighter, switchTargets, checkAction, resolveTurn, continueSwitch };

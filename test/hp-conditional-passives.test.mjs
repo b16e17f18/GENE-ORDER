@@ -42,7 +42,7 @@ function battle({own=[],foe=[shield],move=hit,enemyBase={},playerBase={}}={}){re
 const cast=b=>go.resolveTurn(b,{player:use('attack'),enemy:wait});
 const calc=b=>go.previewDamage(b,'player',b.skills.get('attack'));
 function noShield(b){const f=active(b,'enemy');return {...b,teams:{...b.teams,enemy:[{...f,passiveEffects:[]}]}};}
-test('HP-conditioned damage type remains registered in the expanded catalog',()=>{assert.equal(types.types.size,39);assert.deepEqual([...types.issues],[]);assert.equal(types.types.get('conditional_damage_multiplier').condition_kind,'stat_condition');});
+test('HP-conditioned damage type remains registered in the expanded catalog',()=>{assert.equal(types.types.size,40);assert.deepEqual([...types.issues],[]);assert.equal(types.types.get('conditional_damage_multiplier').condition_kind,'stat_condition');});
 for(const category of ['physical','special'])for(const percent of [100,99,50])test(category+' conditional damage at HP '+percent+' percent',()=>{
  const b=battle({move:{...hit,attack_type:category}}),f=active(b,'enemy');f.hp=percent;const normal=calc(noShield(b)),result=calc(b);const expected=percent===100?Math.max(1,go.roundHalfDown(normal.afterEffectiveness*.5)):normal.damage;assert.equal(result.damage,expected);assert.equal(result.damagePassives.length,percent===100?1:0);const e=cast(b).events;assert.equal(e.find(e=>e.type==='move').actualDamage,Math.min(percent,expected));
 });

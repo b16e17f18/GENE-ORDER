@@ -1365,7 +1365,7 @@ const geneOrderAI = (() => {
       const timed = map.get(id);
       return timed && (go.activeTimed(timed, board.turn) || timed.starts > board.turn);
     };
-    const stageValue = (fighter, stat, delta) => go.stageDelta(fighter, stat, delta) * config.STAGE_WEIGHT;
+    const stageValue = (fighter, stat, delta, source = fighter) => go.stageDelta(fighter, stat, delta, { source }) * config.STAGE_WEIGHT;
     const protection = (effect, kind) => {
       const incoming = position.incoming;
       const matches = ({ move: enemyMove }) => kind === "guard" || kind === "revenge" ||
@@ -1381,7 +1381,12 @@ const geneOrderAI = (() => {
     };
 
     let score = 0;
-    let exchangeBoard = board, exchangeSnapshot;
+    let exchangeBoard = board, exchangeSnapshot, stageBoard = board;
+    const projectStages = (destination, fighter) => {
+      const team = stageBoard.teams[destination].slice();
+      team[stageBoard.active[destination]] = fighter;
+      return { ...stageBoard, teams: { ...stageBoard.teams, [destination]: team } };
+    };
     for (const { id, chance, target: destination, table } of go.moveEffectsWithPassive(actor, move)) {
       if (!(chance > 0)) continue;
       const effect = board[table].get(id);
@@ -1412,10 +1417,17 @@ const geneOrderAI = (() => {
           value = matchup(projected, side, config).score - position.score;
         } else value = -config.FIELD_VALUE;
       } else if (kind === "stage") {
-        if (self || !geneOrderPassives.blocksStage(recipient, effect.target_stat, effect.damage_value, actor)) {
-          value = stageValue(recipient, effect.target_stat, effect.damage_value) * (self ?
-            enemyAiSelfBuffTypeMultiplier(effect.target_stat, config) : -enemyAiTypeMultiplier(config, "DEBUFF_SCORE_MULTIPLIER"));
-        }
+        const source = go.activeFighter(stageBoard, side), destinationSide = self ? side : other;
+        const current = go.activeFighter(stageBoard, destinationSide);
+        const prediction = go.previewStageChange(current, effect.target_stat, effect.damage_value, { source });
+        value = prediction.applied * config.STAGE_WEIGHT * (self ?
+          enemyAiSelfBuffTypeMultiplier(effect.target_stat, config) : -enemyAiTypeMultiplier(config, "DEBUFF_SCORE_MULTIPLIER"));
+        stageBoard = projectStages(destinationSide, { ...current, stages: { ...current.stages, [effect.target_stat]: prediction.stage } });
+      } else if (kind === "stage-invert") {
+        const destinationSide = self ? side : other, current = go.activeFighter(stageBoard, destinationSide);
+        const projection = go.previewStageInversion(current), next = projectStages(destinationSide, projection.fighter);
+        value = matchup(next, side, config).score - matchup(stageBoard, side, config).score;
+        stageBoard = next;
       } else if (kind === "next-element-power") {
         value = nextPowerValue(board, side, actor, effect, config);
       } else if (kind === "recover-en") {
@@ -1499,7 +1511,11 @@ const geneOrderAI = (() => {
       } else if (kind === "field-speed" && !already(board.fields[side], id)) {
         value = (position.speed <= position.otherSpeed ? config.FIELD_VALUE : config.FIELD_VALUE / 3) * effect.damage_value * (self ? 1 : -1);
       } else if (kind === "clear-buff") {
-        value = STATS.reduce((sum, stat) => sum + Math.max(0, target.stages[stat]) * config.STAGE_WEIGHT / 2, 0);
+        const destinationSide = self ? side : other, current = go.activeFighter(stageBoard, destinationSide);
+        value = STATS.reduce((sum, stat) => sum + Math.max(0, current.stages[stat]) * config.STAGE_WEIGHT / 2, 0) * (self ? -1 : 1);
+        const cleared = { ...current, stages: { ...current.stages } };
+        for (const stat of STATS) if (cleared.stages[stat] > 0) go.setStage(cleared, stat, 0);
+        stageBoard = projectStages(destinationSide, cleared);
       } else if (kind === "decoy" || kind === "tail-purge") {
         const decoy = go.decoyValues(actor, effect);
         value = Math.min(decoy.maxHp, position.danger * config.STATUS_HORIZON) * config.DECOY_WEIGHT - decoy.cost * config.SUPPORT_RISK;
@@ -1508,7 +1524,10 @@ const geneOrderAI = (() => {
     }
 
     if (!actor.pending) for (const effect of geneOrderPassives.useStageEffects(actor, move)) {
-      score += stageValue(actor, effect.stat, effect.value);
+      const current = go.activeFighter(stageBoard, side);
+      const prediction = go.previewStageChange(current, effect.stat, effect.value, { source: current });
+      score += prediction.applied * config.STAGE_WEIGHT;
+      stageBoard = projectStages(side, { ...current, stages: { ...current.stages, [effect.stat]: prediction.stage } });
     }
     return score;
   }

@@ -38,3 +38,4 @@ conditional_priority_modifier,条件付き技優先度変更,conditional_priorit
 on_attack_element_change,攻撃後属性変化,on_attack_element_change,after-attack,used_element,integer,1,1,TRUE,TRUE,none,,攻撃技の処理後に使用した技の最大2属性へ変化する。交代・戦闘不能で元の属性に戻る。
 on_entry_field_effect,登場時フィールド発生,on_entry_field_effect,entry,field,integer,1,1,TRUE,TRUE,empty,,登場時にtarget_idのフィールドを設置する。設置先・効果量・持続はbattle_effect.csvを参照。
 form_change,条件付きフォルム変化,form_change,hp-change,form,integer,1,1,TRUE,TRUE,stat_condition,,HP減少直後に条件を満たすとtarget_idのフォルムへ変化する。条件はpassive.csvのみで管理する。
+stat_stage_change_invert,能力ランク変動反転,stat_stage_change_invert,before-stage-change,all,integer,1,1,TRUE,TRUE,empty,,自身に発生する能力ランク変動の符号を反転する。反転は1回のみ。リセット・直接設定・現在ランクの反転は対象外。

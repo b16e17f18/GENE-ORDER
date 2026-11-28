@@ -64,7 +64,22 @@ function masterIdLookup(rows, idColumn) {
 function characterImagePath(imageName) {
   const name = imageName?.trim();
   if (!name || name === "none" || /[\\/]/.test(name) || name === "." || name === "..") return "";
-  return `./asset/character/${encodeURIComponent(/\.[a-z0-9]+$/i.test(name) ? name : name + ".png")}`;
+  const folder = /\.gif$/i.test(name) ? "characterGIF" : "character";
+  return `./asset/${folder}/${encodeURIComponent(/\.[a-z0-9]+$/i.test(name) ? name : name + ".png")}`;
+}
+
+// An explicit extension selects that file. Bare image IDs prefer an animated GIF,
+// then the original PNG. Each form resolves its own image ID independently.
+function characterImageCandidates(imageName) {
+  const original = characterImagePath(imageName);
+  if (!original) return [];
+  const name = imageName.trim();
+  return /\.[a-z0-9]+$/i.test(name) ? [original] : [characterImagePath(name + ".gif"), original];
+}
+
+async function resolveCharacterImage(imageName, canLoad) {
+  for (const path of characterImageCandidates(imageName)) if (await canLoad(path)) return path;
+  return "";
 }
 
 function normalizeGoMoveAnimation(row) {

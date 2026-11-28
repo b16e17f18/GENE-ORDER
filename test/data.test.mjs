@@ -173,7 +173,7 @@ test("natural recovery reloads from character CSV and emits the actual recovered
 });
 
 test("passive type master covers the handlers, configured effects and legacy alias", () => {
-  assert.equal(go.run("state.passiveTypes.size"), 39);
+  assert.equal(go.run("state.passiveTypes.size"), 40);
   assert.equal(go.run('state.passives.size'), passiveRows.filter(row=>row.name).length);
   assert.equal(go.run('[...state.passives.values()].filter(p=>!'+JSON.stringify(pendingPassiveIds)+'.includes(p.passive_id)).every(p=>p.status==="implemented")'),true);
   assert.deepEqual(JSON.parse(go.run('JSON.stringify([...state.passives.values()].filter(p=>p.issues.length).map(p=>[p.passive_id,p.status,p.issues.map(i=>[i.field,i.value])]))')), []);
@@ -1289,3 +1289,6 @@ test('all zero-power CSV attacks are diagnosed and unavailable without special s
 
 test('random opponents preserve an explicitly selected player lead without reordering party slots',()=>{const result=JSON.parse(go.run('(()=>{const ids=["character_016","character_015","character_019"],settings=geneOrderUI.randomOpponentSettings(state,ids,()=>.4,ids[2]),m=geneOrderUI.createMatch(state,settings);return JSON.stringify({team:settings.team.player,lead:settings.lead.player,active:m.battle.teams.player[0].base.character_id,enemyLead:settings.lead.enemy,enemySlots:settings.team.enemy.map(id=>state.characterMap.get(id).slot),enemySlot:state.characterMap.get(settings.lead.enemy).slot});})()'));assert.deepEqual(result.team,['character_016','character_015','character_019']);assert.equal(result.lead,'character_019');assert.equal(result.active,result.lead);assert.equal(result.enemySlot,Math.min(...result.enemySlots));});
 test('a removed or absent player lead falls back to the first retained party member',()=>{for(const selected of ['character_015','not_in_party',undefined]){const result=JSON.parse(go.run('JSON.stringify(geneOrderUI.randomOpponentSettings(state,["character_016","character_019","character_001"],()=>.2,'+JSON.stringify(selected)+'))'));assert.equal(result.lead.player,'character_016');}});
+
+
+test("GIF is reserved for battle appearances; catalog and setup keep static PNG",()=>{assert.equal(go.run('state.characterMap.get("character_001").imageSrc'),'./asset/character/character_001.png');assert.equal(go.run('state.characterMap.get("character_001").battleImageSrc'),'./asset/characterGIF/character_001.gif');assert.equal(go.run('geneOrderBattle.battleAppearance({base:state.characterMap.get("character_001")}).imageSrc'),'./asset/characterGIF/character_001.gif');assert.equal(go.run('state.forms.get("copen_true").imageSrc'),'./asset/character/character_040_true.png');assert.equal(go.run('geneOrderBattle.battleAppearance({base:state.characterMap.get("character_040"),form:{base:state.characterMap.get("character_040"),definition:state.forms.get("copen_true")}}).imageSrc'),'./asset/character/character_040_true.png');});

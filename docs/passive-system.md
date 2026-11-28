@@ -2,7 +2,7 @@
 
 ## パッシブ種別マスタ
 
-`data/passive_type.csv` に36タイプの定義を置き、`passive.csv` の各効果を検証する。UTF-8で保存し、再読み込み後の新規戦闘に反映する。
+`data/passive_type.csv` に40タイプの定義を置き、`passive.csv` の各効果を検証する。UTF-8で保存し、再読み込み後の新規戦闘に反映する。
 
 | 列 | 内容 |
 |---|---|
@@ -185,3 +185,8 @@ on_attack_element_change / used_element / 1を追加。conditional_priority_modi
 ## フォルムチェンジ
 
 form.csvを正式マスタへ追加しました。能力プロファイル・画像参照・条件の正本・CSV空欄と0の扱い・へんしん併用は[フォルム仕様](form-system.md)を参照してください。
+
+
+## No.003・No.007 能力ランク反転
+
+現在ランクの直接反転とランク変動量反転のCSV設定、判定順序、AI・GOE・検証は [stage-inversion.md](stage-inversion.md) を参照。

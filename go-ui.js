@@ -33,7 +33,7 @@ const geneOrderUI = (() => {
     if (["switch", "replacement"].includes(event.type)) return PLAYBACK_TIMING.switch;
     if (["residual", "heal", "absorbed"].includes(event.type)) return PLAYBACK_TIMING.residual;
     if (["reflected", "revenge", "recoil", "decoy-hit"].includes(event.type)) return PLAYBACK_TIMING.damage;
-    if (event.type === "stage") return PLAYBACK_TIMING.stage;
+    if (["stage", "stage-inverted"].includes(event.type)) return PLAYBACK_TIMING.stage;
     if (["passive","form-changed","form-ended"].includes(event.type)) return PLAYBACK_TIMING.passive;
     if (["energy", "effect-energy", "en-drain", "en-modifier", "insufficient-energy"].includes(event.type)) return PLAYBACK_TIMING.energy;
     return PLAYBACK_TIMING.message;

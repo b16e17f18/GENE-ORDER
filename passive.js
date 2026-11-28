@@ -480,6 +480,8 @@ const geneOrderPassives = (() => {
     ["on_hit_inflict_status", { phase: "body-hit-status", target: (id, elements, statuses) =>
       statuses.has(id) ? { statusId: id } : null, targetKind: "status", conditionKind: "attack_type",
       condition: (raw) => ["physical", "special"].includes(raw) ? { attackType: raw } : null }],
+    ["stat_stage_change_invert", { phase: "before-stage-change", target: literalTarget("all"), targetKind: "all",
+      conditionKind: "empty", condition: raw => raw === "" ? {} : null }],
     ["debuff_immunity", { phase: "before-stage", target: (id) => {
       const ability = id === "all" ? "all" : stat(id.endsWith("_down") ? id.slice(0, -5) : id);
       return ability ? { stat: ability } : null;
